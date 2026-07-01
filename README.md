@@ -1,17 +1,24 @@
-# socratic_ai
+# Socratic AI
 
-A new Flutter project.
+苏格拉底式 AI 对话 — 一个通过追问帮你理清思路的 AI 对话 App。
 
-## Getting Started
+## 项目概述
 
-This project is a starting point for a Flutter application.
+反过来的聊天机器人：AI 追问用户，而不是用户问 AI。通过苏格拉底式追问，帮助用户理清思路、发现认知盲区。
 
-A few resources to get you started if this is your first Flutter project:
+## 技术栈
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- **前端**: Flutter 3.x + Provider
+- **端侧推理**: llama.cpp (C++) + Dart FFI → Qwen 2.5 1.5B
+- **后端**: Go + Gin + GORM + SQLite
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 快速开始
+
+```bash
+flutter pub get
+flutter run
+```
+
+## 项目状态
+
+MVP 开发中，详见 `docs/demo-plan-socratic-ai.md`
