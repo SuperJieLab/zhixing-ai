@@ -11,7 +11,7 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 /// 2. 自定义输入框是否存在
 ///
 /// ## ChangeNotifierProvider 在测试中的用法
-/// 因为 TopicSelectionPage 内部通过 context.watch<TopicProvider>()
+/// 因为 TopicSelectionPage 内部通过 `context.watch<TopicProvider>()`
 /// 获取状态，所以测试时需要用 ChangeNotifierProvider 包裹它，
 /// 提供 TopicProvider 实例。
 void main() {

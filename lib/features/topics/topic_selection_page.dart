@@ -20,7 +20,7 @@ import 'package:socratic_ai/features/chat/chat_page.dart';
 /// - 点击话题后跳转到 ChatPage
 ///
 /// ## Provider 监听
-/// 通过 context.watch<TopicProvider>() 监听选中状态。
+/// 通过 `context.watch<TopicProvider>()` 监听选中状态。
 /// watch 和 read 的区别：
 /// - watch：订阅变化，widget 会在状态变化时自动重建
 /// - read：只读一次，不会触发重建（用于 onTap 回调中）
