@@ -129,5 +129,84 @@ main.o 内部: 0x0000 → 链接后: 0x400000
 
 ---
 
-*记录时间：2026-07-01*
+## 9. Dart 的名字由来
+
+Dart（飞镖）的目标是精准打击 JavaScript 的弱点。2010 年 Google 创造 Dart 想取代浏览器里的 JS——JS 当时没有静态类型、class、模块系统，异步全靠回调。后来浏览器厂商抵制 Dart VM 进 Chrome，Google 放弃"替代 JS"路线，转向编译成 JS 输出。直到 2017 年 Flutter 出现，Dart 凭借 JIT/AOT 双模式找到了真正的主场。
+
+---
+
+## 10. Flutter 与 Dart 的关系
+
+```
+Dart 先出生（2011），Flutter 后出生（2017）
+├── 2011: Dart  → 目标替代 JS，浏览器厂商不买账，差点凉
+├── 2015: Flutter 启动（代号 Sky），最初用 JS
+└── 2017: Flutter 发布时已换成 Dart
+```
+
+Flutter 选 Dart 的五条技术理由：
+
+| 需求 | Dart 满足？ | 为什么重要 |
+|:--|:--:|:--|
+| AOT 编译 | ✅ | iOS 不能 JIT，必须预编译成 ARM64 |
+| JIT + Hot Reload | ✅ | 开发时秒级刷新 |
+| 无反射调用 | ✅ | Tree Shaking 删无用代码，APK 体积小 |
+| 不抢占 UI 线程 | ✅ | 单线程 Isolate 模型，不阻塞渲染 |
+| 语法简单 | ✅ | 类 C/Java 语法，原生开发者直接上手 |
+
+JIT/AOT 双模式是决定性因素——当时没有第二门语言同时做到。今天 Dart 和 Flutter 是两个独立的 GitHub 仓库（dart-lang/sdk 和 flutter/flutter），可以单独用 Dart 写命令行工具，但不能不用 Dart 写 Flutter。
+
+---
+
+## 11. Flutter Framework 和 Engine 各用什么语言
+
+```
+Flutter Framework (Dart)      ← Material/Cupertino/Widgets/Gesture
+Flutter Engine (C++)          ← Skia/Impeller/Dart VM/Text Layout
+原生壳 (Swift/Kotlin)          ← 平台入口，几十行代码
+```
+
+Framework 用 Dart 是因为跨平台共享 + Hot Reload。Engine 用 C++ 是因为需要直接调 Metal/Vulkan GPU API、管理纹理缓存、嵌入 Dart VM 本身——这些都不是 Dart 能做的事。Framework 和 Engine 之间通过 C 函数调用通信（不是 JSON Bridge），开销极小。
+
+---
+
+## 12. JIT Hot Reload 的底层原理
+
+```
+Cmd+S → Dart VM 检测文件变化
+    → 增量编译：只编译改动的函数（不是整个项目）
+    → V-Table 替换：新函数的地址换掉旧函数的地址
+    → 堆状态保留：所有对象在原地不动
+    → Flutter Framework 收到通知 → 重跑 build() → 局部重绘
+```
+
+关键：**逻辑变了，状态还在。** 旧 0x400100 的机器码被丢弃，新机器码写入新地址，V-Table 指针更新。`_selectedTopic` 等成员变量的值在 Heap 原位置不变。
+
+速度：改一个函数体通常 0.5-1.5 秒内完成替换和重绘。
+
+---
+
+## 13. Hot Reload 的边界：什么不能做
+
+```
+✅ Hot Reload（秒级，状态保留）        ❌ 必须 Hot Restart（状态丢失）
+改方法体                            增删 class 成员变量
+改 build() 内的 Widget 树            改构造函数参数
+改字符串常量                          改全局变量初始化值
+static 方法                          泛型类型参数变化
+```
+
+**为什么加字段不行？** 旧对象在 Heap 上有固定大小，紧挨下一个对象。新字段需要额外内存→塞不下→不能移动对象（其他代码持有指针）→只能放弃，要求 Hot Restart。
+
+| | Hot Reload | Hot Restart | 完全重启 |
+|:--|:--|:--|:--|
+| 速度 | <1s | 2-5s | 5-15s |
+| 状态保留 | ✅ | ❌ | ❌ |
+| 能处理加字段 | ❌ | ✅ | ✅ |
+
+实践建议：趁对象还没创建之前把字段补齐，开发中 90% 的情况只需 Hot Reload。
+
+---
+
+*记录时间：2026-07-01 ~ 2026-07-02*
 *参与：superjie, Senior Developer*
