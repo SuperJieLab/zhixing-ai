@@ -39,6 +39,15 @@ class TopicSelectionPage extends StatelessWidget {
         // 不需要标题文字，标题在页面 body 里
         title: null,
 
+        // 固定背景色为暖白，覆盖 M3 默认的滚动变色行为
+        backgroundColor: AppTheme.background,
+
+        // 禁用 M3 的 surfaceTintColor（默认会根据滚动叠加主题色）
+        surfaceTintColor: Colors.transparent,
+
+        // 禁用滚动时的阴影变化
+        scrolledUnderElevation: 0,
+
         // actions 是 AppBar 右侧的按钮列表
         actions: [
           // 历史记录按钮（MVP 阶段为占位图标，Day 10 实现）

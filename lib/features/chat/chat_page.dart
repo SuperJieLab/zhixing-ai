@@ -63,6 +63,10 @@ class ChatPage extends StatelessWidget {
             // AppBar：话题标题 + 轮次 + 结束对话按钮
             // =========================================================
             appBar: AppBar(
+              // 固定背景色，防止 M3 默认滚动变色
+              backgroundColor: AppTheme.background,
+              surfaceTintColor: Colors.transparent,
+              scrolledUnderElevation: 0,
               // 标题：话题名 + 轮次（竖排）
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
