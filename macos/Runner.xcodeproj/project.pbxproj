@@ -213,6 +213,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
+				A1B2C3D4E5F6789000012345 /* Copy LLM Dylibs */,
 			);
 			buildRules = (
 			);
@@ -338,6 +339,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
+		};
+		A1B2C3D4E5F6789000012345 /* Copy LLM Dylibs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy LLM Dylibs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Copy llama.cpp dylibs into the app bundle's Frameworks directory\nDYLIB_SRC=\"$SRCROOT/Runner/libs\"\nDYLIB_DST=\"$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH\"\n\nif [ -d \"$DYLIB_SRC\" ]; then\n  mkdir -p \"$DYLIB_DST\"\n  cp \"$DYLIB_SRC\"/*.dylib \"$DYLIB_DST/\" 2>/dev/null || true\n  echo \"Copied llama.cpp dylibs to $DYLIB_DST\"\nelse\n  echo \"Warning: $DYLIB_SRC not found, skipping dylib copy\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

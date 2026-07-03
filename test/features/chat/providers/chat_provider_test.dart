@@ -4,7 +4,8 @@ import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 /// ChatProvider 的单元测试
 ///
 /// ChatProvider 负责管理对话的消息列表和轮次计数。
-/// MVP 阶段使用 Mock 数据模拟 AI 回复，Day 3 会替换为真正的 LLM 推理。
+/// ## LLM 推理
+/// 通过 [LlamaService] 进行端侧推理，模型未加载时自动回退到 Mock 回复。
 ///
 /// ## 核心概念
 /// - [ChatMessage]：一条消息（谁说的、说了什么、第几轮）
@@ -34,11 +35,11 @@ void main() {
     // ============================================================
     // 测试 2：发送消息后增加用户消息和 AI 回复
     // ============================================================
-    test('发送消息后，消息列表包含用户消息和 AI 回复', () {
+    test('发送消息后，消息列表包含用户消息和 AI 回复', () async {
       final provider = ChatProvider(topic: '职业发展');
 
       // 用户发送一条消息
-      provider.sendMessage('我想转管理');
+      await provider.sendMessage('我想转管理');
 
       // 断言：消息总数为 3（欢迎 + 用户消息 + AI 回复）
       expect(provider.messages.length, 3);
@@ -54,37 +55,36 @@ void main() {
     // ============================================================
     // 测试 3：Mock 模式下，AI 瞬间回复（不需要等待）
     // ============================================================
-    test('Mock 模式下 AI 瞬间回复，isThinking 始终为 false', () {
+    test('Mock 模式下 AI 瞬间回复，isThinking 最终为 false', () async {
       final provider = ChatProvider(topic: 'test');
 
       // 初始状态：不在思考中
       expect(provider.isThinking, false);
 
       // 发送消息
-      provider.sendMessage('hello');
+      await provider.sendMessage('hello');
 
-      // Mock 模式下消息立即完成，所以还是 false
-      // 注意：Day 3 接入真实 LLM 后，这里的行为会变化
+      // 异步操作完成后 isThinking 为 false
       expect(provider.isThinking, false);
     });
 
     // ============================================================
     // 测试 4：每次 AI 回复后轮次计数增加
     // ============================================================
-    test('每轮对话后 round 计数增加', () {
+    test('每轮对话后 round 计数增加', () async {
       final provider = ChatProvider(topic: 'test');
 
       // 初始轮次：1（欢迎消息算第 1 轮）
       expect(provider.round, 1);
 
       // 用户发送第一轮回复
-      provider.sendMessage('answer 1');
+      await provider.sendMessage('answer 1');
 
       // AI 回复后，轮次变为 2
       expect(provider.round, 2);
 
       // 再发送一轮
-      provider.sendMessage('answer 2');
+      await provider.sendMessage('answer 2');
 
       // 轮次变为 3
       expect(provider.round, 3);

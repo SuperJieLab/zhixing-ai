@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
+import '../../../core/llama_service.dart';
 
 /// 一条对话消息
 ///
@@ -39,9 +43,9 @@ class ChatMessage {
 /// - 接收用户输入并生成 Mock AI 追问
 /// - 跟踪对话轮次
 ///
-/// ## Mock 回复机制（MVP）
-/// 当前使用 5 句预设的苏格拉底式追问，按顺序轮换。
-/// Day 3 将替换为连接真实 LLM（通过 dart_llama FFI）。
+/// ## LLM 推理
+/// 通过 [LlamaService]（llama.cpp FFI + Qwen 1.5B 模型）进行端侧推理。
+/// 当模型未加载时自动回退到 Mock 回复。
 ///
 /// ## ChangeNotifier 模式
 /// 继承 ChangeNotifier 后，调用 notifyListeners() 会通知
@@ -106,19 +110,18 @@ class ChatProvider extends ChangeNotifier {
   // 公共方法
   // ==============================================================
 
-  /// 用户发送一条消息
+  /// 用户发送一条消息（真实 LLM 推理版本）
   ///
   /// 处理流程：
   /// 1. 把用户消息加入消息列表
-  /// 2. 标记"思考中"
-  /// 3. 生成 Mock AI 追问（MVP）或等待 LLM 推理（Day 3）
-  /// 4. 把 AI 回复加入消息列表
-  /// 5. 轮次 +1，标记"思考结束"
-  /// 6. 通知所有监听者刷新 UI
+  /// 2. 标记"思考中"，通知 UI 显示加载动画
+  /// 3. 调用 [LlamaService] 流式获取 AI 追问
+  /// 4. 每个 token 追加到 AI 占位消息的 content 中
+  /// 5. 流结束 → 轮次 +1，标记"思考结束"
   ///
   /// [content]：用户输入的文本内容
-  void sendMessage(String content) {
-    // 步骤 1：添加用户的消息
+  Future<void> sendMessage(String content) async {
+    // 步骤 1：添加用户消息
     _messages.add(ChatMessage(
       role: 'user',
       content: content,
@@ -126,25 +129,61 @@ class ChatProvider extends ChangeNotifier {
     ));
 
     // 步骤 2：标记 AI 开始思考
-    // 注意：MVP 阶段这是瞬间的，但为了完整性保留了状态切换
     _isThinking = true;
-    notifyListeners(); // 通知 UI：「AI 在想，显示加载动画」
+    notifyListeners();
 
-    // 步骤 3 + 4：生成并添加 AI 回复
-    // Day 3 替换：这里会调用 dart_llama FFI 进行真实推理
+    // 步骤 3：添加一个空的 AI 消息占位（后续用 token 填充）
+    final aiMessageIndex = _messages.length;
     _messages.add(ChatMessage(
       role: 'ai',
-      content: _generateMockResponse(content),
+      content: '', // 从空字符串开始，逐步追加 token
       round: _round,
     ));
 
-    // 步骤 5：轮次 +1，思考结束
-    _round++;
-    _isThinking = false;
+    try {
+      final llmService = LlamaService();
 
-    // 步骤 6：通知所有监听者
-    // Widget 收到通知后会重新调用 build()，用新消息列表渲染
-    notifyListeners();
+      if (!llmService.isLoaded) {
+        // 模型未加载时，回退到 Mock 回复
+        _messages[aiMessageIndex] = ChatMessage(
+          role: 'ai',
+          content: _generateMockResponse(content),
+          round: _round,
+        );
+      } else {
+        // ── 首轮对话：注入对话开场白上下文 ──
+        // 将欢迎消息作为 assistant 消息写入 LLM 的 chat 历史
+        if (_round == 1) {
+          llmService.seedConversationContext(_messages.first.content);
+        }
+
+        // 流式获取 AI 回复
+        final buffer = StringBuffer();
+        await for (final token in llmService.generateResponse(content)) {
+          buffer.write(token);
+          // 原地更新 AI 消息内容
+          _messages[aiMessageIndex] = ChatMessage(
+            role: 'ai',
+            content: buffer.toString(),
+            round: _round,
+          );
+          notifyListeners(); // 每个 token 都刷新 UI，实现流式效果
+        }
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatProvider] LLM 推理失败: $e');
+      debugPrintStack(stackTrace: stack);
+      _messages[aiMessageIndex] = ChatMessage(
+        role: 'ai',
+        content: '抱歉，我在思考时遇到了一些问题。你能换个方式再说说吗？',
+        round: _round,
+      );
+    } finally {
+      // 步骤 5：轮次 +1，思考结束
+      _round++;
+      _isThinking = false;
+      notifyListeners();
+    }
   }
 
   // ==============================================================

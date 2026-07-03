@@ -208,5 +208,62 @@ static 方法                          泛型类型参数变化
 
 ---
 
-*记录时间：2026-07-01 ~ 2026-07-02*
+---
+
+## 14. Dart 包为何不包含原生 C++ 库
+
+**现象**：`flutter pub add llama_cpp_dart` 只安装了 Dart 胶水代码（~2MB），
+真正的 llama.cpp 引擎需要从 GitHub Releases 单独下载 `.dylib`（~10MB）。
+
+**原因**：不是保密——llama.cpp 是 MIT 开源的。根本原因是 **Dart 和 C++ 是不同的语言**，
+Dart 编译器不认识 C++ 的类型系统，C++ 编译器也不认识 Dart 的。
+它们之间只能通过 **FFI（Foreign Function Interface）+ 动态库** 来通信。
+
+| 原因 | 详情 |
+|:--|:--|
+| 语言鸿沟 | Dart 不能直接 `#include "llama.h"`——没有这个概念 |
+| 平台碎片 | macOS 要 `.dylib`，iOS 要 `.xcframework`，Android 要 `.so`——全打包 50MB+ |
+| 安全策略 | pub.dev 不允许发布预编译二进制（防恶意代码） |
+| 编译隔离 | Dart 秒级 hot reload，不受 C++ 慢编译拖累 |
+
+**为什么不源码依赖（把 C++ 放项目里一起编）**：
+- 每次 `flutter build` 要编译几十个 C++ 文件 → 5-10 分钟额外开销
+- 每个平台需要一套 CMake 编译脚本
+- Skia 引擎也是同样模式——预编译的 `Flutter.framework`，不是源码编译
+
+## 15. ABI：为什么不同语言能在同一平台上互调
+
+**核心概念**：同一平台上的所有编译产物最终都是 **ARM64 机器码 + 导出符号表**。
+CPU 不关心指令原来是 Dart 还是 C++ 写的——它只看机器码。
+
+```
+Dart 源码           Swift 源码            C++ 源码
+    │                   │                    │
+    ▼                   ▼                    ▼
+ Dart 编译器          Swift 编译器          Clang++
+    │                   │                    │
+    └───────────────────┴────────────────────┘
+                        │
+                        ▼
+              ARM64 机器码（同一个 ISA）
+                        │
+                        ▼
+                   Mach-O 二进制
+              ├── .text (代码段)
+              ├── .data (数据段)
+              └── 导出符号表  ← 统一接口！
+```
+
+**ABI（Application Binary Interface）** 定义了二进制层的统一协议：
+- 函数参数怎么传（寄存器 x0-x7 还是栈）
+- 返回值放哪个寄存器（x0）
+- 栈怎么对齐（16 字节）
+
+只要编译产物遵循同一个 ABI，任何语言之间都能互调。
+FFI 的作用就是把「Dart 的类型」翻译成「C 调用约定下的寄存器布局」，
+然后一条 `bl`（branch with link）指令跳过去执行。
+
+---
+
+*记录时间：2026-07-01 ~ 2026-07-03*
 *参与：superjie, Senior Developer*

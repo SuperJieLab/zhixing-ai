@@ -10,7 +10,30 @@ class AppConstants {
   /// 应用标语 — 一句话说明这个 App 是做什么的
   static const String appTagline = '帮你想清楚';
 
-  /// 5 个预设话题
+  // ─── LLM 模型配置 ───
+
+  /// GGUF 模型文件名
+  static const String modelFileName = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
+
+  /// 模型上下文窗口（token）
+  static const int modelContextSize = 2048;
+
+  /// GPU 层数：-1 = 全部卸载到 GPU（Metal），0 = 纯 CPU
+  static const int modelGpuLayers = -1;
+
+  /// CPU 推理线程数
+  static const int modelThreads = 4;
+
+  /// macOS 开发环境下的 libllama.dylib 路径
+  /// 生产环境请使用 [LlamaService.loadModelFromProcess]
+  static const String macosLibPath =
+      'macos/Runner/libs/libllama.dylib';
+
+  /// macOS 开发环境下的 GGUF 模型绝对路径
+  static const String macosDevModelPath =
+      'assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+
+  // ─── 预设话题 ───
   ///
   /// 用户打开 App 时看到的 5 张话题卡片。
   /// 每个话题由图标（emoji）、标题、描述组成。

@@ -1,0 +1,171 @@
+/// llama.cpp + Qwen 1.5B 端到端集成测试
+///
+/// 验证：
+/// 1. libllama.dylib 能正确加载
+/// 2. Qwen 1.5B Q4_K_M 模型能载入
+/// 3. 苏格拉底式对话能正常生成
+///
+/// 运行方式（macOS 开发环境）：
+/// ```bash
+/// cd /Users/superjie-mac/projects/socratic-ai
+/// dart run test/llama_integration_test.dart
+/// ```
+///
+/// 注意：此测试不通过 `flutter test` 运行，而是作为独立脚本。
+
+import 'dart:io';
+
+import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+
+Future<void> main() async {
+  final projectRoot = Directory.current.path;
+  final modelPath = '$projectRoot/assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+  final libPath = '$projectRoot/macos/Runner/libs/libllama.dylib';
+
+  print('╔══════════════════════════════════════════╗');
+  print('║   Socratic AI — 端侧推理集成测试         ║');
+  print('╚══════════════════════════════════════════╝');
+  print('');
+  print('项目根目录: $projectRoot');
+  print('模型路径:   $modelPath');
+  print('库路径:     $libPath');
+
+  // ── 检查文件存在 ──
+  if (!File(modelPath).existsSync()) {
+    print('\n❌ 模型文件不存在: $modelPath');
+    print('   请先下载模型: curl -L -o $modelPath \\');
+    print('     https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf');
+    exit(1);
+  }
+
+  if (!File(libPath).existsSync()) {
+    print('\n❌ libllama.dylib 不存在: $libPath');
+    exit(1);
+  }
+
+  final modelSize = File(modelPath).lengthSync() / (1024 * 1024);
+  print('模型大小:   ${modelSize.toStringAsFixed(0)} MB');
+
+  // ── 加载引擎 ──
+  print('\n⏳ 正在加载 llama.cpp 引擎...');
+  final stopwatch = Stopwatch()..start();
+
+  late LlamaEngine engine;
+  try {
+    engine = await LlamaEngine.spawn(
+      libraryPath: libPath,
+      modelParams: ModelParams(
+        path: modelPath,
+        gpuLayers: -1, // 全部使用 Metal GPU
+      ),
+      contextParams: ContextParams(
+        nCtx: 2048,
+        nThreads: 4,
+        typeK: KvCacheType.q8_0,
+        typeV: KvCacheType.q8_0,
+      ),
+    );
+    stopwatch.stop();
+    print('✅ 引擎加载成功（${stopwatch.elapsedMilliseconds}ms）');
+
+    // 硬件信息
+    if (engine.hasAccelerator) {
+      print('   加速器: ${engine.primaryAcceleratorName}');
+    }
+    for (final d in engine.devices) {
+      print('   设备:   ${d.name} (${d.type.name})');
+    }
+  } catch (e, stack) {
+    print('❌ 引擎加载失败: $e');
+    print(stack);
+    exit(1);
+  }
+
+  // ── 创建对话 ──
+  print('\n⏳ 创建苏格拉底式对话...');
+  final chat = await engine.createChat();
+  chat.addSystem(
+    '你是一位苏格拉底式教练。通过提问帮助用户深入思考，'
+    '每次只问一个核心问题，回复控制在150字以内，使用中文。',
+  );
+  print('✅ 对话创建成功');
+
+  // ── 测试推理 ──
+  final testPrompt = '我最近在考虑要不要换工作，但很纠结。';
+  print('\n💬 用户: $testPrompt');
+  stdout.write('🤖 AI:   ');
+
+  chat.addUser(testPrompt);
+  final genStopwatch = Stopwatch()..start();
+  int tokenCount = 0;
+
+  try {
+    await for (final event in chat.generate(
+      sampler: const SamplerParams(
+        temperature: 0.7,
+        topP: 0.9,
+      ),
+      maxTokens: 200,
+    )) {
+      if (event is TokenEvent) {
+        stdout.write(event.text);
+        tokenCount++;
+      } else if (event is DoneEvent) {
+        genStopwatch.stop();
+        final elapsed = genStopwatch.elapsedMilliseconds;
+        final tps = tokenCount / (elapsed / 1000);
+        print('\n\n✅ 推理完成');
+        print('   生成 token: $tokenCount');
+        print('   耗时:       ${elapsed}ms');
+        print('   速度:       ${tps.toStringAsFixed(1)} tok/s');
+      }
+    }
+  } catch (e, stack) {
+    print('\n❌ 推理失败: $e');
+    print(stack);
+    exit(1);
+  }
+
+  // ── 多轮对话测试 ──
+  print('\n🔄 第二轮对话测试...');
+  const secondPrompt = '我担心换了之后发现还不如现在。';
+  print('💬 用户: $secondPrompt');
+  stdout.write('🤖 AI:   ');
+
+  chat.addUser(secondPrompt);
+  final round2Stopwatch = Stopwatch()..start();
+  int round2Tokens = 0;
+
+  try {
+    await for (final event in chat.generate(
+      sampler: const SamplerParams(
+        temperature: 0.7,
+        topP: 0.9,
+      ),
+      maxTokens: 200,
+    )) {
+      if (event is TokenEvent) {
+        stdout.write(event.text);
+        round2Tokens++;
+      } else if (event is DoneEvent) {
+        round2Stopwatch.stop();
+        final elapsed = round2Stopwatch.elapsedMilliseconds;
+        final tps = round2Tokens / (elapsed / 1000);
+        print('\n\n✅ 第二轮完成');
+        print('   生成 token: $round2Tokens');
+        print('   耗时:       ${elapsed}ms');
+        print('   速度:       ${tps.toStringAsFixed(1)} tok/s');
+      }
+    }
+  } catch (e, stack) {
+    print('\n❌ 第二轮推理失败: $e');
+    print(stack);
+  }
+
+  // ── 清理 ──
+  print('\n🧹 清理资源...');
+  engine.dispose();
+  print('✅ 集成测试全部通过！');
+
+  exit(0);
+}
