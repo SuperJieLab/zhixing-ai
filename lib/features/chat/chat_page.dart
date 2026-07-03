@@ -66,9 +66,9 @@ class _ChatPageState extends State<ChatPage> {
       final bundleContents = executable.parent.parent; // MacOS → Contents
       final libPath = '${bundleContents.path}/Frameworks/libllama.dylib';
 
-      // ── 模型路径：开发阶段仍是项目目录的绝对路径（1GB 太大，不打包） ──
+      // ── 模型路径：开发阶段仍是项目目录的绝对路径（模型太大，不打包） ──
       const modelPath =
-          '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+          '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen3.5-2b-q4_k_m.gguf';
 
       await service.loadModel(
         modelPath: modelPath,

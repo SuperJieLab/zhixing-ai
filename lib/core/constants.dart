@@ -12,8 +12,8 @@ class AppConstants {
 
   // ─── LLM 模型配置 ───
 
-  /// GGUF 模型文件名
-  static const String modelFileName = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
+  /// GGUF 模型文件名（当前使用 Qwen3.5-2B）
+  static const String modelFileName = 'qwen3.5-2b-q4_k_m.gguf';
 
   /// 模型上下文窗口（token）
   static const int modelContextSize = 2048;
@@ -31,7 +31,7 @@ class AppConstants {
 
   /// macOS 开发环境下的 GGUF 模型绝对路径
   static const String macosDevModelPath =
-      'assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+      'assets/models/qwen3.5-2b-q4_k_m.gguf';
 
   // ─── 预设话题 ───
   ///
