@@ -8,16 +8,20 @@ const _dimensions = ['原因', '假设', '影响', '对比', '行动'];
 ///
 /// 追问维度由 Dart 端硬编码轮换，去重也在 Dart 端完成。
 /// 开场白通过 addAssistant 注入 chat 历史。
+///
+/// 针对 Qwen3.5-2B：明确指示不输出思考过程。
 const _socraticSystemPrompt = '''
 你是一位苏格拉底式教练。你的任务是只通过提问帮助用户深入思考，不给建议、不做评判。
+
+**重要：直接输出追问问题，不要输出思考过程、不要输出推理步骤。**
 
 用户消息中包含追问维度标记，你只需要基于标记的维度追问一个问题：
 
 ## 示例
-用户："追问维度：【原因】\n我觉得换工作是因为现在太累了"
+用户："追问维度：【原因】\\n我觉得换工作是因为现在太累了"
 你："累的背后是什么——是工作内容本身，还是节奏问题，还是成长空间不够？"
 
-用户："追问维度：【行动】\n我想开始学一门新技术"
+用户："追问维度：【行动】\\n我想开始学一门新技术"
 你："具体从哪一步开始？每天能拿出多少时间来？"
 
 ## 追问维度
@@ -31,7 +35,8 @@ const _socraticSystemPrompt = '''
 1. 先简要回应用户的观点，再提一个开放性问题
 2. 问题控制在 150 字以内，用中文
 3. 不要给建议，不要一次问多个问题
-4. 不要重复之前问过的内容''';
+4. 不要重复之前问过的内容
+5. 不要输出思考过程：不输出 think 标签，不输出推理步骤''';
 
 /// LlamaService — 端侧 LLM 推理服务单例
 ///
@@ -39,10 +44,14 @@ const _socraticSystemPrompt = '''
 /// 简洁的 stream API，供 [ChatProvider] 直接消费。
 ///
 /// ## 追问维度轮换（防重复机制）
-/// 小模型（1.5B）无法自主执行"抽象指令"，必须在 Dart 端硬编码：
+/// 小模型无法自主执行"抽象指令"，必须在 Dart 端硬编码：
 /// - 每轮根据 `_roundIndex % 5` 选择追问维度
 /// - 维度直接注入用户消息（"追问维度：【XX】"）
 /// - 生成完整文本后检测重复（关键词相似度 > 60%），重复则切换维度重试
+///
+/// ## Qwen3.5 think 标签处理
+/// Qwen3.5 的 chat template 偶尔会输出思考过程标签，
+/// `_stripThinkingTags()` 在生成完成后剥离所有 think 标签及内容。
 ///
 /// 使用方式：
 /// ```dart
@@ -101,16 +110,40 @@ class LlamaService {
 
   String _getCurrentDimension() => _dimensions[_roundIndex % _dimensions.length];
 
-  /// 去除 Qwen3.5 的 `<think>` 推理内容，只保留最终回复。
+  /// 去除 Qwen3.5 的 think 标签及推理内容，只保留最终回复。
   ///
-  /// Qwen3.5 即使默认关闭 thinking，chat template 有时仍会输出
-  /// `<think>推理过程</think>\\n\\n实际回复`。此方法检测并剥离。
+  /// 处理多种可能的标签变体：
+  /// 1) 有闭合标签 `</think>` 或 `</思考>` → 取其后内容
+  /// 2) 整个回复都在 think 标签内（无闭合标签）→ 返回空字符串
+  /// 3) 无 think 标签 → 原样返回
   String _stripThinkingTags(String text) {
-    // 找最后一个 `</think>`，取其后的内容
-    final thinkEnd = text.lastIndexOf('</think>');
-    if (thinkEnd == -1) return text.trim();
-    final after = text.substring(thinkEnd + 8).trim();
-    return after.isEmpty ? text.trim() : after;
+    final trimmed = text.trim();
+
+    // 用字符串匹配找闭合标签，取其后内容
+    // 例如 "<think>推理</think>\n\n实际回复" → "实际回复"
+    final closeIdx1 = trimmed.indexOf('</think>');
+    final closeIdx2 = trimmed.indexOf('</思考>');
+    final closeIdx = _minIdx(closeIdx1, closeIdx2);
+    if (closeIdx != -1) {
+      // 取闭合标签之后的内容
+      final tagLen = closeIdx == closeIdx1 ? 8 : 6; // </think>=8, </思考>=6
+      final after = trimmed.substring(closeIdx + tagLen).trim();
+      if (after.isNotEmpty) return after;
+    }
+
+    // 如果整个回复以 think 标签开头但没有闭合 → 全是推理内容
+    if (trimmed.startsWith('<think>') || trimmed.startsWith('<思考>')) {
+      return '';
+    }
+
+    return trimmed;
+  }
+
+  /// 返回两个 index 中最小的非 -1 值，若都是 -1 则返回 -1
+  static int _minIdx(int a, int b) {
+    if (a == -1) return b;
+    if (b == -1) return a;
+    return a < b ? a : b;
   }
 
   /// 计算两个问题的关键词相似度（简单去重检测）
@@ -194,7 +227,7 @@ class LlamaService {
       _chat!.addSystem(_socraticSystemPrompt);
 
       _isLoaded = true;
-      debugPrint('[LlamaService] 模型加载完成 ✅');
+      debugPrint('[LlamaService] 模型加载完成');
     } catch (e, stack) {
       debugPrint('[LlamaService] 加载失败: $e');
       debugPrintStack(stackTrace: stack);
@@ -236,7 +269,7 @@ class LlamaService {
       _chat!.addSystem(_socraticSystemPrompt);
 
       _isLoaded = true;
-      debugPrint('[LlamaService] 模型加载完成 ✅（进程内符号）');
+      debugPrint('[LlamaService] 模型加载完成（进程内符号）');
     } catch (e, stack) {
       debugPrint('[LlamaService] 加载失败: $e');
       debugPrintStack(stackTrace: stack);
@@ -257,9 +290,10 @@ class LlamaService {
   /// 流程：
   /// 1. 根据轮次选择追问维度，注入用户消息
   /// 2. 预生成完整回复（内部流式）
-  /// 3. 检测是否重复，如重复则切换维度重试（最多 3 次）
-  /// 4. 通过后逐字 yield，模拟流式效果
-  /// 5. 轮次 +1
+  /// 3. 剥离 think 标签内容
+  /// 4. 检测是否重复，如重复则切换维度重试（最多 3 次）
+  /// 5. 通过后逐字 yield，模拟流式效果
+  /// 6. 轮次 +1
   Stream<String> generateResponse(String userMessage) async* {
     if (_chat == null) {
       yield '[错误：模型未加载，请先调用 loadModel]';
@@ -303,7 +337,15 @@ class LlamaService {
         return;
       }
 
-      final fullReply = _stripThinkingTags(buffer.toString().trim());
+      final fullReply = _stripThinkingTags(buffer.toString());
+
+      // 如果剥离后为空，重试
+      if (fullReply.isEmpty && attempt < 2) {
+        debugPrint('[LlamaService] 模型仅输出 think 内容，重试 (attempt=$attempt)');
+        _roundIndex++;
+        dimension = _getCurrentDimension();
+        continue;
+      }
 
       // 检测重复（第 1 轮开始检测）
       if (attempt < 2 && _isDuplicateQuestion(fullReply)) {
@@ -319,7 +361,7 @@ class LlamaService {
 
     _roundIndex++;
 
-    if (finalReply != null) {
+    if (finalReply != null && finalReply.isNotEmpty) {
       _addToHistory(finalReply);
       // 逐字 yield，模拟流式效果（每字约 8ms，约 125 字/秒）
       for (int i = 0; i < finalReply.length; i++) {
