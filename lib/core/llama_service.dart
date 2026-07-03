@@ -101,6 +101,18 @@ class LlamaService {
 
   String _getCurrentDimension() => _dimensions[_roundIndex % _dimensions.length];
 
+  /// 去除 Qwen3.5 的 `<think>` 推理内容，只保留最终回复。
+  ///
+  /// Qwen3.5 即使默认关闭 thinking，chat template 有时仍会输出
+  /// `<think>推理过程</think>\\n\\n实际回复`。此方法检测并剥离。
+  String _stripThinkingTags(String text) {
+    // 找最后一个 `</think>`，取其后的内容
+    final thinkEnd = text.lastIndexOf('</think>');
+    if (thinkEnd == -1) return text.trim();
+    final after = text.substring(thinkEnd + 8).trim();
+    return after.isEmpty ? text.trim() : after;
+  }
+
   /// 计算两个问题的关键词相似度（简单去重检测）
   double _questionSimilarity(String a, String b) {
     // 提取中文关键词（去除标点和虚词）
@@ -291,7 +303,7 @@ class LlamaService {
         return;
       }
 
-      final fullReply = buffer.toString().trim();
+      final fullReply = _stripThinkingTags(buffer.toString().trim());
 
       // 检测重复（第 1 轮开始检测）
       if (attempt < 2 && _isDuplicateQuestion(fullReply)) {
