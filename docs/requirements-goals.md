@@ -91,9 +91,9 @@ lib/
 **目标**：iOS 真机上 Dart → C++ (llama.cpp) → CoreML 链路完整跑通。
 
 **产出物**：
-- `dart_llama` 包集成
-- 模型文件（Qwen 2.5 1.5B Q4_K_M GGUF）放入 App 沙盒
-- Dart 侧 `LlamaInferenceService` 封装类
+- `llama_cpp_dart` 包集成（实际采用，替代原计划的 `dart_llama`）
+- 模型文件（Qwen3.5-2B Q4_K_M GGUF）放入 `assets/models/`
+- Dart 侧 `LlamaService` 单例封装
 - 一次硬编码 Prompt 的测试推理
 
 **验收标准**：
