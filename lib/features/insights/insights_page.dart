@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/theme.dart';
+import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
+import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
+import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
+import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
@@ -13,10 +17,7 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 /// - Stagger 入场动画
 /// - 「开始新对话」和「查看思维图谱」按钮
 class InsightsPage extends StatefulWidget {
-  /// 已解析的对话洞察结果
   final InsightResult insight;
-
-  /// 对话话题
   final String topic;
 
   const InsightsPage({
@@ -94,9 +95,9 @@ class _InsightsPageState extends State<InsightsPage>
           _buildSectionTitle('核心洞察'),
           const SizedBox(height: 12),
           ...insight.coreInsights.asMap().entries.map(
-                (e) => _StaggeredItem(
+                (e) => StaggeredItem(
                   index: e.key,
-                  child: _InsightCard(index: e.key + 1, text: e.value),
+                  child: InsightCard(index: e.key + 1, text: e.value),
                 ),
               ),
         ],
@@ -104,9 +105,9 @@ class _InsightsPageState extends State<InsightsPage>
           const SizedBox(height: 28),
           _buildSectionTitle('底层价值观'),
           const SizedBox(height: 12),
-          _StaggeredItem(
+          StaggeredItem(
             index: insight.coreInsights.length,
-            child: _ValueTags(values: insight.underlyingValues),
+            child: ValueTags(values: insight.underlyingValues),
           ),
         ],
         if (insight.contradictionsFound.isNotEmpty) ...[
@@ -114,9 +115,9 @@ class _InsightsPageState extends State<InsightsPage>
           _buildSectionTitle('认知矛盾'),
           const SizedBox(height: 12),
           ...insight.contradictionsFound.asMap().entries.map(
-                (e) => _StaggeredItem(
+                (e) => StaggeredItem(
                   index: insight.coreInsights.length + 1 + e.key,
-                  child: _ContradictionCard(text: e.value),
+                  child: ContradictionCard(text: e.value),
                 ),
               ),
         ],
@@ -254,212 +255,6 @@ class _InsightsPageState extends State<InsightsPage>
       context,
       MaterialPageRoute(builder: (_) => const TopicSelectionPage()),
       (route) => false,
-    );
-  }
-}
-
-// ================================================================
-// 核心洞察卡片
-// ================================================================
-
-class _InsightCard extends StatelessWidget {
-  final int index;
-  final String text;
-
-  const _InsightCard({required this.index, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE8E4DF)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 26,
-              height: 26,
-              decoration: const BoxDecoration(
-                color: AppTheme.primary,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                '$index',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: AppTheme.textPrimary,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ================================================================
-// 价值观标签云
-// ================================================================
-
-class _ValueTags extends StatelessWidget {
-  final List<String> values;
-
-  const _ValueTags({required this.values});
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: values.map((v) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE0D9D1)),
-          ),
-          child: Text(
-            v,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppTheme.secondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-// ================================================================
-// 认知矛盾卡片
-// ================================================================
-
-class _ContradictionCard extends StatelessWidget {
-  final String text;
-
-  const _ContradictionCard({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF8F0),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE8C89E)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 2),
-              child: Text('⚡', style: TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textPrimary,
-                  height: 1.5,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ================================================================
-// Stagger 入场动画包装器
-// ================================================================
-
-class _StaggeredItem extends StatefulWidget {
-  final int index;
-  final Widget child;
-
-  const _StaggeredItem({required this.index, required this.child});
-
-  @override
-  State<_StaggeredItem> createState() => _StaggeredItemState();
-}
-
-class _StaggeredItemState extends State<_StaggeredItem>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _fadeAnim;
-  late final Animation<Offset> _slideAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
-    _fadeAnim = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.15),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    ));
-
-    // Stagger delay：每个 item 延迟 120ms
-    Future.delayed(Duration(milliseconds: 120 * widget.index), () {
-      if (mounted) _controller.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _fadeAnim,
-      child: SlideTransition(
-        position: _slideAnim,
-        child: widget.child,
-      ),
     );
   }
 }
