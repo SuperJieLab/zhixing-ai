@@ -91,6 +91,9 @@ class SocraticPrompter implements DialogueEngine {
   @override
   bool get isReady => _llm.isLoaded;
 
+  /// 底层 LLM 服务（供 InsightService 创建独立 chat 实例）
+  LlamaService get llmService => _llm;
+
   @override
   Future<bool> initialize() async {
     if (!_llm.isLoaded) return false;

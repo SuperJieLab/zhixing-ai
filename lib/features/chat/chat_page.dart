@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/constants.dart';
+import 'package:socratic_ai/core/engine/insight_service.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/engine/socratic_prompter.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
@@ -89,19 +90,60 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _endConversation(BuildContext context, ChatProvider chatProvider) {
-    // Day 4 将替换为真实的 LLM 洞察总结
-    final stubInsight = InsightResult(
-      coreInsights: const ['洞察总结功能 Day 4 上线'],
-      underlyingValues: const [],
-      contradictionsFound: const [],
+  Future<void> _endConversation(BuildContext context, ChatProvider chatProvider) async {
+    // 显示 loading 弹窗
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppTheme.primary),
+                  SizedBox(height: 16),
+                  Text(
+                    '正在生成洞察总结...',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
 
+    // 调用 InsightService 生成洞察
+    InsightResult insight;
+    try {
+      final service = InsightService(_engine!.llmService);
+      insight = await service.analyze(
+        widget.topic,
+        chatProvider.messages,
+      );
+    } catch (e) {
+      debugPrint('[ChatPage] 洞察生成失败: $e');
+      insight = const InsightResult(
+        coreInsights: ['对话分析完成'],
+        underlyingValues: [],
+        contradictionsFound: [],
+      );
+    }
+
+    // 关闭 loading 弹窗，跳转到洞察页
+    if (!context.mounted) return;
+    Navigator.pop(context); // 关闭 loading
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => InsightsPage(
-          insight: stubInsight,
+          insight: insight,
           topic: widget.topic,
         ),
       ),

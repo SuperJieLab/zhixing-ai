@@ -34,6 +34,9 @@ class LlamaService {
   /// 当前设备的硬件加速器名称（Metal / Hexagon / null = CPU）
   String? get acceleratorName => _engine?.primaryAcceleratorName;
 
+  /// 底层推理引擎（供 InsightService 等外部组件创建独立 chat 实例）
+  LlamaEngine? get engine => _engine;
+
   // ================================================================
   // 模型加载
   // ================================================================
