@@ -121,16 +121,25 @@ class _ChatPageState extends State<ChatPage> {
 
     // 调用 InsightService 生成洞察
     InsightResult insight;
-    try {
-      final service = InsightService(_engine!.llmService);
-      insight = await service.analyze(
-        widget.topic,
-        chatProvider.messages,
-      );
-    } catch (e) {
-      debugPrint('[ChatPage] 洞察生成失败: $e');
+    if (_engine != null) {
+      try {
+        final service = InsightService(_engine!.llmService);
+        insight = await service.analyze(
+          widget.topic,
+          chatProvider.messages,
+        );
+      } catch (e) {
+        debugPrint('[ChatPage] 洞察生成失败: $e');
+        insight = const InsightResult(
+          coreInsights: ['对话分析完成'],
+          underlyingValues: [],
+          contradictionsFound: [],
+        );
+      }
+    } else {
+      // 模型未加载，跳过 LLM 分析
       insight = const InsightResult(
-        coreInsights: ['对话分析完成'],
+        coreInsights: [],
         underlyingValues: [],
         contradictionsFound: [],
       );
