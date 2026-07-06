@@ -1,0 +1,144 @@
+import 'dart:convert';
+
+import 'chat_models.dart';
+
+/// 一次对话会话的持久化模型
+///
+/// 对应 sqflite 中的 conversations 表。
+/// messages 和 insight 以 JSON 列存储。
+class Conversation {
+  final int? id; // null 表示未入库
+  final String topic; // 话题标题
+  final String status; // 'active' / 'completed'
+  final bool isFavorite;
+  final List<ChatMessage> messages;
+  final InsightResult? insight;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const Conversation({
+    this.id,
+    required this.topic,
+    this.status = 'active',
+    this.isFavorite = false,
+    this.messages = const [],
+    this.insight,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// 消息轮数（不含欢迎消息，用户消息数）
+  int get totalRounds {
+    return messages.where((m) => m.role == MessageRole.user).length;
+  }
+
+  /// 是否有洞察总结
+  bool get hasInsight => insight != null;
+
+  // ================================================================
+  // 序列化
+  // ================================================================
+
+  /// 从 sqflite row Map 创建
+  factory Conversation.fromMap(Map<String, dynamic> map) {
+    return Conversation(
+      id: map['id'] as int?,
+      topic: map['topic'] as String,
+      status: map['status'] as String? ?? 'active',
+      isFavorite: (map['is_favorite'] as int?) == 1,
+      messages: _parseMessages(map['messages_json'] as String?),
+      insight: _parseInsight(map['insight_json'] as String?),
+      createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: DateTime.parse(map['updated_at'] as String),
+    );
+  }
+
+  /// 转换为 sqflite row Map
+  Map<String, dynamic> toMap() {
+    return {
+      if (id != null) 'id': id,
+      'topic': topic,
+      'status': status,
+      'is_favorite': isFavorite ? 1 : 0,
+      'messages_json': _messagesToJson(messages),
+      'insight_json': _insightToJson(insight),
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
+  /// 创建一个副本并更新字段（不可变模式）
+  Conversation copyWith({
+    int? id,
+    String? topic,
+    String? status,
+    bool? isFavorite,
+    List<ChatMessage>? messages,
+    InsightResult? insight,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return Conversation(
+      id: id ?? this.id,
+      topic: topic ?? this.topic,
+      status: status ?? this.status,
+      isFavorite: isFavorite ?? this.isFavorite,
+      messages: messages ?? this.messages,
+      insight: insight ?? this.insight,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  // ================================================================
+  // 私有
+  // ================================================================
+
+  static List<ChatMessage> _parseMessages(String? json) {
+    if (json == null || json.isEmpty) return [];
+    final list = jsonDecode(json) as List;
+    return list
+        .map((e) => ChatMessage(
+              role: MessageRole.values.firstWhere(
+                (r) => r.name == (e['role'] as String),
+              ),
+              content: e['content'] as String,
+              round: e['round'] as int,
+            ))
+        .toList();
+  }
+
+  static InsightResult? _parseInsight(String? json) {
+    if (json == null || json.isEmpty) return null;
+    final map = jsonDecode(json) as Map<String, dynamic>;
+    return InsightResult(
+      coreInsights: List<String>.from(map['core_insights'] ?? []),
+      underlyingValues: List<String>.from(map['underlying_values'] ?? []),
+      contradictionsFound:
+          List<String>.from(map['contradictions_found'] ?? []),
+      nextTopicSuggestion: map['next_topic_suggestion'] as String?,
+    );
+  }
+
+  static String _messagesToJson(List<ChatMessage> messages) {
+    return jsonEncode(
+      messages
+          .map((m) => {
+                'role': m.role.name,
+                'content': m.content,
+                'round': m.round,
+              })
+          .toList(),
+    );
+  }
+
+  static String? _insightToJson(InsightResult? insight) {
+    if (insight == null) return null;
+    return jsonEncode({
+      'core_insights': insight.coreInsights,
+      'underlying_values': insight.underlyingValues,
+      'contradictions_found': insight.contradictionsFound,
+      'next_topic_suggestion': insight.nextTopicSuggestion,
+    });
+  }
+}

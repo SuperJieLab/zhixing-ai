@@ -1,91 +1,139 @@
-import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/constants.dart';
 import '../../../core/engine/dialogue_engine.dart';
+import '../../../core/engine/llama_service.dart';
 import '../../../core/models/chat_models.dart';
+import '../../insights/engine/insight_service.dart';
+import '../engine/socratic_prompter.dart';
 
 /// 对话状态管理
 ///
-/// 负责管理整个苏格拉底式对话的生命周期：
-/// - 生成与话题匹配的欢迎消息（AI 主动开口）
-/// - 接收用户输入并生成 AI 追问
-/// - 跟踪对话轮次
+/// 负责整个苏格拉底式对话的完整生命周期：
+/// - 加载 LLM 模型（loadModel）
+/// - 生成欢迎消息 + 接收用户输入 + 生成 AI 追问（sendMessage）
+/// - 结束对话并生成洞察总结（endConversation）
 ///
-/// ## 依赖倒置
-/// 通过 [DialogueEngine] 接口解耦：
-/// - 注入 [SocraticPrompter] → 端侧 LLM 推理
-/// - 注入 Mock 引擎 → 单元测试
-/// - 未注入时 → 内置 Mock 回复兜底
+/// ## 分层
+/// ChatPage 只通过 ChatProvider 交互，不直接接触 LlamaService / SocraticPrompter / InsightService。
 ///
 /// ## ChangeNotifier 模式
-/// 继承 ChangeNotifier 后，调用 notifyListeners() 会通知
-/// 所有监听者（Widget）刷新 UI。
+/// 调用 notifyListeners() 通知所有监听者（Widget）刷新 UI。
 class ChatProvider extends ChangeNotifier {
   /// 对话话题标题
   final String topic;
 
-  /// 对话引擎（可选注入，未注入时使用内置 Mock）
-  final DialogueEngine? _engine;
+  /// 消息变更回调（由 ChatPage 注入持久化写入逻辑）
+  final VoidCallback? _onMessagesChanged;
 
-  /// 当前对话轮次
-  ///
-  /// 欢迎消息为轮次 0（序言），首轮用户消息从 1 开始。
+  // ================================================================
+  // 引擎状态
+  // ================================================================
+
+  DialogueEngine? _engine;
+  bool _isModelLoading = false;
+  String? _modelError;
+
+  /// 模型是否已就绪
+  bool get isModelReady => _engine != null && _engine!.isReady;
+
+  /// 模型是否加载中
+  bool get isModelLoading => _isModelLoading;
+
+  /// 模型加载错误信息
+  String? get modelError => _modelError;
+
+  // ================================================================
+  // 对话状态
+  // ================================================================
+
   int _round = 1;
-
-  /// 是否正在等待 AI 回复
   bool _isThinking = false;
-
-  /// 对话消息列表（内部存储）
   final List<ChatMessage> _messages = [];
 
-  /// 构造函数
-  ///
-  /// [engine] 可选注入对话引擎（生产环境传入 [SocraticPrompter]）。
-  /// 未注入时，sendMessage 自动回退到内置 Mock 回复。
-  // ignore: prefer_initializing_formals — _engine is private, can't use this._engine
-  ChatProvider({required this.topic, DialogueEngine? engine}) : _engine = engine {
+  List<ChatMessage> get messages => List.unmodifiable(_messages);
+  int get round => _round;
+  bool get isThinking => _isThinking;
+
+  // ================================================================
+  // 生命周期
+  // ================================================================
+
+  ChatProvider({
+    required this.topic,
+    VoidCallback? onMessagesChanged,
+  }) : _onMessagesChanged = onMessagesChanged {
     _addWelcomeMessage();
   }
 
-  // ==============================================================
-  // Getters（外部只读访问）
-  // ==============================================================
+  @override
+  void dispose() {
+    if (_engine is SocraticPrompter) {
+      (_engine as SocraticPrompter).dispose();
+    }
+    super.dispose();
+  }
 
-  /// 获取所有消息的不可变列表
-  List<ChatMessage> get messages => List.unmodifiable(_messages);
+  // ================================================================
+  // 引擎初始化
+  // ================================================================
 
-  /// 获取当前对话轮次
-  int get round => _round;
+  /// 加载 LLM 模型（异步，通知 UI 加载状态）
+  ///
+  /// 加载成功后 _engine 就绪，sendMessage 使用 LLM 推理。
+  /// 加载失败后 _engine 保持 null，sendMessage 回退 Mock。
+  Future<void> loadModel() async {
+    _isModelLoading = true;
+    notifyListeners();
 
-  /// 获取 AI 是否正在「思考」（等待回复生成）
-  bool get isThinking => _isThinking;
+    try {
+      // ── dylib 路径：从 App Bundle 内部加载 ──
+      final executable = File(Platform.resolvedExecutable);
+      final bundleContents = executable.parent.parent; // MacOS → Contents
+      final libPath = '${bundleContents.path}/Frameworks/libllama.dylib';
 
-  // ==============================================================
-  // 公共方法
-  // ==============================================================
+      // ── 模型路径：开发阶段用绝对路径 ──
+      // Day 9 模型自动下载到沙盒后将替换此逻辑
+      final modelPath = AppConstants.macosDevModelAbsolutePath;
+
+      final llm = LlamaService();
+      await llm.loadModel(
+        modelPath: modelPath,
+        libraryPath: libPath,
+        contextSize: AppConstants.modelContextSize,
+        gpuLayers: AppConstants.modelGpuLayers,
+        threads: AppConstants.modelThreads,
+      );
+
+      final engine = SocraticPrompter(llm);
+      await engine.initialize();
+      _engine = engine;
+    } catch (e) {
+      debugPrint('[ChatProvider] 模型加载失败，将使用 Mock 回复: $e');
+      _modelError = e.toString();
+    } finally {
+      _isModelLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ================================================================
+  // 对话
+  // ================================================================
 
   /// 用户发送一条消息
-  ///
-  /// 处理流程：
-  /// 1. 把用户消息加入消息列表
-  /// 2. 标记"思考中"，通知 UI 显示加载动画
-  /// 3. 调用 [DialogueEngine] 流式获取 AI 追问（未注入则 Mock）
-  /// 4. 每个 token 追加到 AI 占位消息的 content 中
-  /// 5. 流结束 → 轮次 +1，标记"思考结束"
   Future<void> sendMessage(String content) async {
-    // 步骤 1：添加用户消息
     _messages.add(ChatMessage(
       role: MessageRole.user,
       content: content,
       round: _round,
     ));
 
-    // 步骤 2：标记 AI 开始思考
     _isThinking = true;
     notifyListeners();
 
-    // 步骤 3：添加一个空的 AI 消息占位（后续用 token 填充）
     final aiMessageIndex = _messages.length;
     _messages.add(ChatMessage(
       role: MessageRole.ai,
@@ -97,19 +145,16 @@ class ChatProvider extends ChangeNotifier {
       final engine = _engine;
 
       if (engine == null || !engine.isReady) {
-        // 引擎未注入或未就绪 → Mock 回退
         _messages[aiMessageIndex] = ChatMessage(
           role: MessageRole.ai,
           content: _generateMockResponse(),
           round: _round,
         );
       } else {
-        // ── 首轮对话：注入对话开场白上下文 ──
         if (_round == 1) {
           engine.seedContext(_messages.first.content);
         }
 
-        // 流式获取 AI 回复
         final buffer = StringBuffer();
         await for (final token in engine.generateResponse(content)) {
           buffer.write(token);
@@ -133,14 +178,41 @@ class ChatProvider extends ChangeNotifier {
       _round++;
       _isThinking = false;
       notifyListeners();
+      _onMessagesChanged?.call();
     }
   }
 
-  // ==============================================================
-  // 私有方法
-  // ==============================================================
+  /// 结束对话，生成洞察总结
+  ///
+  /// 通过 InsightService 调用 LLM 分析完整对话历史。
+  /// 引擎未就绪时返回空结果。
+  Future<InsightResult> endConversation() async {
+    final engine = _engine;
+    if (engine == null || engine is! SocraticPrompter) {
+      return const InsightResult(
+        coreInsights: [],
+        underlyingValues: [],
+        contradictionsFound: [],
+      );
+    }
 
-  /// 生成与话题匹配的欢迎消息（轮次 0 — 序言）
+    try {
+      final service = InsightService(engine.llmService);
+      return await service.analyze(topic, messages);
+    } catch (e) {
+      debugPrint('[ChatProvider] 洞察生成失败: $e');
+      return const InsightResult(
+        coreInsights: ['对话分析完成'],
+        underlyingValues: [],
+        contradictionsFound: [],
+      );
+    }
+  }
+
+  // ================================================================
+  // 私有
+  // ================================================================
+
   void _addWelcomeMessage() {
     const openings = <String, String>{
       '职业发展':
@@ -164,7 +236,6 @@ class ChatProvider extends ChangeNotifier {
     ));
   }
 
-  /// 生成 Mock AI 回复（引擎未就绪时的回退方案）
   String _generateMockResponse() {
     const responses = [
       '你提到的这点很有意思——你能给我一个具体的例子吗？',

@@ -20,10 +20,14 @@ class InsightsPage extends StatefulWidget {
   final InsightResult insight;
   final String topic;
 
+  /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
+  final bool fromHistory;
+
   const InsightsPage({
     super.key,
     required this.insight,
     required this.topic,
+    this.fromHistory = false,
   });
 
   @override
@@ -65,13 +69,21 @@ class _InsightsPageState extends State<InsightsPage>
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        leading: const SizedBox.shrink(),
+        leading: widget.fromHistory
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              )
+            : const SizedBox.shrink(),
         actions: [
-          TextButton(
-            onPressed: () => _backToHome(context),
-            child:
-                const Text('完成', style: TextStyle(color: AppTheme.primary)),
-          ),
+          if (!widget.fromHistory)
+            TextButton(
+              onPressed: () => _backToHome(context),
+              child: const Text(
+                '完成',
+                style: TextStyle(color: AppTheme.primary),
+              ),
+            ),
         ],
       ),
       body: FadeTransition(
@@ -251,10 +263,16 @@ class _InsightsPageState extends State<InsightsPage>
   }
 
   void _backToHome(BuildContext context) {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const TopicSelectionPage()),
-      (route) => false,
-    );
+    if (widget.fromHistory) {
+      // 从历史列表进入 → 返回历史列表
+      Navigator.pop(context);
+    } else {
+      // 从对话流程进入 → 清空栈回到首页
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const TopicSelectionPage()),
+        (route) => false,
+      );
+    }
   }
 }

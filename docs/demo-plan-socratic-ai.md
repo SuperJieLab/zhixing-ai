@@ -277,10 +277,39 @@ summary      → 追问方向：【总结】引导回顾对话，问"最大的�
 
 ### 页面 5：历史列表页
 
-- 对话卡片列表（话题 + 日期 + 核心洞察摘要）
-- 点击进入洞察总结页（回溯查看）
-- 左滑删除
-- 下拉刷新
+**数据来源**：本地 sqflite（Day 5a），后续 Day 6 增加后端同步。
+
+- 对话卡片列表（话题 + 轮次数 + 相对时间 + 洞察摘要）
+- 右侧收藏星标（点击切换，数据持久化）
+- 左滑删除（确认弹窗）
+- 点击卡片 → 跳转 InsightsPage（回看洞察总结）
+- 空状态：「还没有对话记录，开始第一次探索吧」
+- 顶部统计：共 N 条对话
+
+**存储模型**：
+```
+Conversation (sqflite)
+  id, topic, status(active/completed), is_favorite
+  messages_json (List<ChatMessage> JSON)
+  insight_json (InsightResult JSON, nullable)
+  created_at, updated_at
+```
+
+**保存时机**：
+| 时机 | 操作 |
+|:--|------|
+| 进入 ChatPage | INSERT 新记录 |
+| 每轮 AI 追问完成 | UPDATE messages_json |
+| 结束对话 | UPDATE insight_json + status='completed' |
+
+**组件结构**：
+```
+lib/features/history/
+├── engine/conversation_repository.dart    # sqflite CRUD
+├── providers/conversation_provider.dart   # 列表状态管理
+├── widgets/conversation_card.dart         # 卡片组件
+└── history_page.dart                      # 列表页
+```
 
 ### 状态矩阵
 
@@ -375,48 +404,61 @@ MindNode:
 
 ## 八、实施计划（10 天 MVP）
 
-| 天 | 阶段 | 内容 | 产出检查点 |
-|:--:|------|------|------|
-| **1** | 工程搭建 | Flutter 项目 + 话题选择页 + 对话页 UI（硬编码 mock 对话） | App 可跑，两页 UI 完整，mock 对话能展示 |
-| **2** | 端侧推理 | 集成 dart_llama + 加载 Qwen 1.5B + 跑通第一次 Prompt → 追问输出 | iOS 真机 Dart→C++→CoreML 链路跑通 |
-| **3** | 对话引擎 | Prompt 调优 + 追问策略 Dart 层 + 多轮对话上下文管理 | 选一个话题，AI 连续追问 5+ 轮不跑偏 |
-| **4** | 洞察总结 | 总结 Prompt + JSON 输出 + 解析容错 + 洞察总结页 UI | 对话结束 → 洞察卡片正确渲染 |
-| **5** | 后端搭建 | Go + Gin + SQLite + Conversation/Messages CRUD API | Postman 能创建/查询对话 |
-| **6** | 前后端联调 | Flutter 接后端 API + 对话同步 + 历史列表 | 手机聊完 → 后端有数据 → 历史列表能拉 |
-| **7** | 思维图谱 | 后端图谱引擎 + Flutter CustomPainter 渲染 + 交互 | 一次对话 → 生成可交互的思维图谱 |
-| **8** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 端验证 | 所有错误状态 UI 到位，双端跑通 |
-| **9** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | 首次启动自动下载 Qwen 1.5B 到沙盒 |
-| **10** | 收尾 | README + 录 Demo 视频 + 截图 + 推送 GitHub | 仓库就绪，README 含架构图 + 截图 + 简历描述 |
+| 天 | 阶段 | 内容 | 状态 |
+|:--:|------|------|:--:|
+| **1** | 工程搭建 | Flutter 项目 + 话题选择页 + 对话页 UI | ✅ |
+| **2** | 端侧推理 | llama.cpp + Qwen3.5-2B + Metal 加速 | ✅ |
+| **3** | 对话引擎 | 梯度追问策略 + Context 管理 + Token 追踪 | ✅ |
+| **4** | 洞察总结 | InsightService + JSON 三层回退 + InsightsPage UI | ✅ |
+| **5a** | 端侧持久化 | sqflite 本地存储 + ConversationProvider + 历史列表 | 🔜 |
+| **5b** | 后端搭建 | Go + Gin + SQLite + Conversation CRUD API | |
+| **6** | 前后端联调 | Flutter 接后端 API + 对话同步 | |
+| **7** | 思维图谱 | 后端图谱引擎 + Flutter CustomPainter 渲染 + 交互 | |
+| **8** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | |
+| **9** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
+| **10** | 收尾 | README + 录 Demo + 截图 + Push GitHub | |
 
 ### 每日详细计划
 
-**Day 1 — 工程搭建**
-- `flutter create socratic_ai`
-- 搭建 Provider 状态管理
-- 话题选择页（TopicCard 组件 + 自定义输入）
-- 对话页（ChatBubble 组件 + 输入框 + mock 对话数据）
-- 两页之间 Navigator.push 跳转
+**Day 1 — 工程搭建 ✅**
+- Flutter 项目骨架 + Provider 状态管理
+- 5 页 UI：话题选择 / 对话 / 洞察 stub / 历史 stub
+- ChatBubble / ChatInput / TopicCard 组件
+- 26 个测试通过
 
-**Day 2 — 端侧推理接入**
-- 配置 CMake 编译 llama.cpp（参考 flutter_llama）
-- 集成 dart_llama 包
-- 模型准备：下载 Qwen 2.5 1.5B Instruct GGUF
-- 写 Dart 侧 llama 加载 + inference 调用
-- 硬编码一个测试 Prompt，验证输出
+**Day 2 — 端侧推理接入 ✅**
+- llama_cpp_dart 集成（替代原计划 dart_llama）
+- Qwen3.5-2B Q4_K_M 模型加载，macOS Metal 加速 46-71 tok/s
+- 对话引擎基础链路：Prompt 构建 → 流式输出 → Mock 回退
 
-**Day 3 — 对话引擎**
-- 实现 SocraticPromptBuilder（Dart 类，组装 Prompt）
-- 实现追问策略管理器（QuestionStrategy）
-- 实现对话上下文管理（ConversationContext，token 截断）
-- 真实模型驱动多轮对话，测试 5+ 轮稳定性
+**Day 3 — 对话引擎 ✅**
+- 梯度追问策略（_ProbeStage 枚举：探索→深入→挑战→总结）
+- 短回答检测（< 20 字自动升级）
+- Context Token 估算 + 监控（>1800 日志警告）
+- 推理参数调优：temp 0.5 / topP 0.85 / maxTokens 128 / repeatPenalty 1.15
+- 架构重构：DialogueEngine 接口 + SocraticPrompter 实现
 
-**Day 4 — 洞察总结**
-- 实现 SummaryPromptBuilder
-- JSON 解析 + 容错（jsonDecode + fallback）
-- 洞察总结页 UI
-- 测试：完整对话 → 总结正确渲染
+**Day 4 — 洞察总结 ✅**
+- InsightService：独立 EngineChat 分析全文，JSON 三层回退解析
+- InsightsPage 完整 UI：洞察卡片 + 价值观标签 + 矛盾高亮 + stagger 入场动画
+- ChatPage._endConversation 异步化（loading 弹窗 → LLM 分析 → 跳转）
 
-**Day 5 — 后端搭建**
+**Day 5a — 端侧会话持久化 & 历史管理**
+
+> 实现计划：`docs/plans/2026-07-06-day5a-local-persistence.md`
+> 设计细节：见本文档第五节「页面 5：历史列表页」
+
+- sqflite 本地数据库（单表 conversations，messages 和 insight 以 JSON 列存储）
+- Conversation 数据模型（toMap/fromMap 序列化）
+- ConversationRepository（CRUD 单例）
+- ConversationProvider（ChangeNotifier 状态管理）
+- ConversationCard（话题 + 轮次 + 洞察摘要 + 收藏星标 + 左滑删除）
+- HistoryPage 重写（列表 + 空状态 + 点击查看洞察）
+- ChatPage 集成：创建时入库 → 每轮完成时更新 messages_json → 结束时写入 insight_json
+- 验收：聊完退 App 再进 → 历史里能看到
+
+**Day 5b — 后端搭建**
+
 - Go + Gin 项目初始化
 - SQLite + GORM 建表
 - Conversation CRUD API
@@ -424,10 +466,11 @@ MindNode:
 - 基础测试通过
 
 **Day 6 — 前后端联调**
+
 - Flutter 添加 dio HTTP client
 - 对话开始时自动创建 Conversation
 - 每轮对话自动追加 Message
-- 历史列表从后端拉取
+- 历史列表从后端拉取（本地优先，后端同步）
 - 测试：手机聊完 → 后端有数据 → 列表能拉
 
 **Day 7 — 思维图谱**

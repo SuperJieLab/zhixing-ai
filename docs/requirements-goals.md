@@ -13,7 +13,8 @@
 | 2 | 端侧推理 | Dart→C++→CoreML 链路跑通 | 模型加载 + 首次推理输出 |
 | 3 | 对话引擎 | AI 连续追问 5+ 轮不跑偏 | Prompt 模板 + 追问策略 + 上下文管理 |
 | 4 | 洞察总结 | 对话结束 → 洞察卡片正确渲染 | 总结 Prompt + JSON 解析 + UI 页 |
-| 5 | 后端搭建 | Postman 能 CRUD 对话和消息 | Go API + SQLite + 全部端点 |
+| 5a | 端侧持久化 | 会话历史持久化 + 历史列表可用 | sqflite + ConversationProvider + HistoryPage |
+| 5b | 后端搭建 | Postman 能 CRUD 对话和消息 | Go API + SQLite + 全部端点 |
 | 6 | 前后端联调 | 手机聊完 → 后端有数据 → 列表能拉 | Flutter ↔ Go 数据同步完成 |
 | 7 | 思维图谱 | 一次对话 → 可交互图谱 | 后端分析引擎 + Flutter 可视化 |
 | 8 | 错误覆盖 | 所有错误状态 UI 到位，双端跑通 | 状态矩阵全覆盖 + Android 验证 |
@@ -128,11 +129,11 @@ lib/
 - `ConversationContext` 上下文管理器（token 管理 + 截断）
 
 **验收标准**：
-- [ ] Prompt 模板包含：角色定义 + 6 条对话规则 + 话题 + 历史 + 最新回答 + 轮次
-- [ ] 追问策略按轮次正确切换：1→开场白，2-3→深入，4-6→挑战假设，7+→引导总结
-- [ ] 短回答自动触发具体化追问（「能举一个具体例子吗？」）
-- [ ] Context 超出 2048 tokens 时自动截断早期消息
-- [ ] 推理参数按 PRD 配置：Temp 0.5, Top-p 0.85, Repeat penalty 1.15, Max 128 tokens
+- [x] Prompt 模板包含：角色定义 + 6 条对话规则 + 话题 + 历史 + 最新回答 + 轮次
+- [x] 追问策略按轮次正确切换：1→探索，2-3→深入，4-6→挑战假设，7+→引导总结（梯度 ProbeStage 枚举）
+- [x] 短回答自动触发具体化追问（< 20 字自动升级到深入阶段）
+- [x] Context 超出 2048 tokens 时 llama.cpp KV cache 自动截断 + Dart 层 token 估算日志警告
+- [x] 推理参数按 PRD 配置：Temp 0.5, Top-p 0.85, Repeat penalty 1.15, Max 128 tokens
 
 ### 3.2 多轮对话稳定性
 
@@ -159,12 +160,12 @@ lib/
 - 洞察总结页 UI
 
 **验收标准**：
-- [ ] 总结 Prompt 正确传入完整对话历史
-- [ ] 模型输出为合法 JSON（含 core_insights, underlying_values, contradictions_found, next_topic_suggestion）
-- [ ] JSON 解析失败时有兜底纯文本展示（黄色提示条）
-- [ ] 洞察卡片正确渲染：核心洞察 × N + 价值观标签 + 矛盾
-- [ ] 对话完成动画展示（入场动效）
-- [ ] 「查看思维图谱」和「开始新对话」按钮可用
+- [x] 总结 Prompt 正确传入完整对话历史
+- [x] 模型输出为合法 JSON（含 core_insights, underlying_values, contradictions_found, next_topic_suggestion）
+- [x] JSON 解析失败时有兜底展示（三层回退：直接解析→代码块→正则→原始文本）
+- [x] 洞察卡片正确渲染：核心洞察 × N + 价值观标签 + 矛盾
+- [x] 对话完成动画展示（fade-in + stagger slide-up 入场动效）
+- [x] 「查看思维图谱」（置灰待 Day 7）和「开始新对话」按钮可用
 
 **技术决策点**：
 | 决策 | 选项 | 推荐 |
@@ -174,9 +175,122 @@ lib/
 
 ---
 
-## Day 5 — 后端搭建
+## Day 5a — 端侧会话持久化 & 历史管理
 
-### 5.1 Go API 服务
+### 5a.1 数据模型 & 存储层
+
+**目标**：用 sqflite 实现本地会话持久化，聊完的对话不丢失。
+
+**数据模型**：单表 `conversations`，messages 和 insight 以 JSON 列存储。
+
+```
+conversations 表
+├── id              INTEGER PRIMARY KEY AUTOINCREMENT
+├── topic           TEXT NOT NULL              -- 话题标题
+├── status          TEXT DEFAULT 'active'      -- active / completed
+├── is_favorite     INTEGER DEFAULT 0         -- 0/1
+├── messages_json   TEXT                      -- List<ChatMessage> 的 JSON
+├── insight_json    TEXT                      -- InsightResult 的 JSON，可为 null
+├── created_at      TEXT NOT NULL             -- ISO 8601
+└── updated_at      TEXT NOT NULL             -- 最后活跃时间
+```
+
+**写入时机**：
+| 时机 | 操作 |
+|------|------|
+| 进入 ChatPage | `INSERT` 创建记录（status='active'） |
+| 每轮 AI 追问完成 | `UPDATE messages_json`，整批覆盖 JSON |
+| 结束对话 | `UPDATE insight_json + status='completed'` |
+
+**验收标准**：
+
+- [ ] `Conversation` 模型 `toMap()` / `fromMap()` 往返一致（含 messages 和 insight 的 JSON 序列化）
+- [ ] `ConversationRepository.initialize()` 在首次运行时建表成功
+- [ ] `create()` 插入一条新记录并返回自增 id
+- [ ] `updateMessages()` 正确覆盖 messages_json 列
+- [ ] `complete()` 写入 insight_json + 更新 status='completed'
+- [ ] `listAll()` 按 updated_at 倒序返回所有会话
+- [ ] `getById()` 返回完整会话（含解析后的 messages 和 insight）
+- [ ] `toggleFavorite()` 切换 is_favorite 0↔1
+- [ ] `delete()` 删除指定会话
+
+### 5a.2 状态管理 & UI
+
+**组件**：
+```
+lib/features/history/
+├── engine/
+│   └── conversation_repository.dart   # sqflite CRUD 封装
+├── providers/
+│   └── conversation_provider.dart     # 会话列表状态管理
+├── widgets/
+│   └── conversation_card.dart         # 历史卡片
+└── history_page.dart                  # 完整历史列表
+```
+
+**ConversationProvider**：
+- `loadAll()` — 从 Repository 加载全部会话
+- `toggleFavorite(id)` — 切换收藏
+- `deleteConversation(id)` — 删除并刷新列表
+
+**ConversationCard**：
+- 话题标题 + N 轮对话 + 相对时间
+- 有洞察则显示首条摘要（斜体 primary 色），无则显示「尚无洞察总结」
+- 右侧收藏星标（可切换）
+- 左滑删除（Dismissible + 确认弹窗）
+
+**HistoryPage**：
+- 空状态：图标 + 「还没有对话记录，开始第一次探索吧」
+- 列表：按 updated_at 倒序展示 ConversationCard
+- 点击卡片 → 如已有洞察则跳转 InsightsPage，否则 SnackBar 提示
+
+**验收标准**：
+
+- [ ] ConversationProvider 正确从 Repository 加载数据并通知 UI
+- [ ] ConversationCard 正确渲染话题、轮次数、相对时间、洞察摘要
+- [ ] 收藏星标点击正确切换 is_favorite 并刷新 UI
+- [ ] 左滑删除触发确认弹窗，确认后删除并刷新列表
+- [ ] 空状态页面正确展示（无对话记录时）
+- [ ] 点击有洞察的卡片跳转 InsightsPage
+- [ ] 点击无洞察的卡片弹出 SnackBar 提示
+- [ ] `main.dart` 中正确初始化 ConversationRepository
+- [ ] `app.dart` 中正确注入 ConversationProvider
+
+### 5a.3 ChatPage 集成
+
+**目标**：对话过程自动持久化，无需用户手动操作。
+
+**方式**：ChatProvider 添加 `onMessagesChanged` 可选回调，ChatPage 注入回调写入 Repository。
+
+**验收标准**：
+
+- [ ] 进入 ChatPage → 自动创建 conversations 记录（_conversationId 赋值）
+- [ ] 每轮 AI 回复完成后 → messages_json 自动更新
+- [ ] 结束对话后 → insight_json + status='completed' 写入
+- [ ] 退出 App 再进入 → 历史列表能看到刚聊的会话
+- [ ] 模型加载失败（_engine null）时跳过持久化
+
+### 5a.4 端到端验证
+
+- [ ] `flutter analyze lib/ test/` — 零 error/warning
+- [ ] 完整流程：选话题 → 对话 3+ 轮 → 结束 → 返回首页 → 历史列表看到会话 → 点击查看洞察 → 左滑删除成功
+- [ ] 退出 App 后再进入，历史记录仍在
+
+**技术决策**：
+
+| 决策 | 选项 | 选择 | 原因 |
+|:--|------|:--:|------|
+| 端侧存储 | sqflite / drift / Hive | **sqflite** | 与 Day 5b Go 后端 SQLite schema 自然对齐；Flutter 社区最成熟方案 |
+| 消息存储粒度 | 逐条 INSERT / JSON 整批 | **JSON 整批** | 无消息检索需求；每批 ~3-5KB；避免高频写入 |
+| 会话 ID | 自增 INTEGER / UUID | **自增 INTEGER** | 本地单用户无冲突风险；与后端 AUTOINCREMENT 一致 |
+| Repository 实例化 | 单例 static / 依赖注入 | **单例 static** | 当前只有本地 sqflite 一个数据源，单例足够 |
+| Provider ↔ Repository | 回调注入 / event bus | **回调注入** | ChatProvider 不需要知道 Repository 存在；测试友好 |
+
+---
+
+## Day 5b — 后端搭建
+
+### 5b.1 Go API 服务
 
 **目标**：Postman 能完成对话和消息的完整 CRUD。
 

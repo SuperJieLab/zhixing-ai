@@ -1,27 +1,24 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/engine/llama_service.dart';
-import 'package:socratic_ai/features/chat/engine/socratic_prompter.dart';
-import 'package:socratic_ai/features/insights/engine/insight_service.dart';
-import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_input.dart';
+import 'package:socratic_ai/features/history/providers/conversation_provider.dart';
 import 'package:socratic_ai/features/insights/insights_page.dart';
 
 /// 对话页面
 ///
-/// 用户与 AI 进行苏格拉底式深度对话的页面。
-/// 进入页面时自动加载 Qwen 模型（约 13 秒），加载期间显示进度。
-/// 模型加载失败不影响使用——自动回退到 Mock 回复。
+/// 用户与 AI 进行苏格拉底式深度对话。
+/// 模型加载由 [ChatProvider.loadModel] 负责，加载期间显示进度。
 ///
-/// ## 架构
-/// ChatPage 在 initState 中创建 LlamaService + SocraticPrompter，
-/// 注入 ChatProvider。ChatProvider 只依赖 DialogueEngine 接口。
+/// ## 分层
+/// ChatPage 只依赖：
+/// - ChatProvider（Provider）
+/// - ConversationProvider（Provider）
+/// - chat widgets（同 feature）
+/// - InsightsPage（跨 feature 页面跳转）
+/// - core/theme（全局样式）
 class ChatPage extends StatefulWidget {
   final String topic;
 
@@ -32,65 +29,25 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  /// 模型加载进度：null = 未开始 / true = 加载中 / false = 完成
-  bool? _modelLoading;
-
-  /// 对话引擎（注入到 ChatProvider）
-  SocraticPrompter? _engine;
-
-  /// 消息列表的滚动控制器
   final ScrollController _scrollController = ScrollController();
-
-  /// 上一次渲染时的消息数量，变化时触发自动滚动
   int _lastMessageCount = -1;
+  bool _conversationStarted = false;
 
   @override
   void initState() {
     super.initState();
-    _initEngine();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
-    _engine?.dispose();
     super.dispose();
   }
 
-  /// 初始化对话引擎（后台加载模型，不阻塞 UI）
-  Future<void> _initEngine() async {
-    setState(() => _modelLoading = true);
+  Future<void> _endConversation(BuildContext context) async {
+    final chatProvider = context.read<ChatProvider>();
+    final convProvider = context.read<ConversationProvider>();
 
-    try {
-      // ── dylib 路径：从 App Bundle 内部加载 ──
-      final executable = File(Platform.resolvedExecutable);
-      final bundleContents = executable.parent.parent; // MacOS → Contents
-      final libPath = '${bundleContents.path}/Frameworks/libllama.dylib';
-
-      // ── 模型路径：开发阶段用绝对路径（debug build 无法反向解析到项目根目录）
-      // Day 9 模型自动下载到沙盒后将替换此逻辑
-      final modelPath = AppConstants.macosDevModelAbsolutePath;
-
-      final llm = LlamaService();
-      await llm.loadModel(
-        modelPath: modelPath,
-        libraryPath: libPath,
-        contextSize: AppConstants.modelContextSize,
-        gpuLayers: AppConstants.modelGpuLayers,
-        threads: AppConstants.modelThreads,
-      );
-
-      final engine = SocraticPrompter(llm);
-      await engine.initialize();
-      _engine = engine;
-    } catch (e) {
-      debugPrint('[ChatPage] 模型加载失败，将使用 Mock 回复: $e');
-    } finally {
-      if (mounted) setState(() => _modelLoading = false);
-    }
-  }
-
-  Future<void> _endConversation(BuildContext context, ChatProvider chatProvider) async {
     // 显示 loading 弹窗
     if (!context.mounted) return;
     showDialog(
@@ -119,35 +76,17 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
 
-    // 调用 InsightService 生成洞察
-    InsightResult insight;
-    if (_engine != null) {
-      try {
-        final service = InsightService(_engine!.llmService);
-        insight = await service.analyze(
-          widget.topic,
-          chatProvider.messages,
-        );
-      } catch (e) {
-        debugPrint('[ChatPage] 洞察生成失败: $e');
-        insight = const InsightResult(
-          coreInsights: ['对话分析完成'],
-          underlyingValues: [],
-          contradictionsFound: [],
-        );
-      }
-    } else {
-      // 模型未加载，跳过 LLM 分析
-      insight = const InsightResult(
-        coreInsights: [],
-        underlyingValues: [],
-        contradictionsFound: [],
-      );
-    }
+    // 调用 ChatProvider 生成洞察
+    final insight = await chatProvider.endConversation();
 
-    // 关闭 loading 弹窗，跳转到洞察页
+    // 持久化
+    convProvider.finishConversation(
+      insight.coreInsights.isNotEmpty ? insight : null,
+    );
+
+    // 关闭 loading，跳转
     if (!context.mounted) return;
-    Navigator.pop(context); // 关闭 loading
+    Navigator.pop(context);
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -161,35 +100,56 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 引擎加载中 → 显示全屏 loading，不创建 ChatProvider
-    if (_modelLoading == true) {
-      return Scaffold(
-        appBar: AppBar(
-          backgroundColor: AppTheme.background,
-          title: Text(widget.topic),
-        ),
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: AppTheme.primary),
-              SizedBox(height: 16),
-              Text(
-                '正在加载 AI 模型（约 15 秒）...',
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // 引擎就绪（或加载失败 → Mock 回退）→ 创建 ChatProvider
     return ChangeNotifierProvider(
-      create: (_) => ChatProvider(topic: widget.topic, engine: _engine),
+      create: (ctx) {
+        final convProvider = ctx.read<ConversationProvider>();
+        late final ChatProvider provider;
+        provider = ChatProvider(
+          topic: widget.topic,
+          onMessagesChanged: () {
+            convProvider.saveMessages(provider.messages);
+          },
+        );
+
+        // 创建后立即触发模型加载（异步，不阻塞 UI）
+        provider.loadModel();
+
+        return provider;
+      },
       child: Consumer<ChatProvider>(
         builder: (context, chatProvider, _) {
-          // 消息数量变化时，下一帧自动滚动到底部
+          // 模型加载中 → 全屏 loading
+          if (chatProvider.isModelLoading) {
+            return Scaffold(
+              appBar: AppBar(
+                backgroundColor: AppTheme.background,
+                title: Text(widget.topic),
+              ),
+              body: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: AppTheme.primary),
+                    SizedBox(height: 16),
+                    Text(
+                      '正在加载 AI 模型（约 15 秒）...',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          // 模型就绪时创建持久化记录（仅一次）
+          if (chatProvider.isModelReady && !_conversationStarted) {
+            _conversationStarted = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<ConversationProvider>().startConversation(widget.topic);
+            });
+          }
+
+          // 自动滚动
           if (chatProvider.messages.length != _lastMessageCount) {
             _lastMessageCount = chatProvider.messages.length;
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -223,7 +183,7 @@ class _ChatPageState extends State<ChatPage> {
               ),
               actions: [
                 TextButton.icon(
-                  onPressed: () => _endConversation(context, chatProvider),
+                  onPressed: () => _endConversation(context),
                   icon: const Icon(
                     Icons.stop_circle_outlined,
                     color: AppTheme.secondary,
