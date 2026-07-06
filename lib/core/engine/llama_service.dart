@@ -153,6 +153,7 @@ class LlamaService {
     double temperature = 0.7,
     double topP = 0.9,
     int maxTokens = 256,
+    double repeatPenalty = 1.0,
   }) async* {
     _ensureChat();
     try {
@@ -160,6 +161,7 @@ class LlamaService {
         sampler: SamplerParams(
           temperature: temperature,
           topP: topP,
+          repeatPenalty: repeatPenalty,
         ),
         maxTokens: maxTokens,
       )) {
@@ -190,6 +192,29 @@ class LlamaService {
     _engine = null;
     _isLoaded = false;
     debugPrint('[LlamaService] 引擎已释放');
+  }
+
+  // ================================================================
+  // Token 估算工具（供上层 SocraticPrompter 调用）
+  // ================================================================
+
+  /// 通用 token 估算工具（静态方法）
+  ///
+  /// 中文 CJK 字符 ≈ 1.5 tokens，其他字符 ≈ 0.25 tokens。
+  static int estimateTokens(String text) {
+    int chineseCount = 0;
+    int otherCount = 0;
+    for (final char in text.runes) {
+      // CJK Unified Ideographs + Extension A
+      if ((char >= 0x4E00 && char <= 0x9FFF) ||
+          (char >= 0x3400 && char <= 0x4DBF) ||
+          (char >= 0x3000 && char <= 0x303F)) {
+        chineseCount++;
+      } else {
+        otherCount++;
+      }
+    }
+    return (chineseCount * 1.5 + otherCount * 0.25).ceil();
   }
 
   // ================================================================
