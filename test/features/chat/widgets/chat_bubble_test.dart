@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 
 /// ChatBubble 组件的 Widget 测试
@@ -17,7 +17,7 @@ void main() {
   testWidgets('AI 消息的气泡正确显示文字内容', (tester) async {
     // 准备：一条 AI 发出的欢迎消息
     const msg = ChatMessage(
-      role: 'ai',
+      role: MessageRole.ai,
       content: '你好，你想聊什么？',
       round: 1,
     );
@@ -39,7 +39,7 @@ void main() {
   testWidgets('用户消息的气泡正确显示文字内容', (tester) async {
     // 准备：一条用户发出的消息
     const msg = ChatMessage(
-      role: 'user',
+      role: MessageRole.user,
       content: '我想聊聊职业发展',
       round: 1,
     );

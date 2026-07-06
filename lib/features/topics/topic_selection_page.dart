@@ -5,6 +5,7 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
+import 'package:socratic_ai/features/history/history_page.dart';
 
 /// 话题选择页面（首页）
 ///
@@ -55,11 +56,10 @@ class TopicSelectionPage extends StatelessWidget {
             icon: const Icon(Icons.history, color: AppTheme.textSecondary),
             tooltip: '历史对话', // 长按时的提示文字
             onPressed: () {
-              // Navigator.push 推入一个新页面
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const ChatPage(topic: '历史对话'),
+                  builder: (_) => const HistoryPage(),
                 ),
               );
             },

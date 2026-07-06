@@ -1,23 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 洞察总结页面（当前为 stub 占位页）
 ///
 /// 用户点击「结束对话」后跳转到此页面。
-/// Day 4 中将被替换为完整的洞察总结功能：
-/// - 核心洞察提取
-/// - 价值观标签
-/// - 发现的认知矛盾
+/// 接收已解析好的 [InsightResult]，不接触原始对话记录。
+///
+/// Day 4 将被替换为完整的洞察总结功能：
+/// - 核心洞察卡片
+/// - 价值观标签云
+/// - 认知矛盾高亮
+/// - 「查看思维图谱」和「开始新对话」按钮
 class InsightsPage extends StatelessWidget {
-  /// 完整的对话记录
-  final List<ChatMessage> conversation;
+  /// 已解析的对话洞察结果
+  final InsightResult insight;
 
   /// 对话话题
   final String topic;
 
   const InsightsPage({
     super.key,
-    required this.conversation,
+    required this.insight,
     required this.topic,
   });
 
@@ -41,7 +44,7 @@ class InsightsPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '共 ${conversation.length} 条消息',
+              '核心洞察：${insight.coreInsights.length} 条',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),

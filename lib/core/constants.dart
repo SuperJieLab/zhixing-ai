@@ -29,9 +29,15 @@ class AppConstants {
   static const String macosLibPath =
       'macos/Runner/libs/libllama.dylib';
 
-  /// macOS 开发环境下的 GGUF 模型绝对路径
+  /// macOS 开发环境下的 GGUF 模型相对路径（从项目根目录算起）
+  /// Day 9 将替换为自动下载到沙盒目录
   static const String macosDevModelPath =
       'assets/models/qwen3.5-2b-q4_k_m.gguf';
+
+  // ⚠️ 开发阶段硬编码：macOS debug build 无法通过相对路径访问项目目录
+  // 生产环境此常量将被移除，Day 9 实现模型自动下载
+  static const String macosDevModelAbsolutePath =
+      '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen3.5-2b-q4_k_m.gguf';
 
   // ─── 预设话题 ───
   ///

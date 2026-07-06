@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 
 /// 聊天气泡组件
 ///
@@ -25,7 +25,7 @@ class ChatBubble extends StatelessWidget {
   ///
   /// bool get 是 Dart 的 getter 语法，调用时像属性一样：
   /// `widget._isAI` 而不是 `widget._isAI()`
-  bool get _isAI => message.role == 'ai';
+  bool get _isAI => message.role == MessageRole.ai;
 
   @override
   Widget build(BuildContext context) {

@@ -48,10 +48,13 @@ class ChatInput extends StatefulWidget {
 /// 通过 widget.onSend 访问父 Widget 的回调。
 class _ChatInputState extends State<ChatInput> {
   /// TextEditingController：管理输入框的文本和光标
-  ///
-  /// 必须在 initState 中创建、dispose 中销毁。
-  /// 不能放在 build() 中（每次重建都会新建，导致性能和 Bug 问题）。
-  final TextEditingController _controller = TextEditingController();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
 
   /// 处理发送逻辑
   ///

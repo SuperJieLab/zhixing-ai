@@ -2,90 +2,49 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../core/llama_service.dart';
-
-/// 一条对话消息
-///
-/// 每条消息都有三个属性：
-/// - [role]：谁说的？'ai' 或 'user'
-/// - [content]：说了什么？
-/// - [round]：发生在第几轮对话中？
-///
-/// 使用 const 构造函数，创建后不可变（immutable）。
-/// 这避免了消息内容被意外修改导致的 Bug。
-class ChatMessage {
-  /// 消息角色：'ai'（AI 的追问）或 'user'（用户的回答）
-  final String role;
-
-  /// 消息文本内容
-  final String content;
-
-  /// 所属的对话轮次
-  ///
-  /// 欢迎消息为第 1 轮，第一轮用户问答为第 2 轮，以此类推。
-  /// 同一轮对话中，用户消息和 AI 回复共享相同的 round 值。
-  final int round;
-
-  /// 创建一个不可变的消息实例
-  ///
-  /// 三个参数都是 required（必须提供），确保每条消息信息完整。
-  const ChatMessage({
-    required this.role,
-    required this.content,
-    required this.round,
-  });
-}
+import '../../../core/engine/dialogue_engine.dart';
+import '../../../core/models/chat_models.dart';
 
 /// 对话状态管理
 ///
 /// 负责管理整个苏格拉底式对话的生命周期：
 /// - 生成与话题匹配的欢迎消息（AI 主动开口）
-/// - 接收用户输入并生成 Mock AI 追问
+/// - 接收用户输入并生成 AI 追问
 /// - 跟踪对话轮次
 ///
-/// ## LLM 推理
-/// 通过 [LlamaService]（llama.cpp FFI + Qwen 1.5B 模型）进行端侧推理。
-/// 当模型未加载时自动回退到 Mock 回复。
+/// ## 依赖倒置
+/// 通过 [DialogueEngine] 接口解耦：
+/// - 注入 [SocraticPrompter] → 端侧 LLM 推理
+/// - 注入 Mock 引擎 → 单元测试
+/// - 未注入时 → 内置 Mock 回复兜底
 ///
 /// ## ChangeNotifier 模式
 /// 继承 ChangeNotifier 后，调用 notifyListeners() 会通知
-/// 所有监听者（Widget）刷新 UI。这是 Provider 状态管理的核心。
-///
-/// ## 使用方式
-/// ```dart
-/// final provider = ChatProvider(topic: '职业发展');
-/// print(provider.messages.first.content); // AI 的欢迎消息
-/// provider.sendMessage('我想转管理');       // 用户发送消息，AI 自动追问
-/// ```
+/// 所有监听者（Widget）刷新 UI。
 class ChatProvider extends ChangeNotifier {
   /// 对话话题标题
   final String topic;
 
+  /// 对话引擎（可选注入，未注入时使用内置 Mock）
+  final DialogueEngine? _engine;
+
   /// 当前对话轮次
   ///
-  /// _ 前缀表示私有（private），外部只能通过 getter 访问。
-  /// 这是 Dart 的封装机制——外部不能直接改 _round，
-  /// 只能通过 sendMessage() 间接修改。
+  /// 欢迎消息为轮次 0（序言），首轮用户消息从 1 开始。
   int _round = 1;
 
   /// 是否正在等待 AI 回复
-  ///
-  /// MVP 阶段 AI 是 Mock 的（瞬间完成），
-  /// 所以这个标志在消息处理完成后立即变回 false。
-  /// Day 3 接入真实 LLM 后，会在等待推理期间保持 true。
   bool _isThinking = false;
 
   /// 对话消息列表（内部存储）
-  ///
-  /// 外部通过 getter [messages] 获取「不可变视图」，
-  /// 防止直接操作列表。
   final List<ChatMessage> _messages = [];
 
   /// 构造函数
   ///
-  /// 创建时会自动调用 _addWelcomeMessage()，
-  /// 根据话题生成一条 AI 的欢迎消息。
-  ChatProvider({required this.topic}) {
+  /// [engine] 可选注入对话引擎（生产环境传入 [SocraticPrompter]）。
+  /// 未注入时，sendMessage 自动回退到内置 Mock 回复。
+  // ignore: prefer_initializing_formals — _engine is private, can't use this._engine
+  ChatProvider({required this.topic, DialogueEngine? engine}) : _engine = engine {
     _addWelcomeMessage();
   }
 
@@ -94,10 +53,6 @@ class ChatProvider extends ChangeNotifier {
   // ==============================================================
 
   /// 获取所有消息的不可变列表
-  ///
-  /// List.unmodifiable() 创建一个不能增删改的列表视图。
-  /// 防止外部代码绕过 ChatProvider 直接修改消息列表，
-  /// 保证状态变更只通过 sendMessage() 发生。
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
   /// 获取当前对话轮次
@@ -110,20 +65,18 @@ class ChatProvider extends ChangeNotifier {
   // 公共方法
   // ==============================================================
 
-  /// 用户发送一条消息（真实 LLM 推理版本）
+  /// 用户发送一条消息
   ///
   /// 处理流程：
   /// 1. 把用户消息加入消息列表
   /// 2. 标记"思考中"，通知 UI 显示加载动画
-  /// 3. 调用 [LlamaService] 流式获取 AI 追问
+  /// 3. 调用 [DialogueEngine] 流式获取 AI 追问（未注入则 Mock）
   /// 4. 每个 token 追加到 AI 占位消息的 content 中
   /// 5. 流结束 → 轮次 +1，标记"思考结束"
-  ///
-  /// [content]：用户输入的文本内容
   Future<void> sendMessage(String content) async {
     // 步骤 1：添加用户消息
     _messages.add(ChatMessage(
-      role: 'user',
+      role: MessageRole.user,
       content: content,
       round: _round,
     ));
@@ -135,51 +88,48 @@ class ChatProvider extends ChangeNotifier {
     // 步骤 3：添加一个空的 AI 消息占位（后续用 token 填充）
     final aiMessageIndex = _messages.length;
     _messages.add(ChatMessage(
-      role: 'ai',
-      content: '', // 从空字符串开始，逐步追加 token
+      role: MessageRole.ai,
+      content: '',
       round: _round,
     ));
 
     try {
-      final llmService = LlamaService();
+      final engine = _engine;
 
-      if (!llmService.isLoaded) {
-        // 模型未加载时，回退到 Mock 回复
+      if (engine == null || !engine.isReady) {
+        // 引擎未注入或未就绪 → Mock 回退
         _messages[aiMessageIndex] = ChatMessage(
-          role: 'ai',
-          content: _generateMockResponse(content),
+          role: MessageRole.ai,
+          content: _generateMockResponse(),
           round: _round,
         );
       } else {
         // ── 首轮对话：注入对话开场白上下文 ──
-        // 将欢迎消息作为 assistant 消息写入 LLM 的 chat 历史
         if (_round == 1) {
-          llmService.seedConversationContext(_messages.first.content);
+          engine.seedContext(_messages.first.content);
         }
 
         // 流式获取 AI 回复
         final buffer = StringBuffer();
-        await for (final token in llmService.generateResponse(content)) {
+        await for (final token in engine.generateResponse(content)) {
           buffer.write(token);
-          // 原地更新 AI 消息内容
           _messages[aiMessageIndex] = ChatMessage(
-            role: 'ai',
+            role: MessageRole.ai,
             content: buffer.toString(),
             round: _round,
           );
-          notifyListeners(); // 每个 token 都刷新 UI，实现流式效果
+          notifyListeners();
         }
       }
     } catch (e, stack) {
-      debugPrint('[ChatProvider] LLM 推理失败: $e');
+      debugPrint('[ChatProvider] 推理失败: $e');
       debugPrintStack(stackTrace: stack);
       _messages[aiMessageIndex] = ChatMessage(
-        role: 'ai',
+        role: MessageRole.ai,
         content: '抱歉，我在思考时遇到了一些问题。你能换个方式再说说吗？',
         round: _round,
       );
     } finally {
-      // 步骤 5：轮次 +1，思考结束
       _round++;
       _isThinking = false;
       notifyListeners();
@@ -190,15 +140,8 @@ class ChatProvider extends ChangeNotifier {
   // 私有方法
   // ==============================================================
 
-  /// 生成与话题匹配的欢迎消息
-  ///
-  /// 欢迎消息是 AI 发起的第一句追问，目的是：
-  /// - 让用户感受到「AI 在追问我」，而不是反过来
-  /// - 用开放性问题引导用户思考
-  /// - 展示苏格拉底式对话的风格（不说教、不评判）
+  /// 生成与话题匹配的欢迎消息（轮次 0 — 序言）
   void _addWelcomeMessage() {
-    // 每个预设话题都有定制的开场白
-    // ?? 操作符：如果话题不在表中，使用默认欢迎消息
     const openings = <String, String>{
       '职业发展':
           '你提到想聊聊职业方向——如果三年后的你回头看今天做的选择，你觉得他会在意什么？',
@@ -212,34 +155,17 @@ class ChatProvider extends ChangeNotifier {
           '这段关系让你在意的地方是什么——是对方的期待，还是你对自己在这段关系里的要求？',
     };
 
-    // 取对应话题的开场白，没有的话用默认消息
     final opening = openings[topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
 
-    // 添加 AI 欢迎消息（第 1 轮）
     _messages.add(ChatMessage(
-      role: 'ai',
+      role: MessageRole.ai,
       content: opening,
-      round: _round,
+      round: 0,
     ));
-
-    // 注意：欢迎消息不递增 _round
-    // _round 代表「当前轮次」，sendMessage() 在 AI 回复后才会递增
   }
 
-  /// 生成 Mock AI 回复
-  ///
-  /// MVP 阶段使用 5 句预设的苏格拉底式追问，按索引轮换。
-  /// 轮换逻辑：用当前消息数量对 5 取模，
-  /// 保证连续追问不重复（但会在 5 轮后循环）。
-  ///
-  /// [userInput]：用户输入文本（当前未被使用，Day 3 LLM 推理时使用）
-  /// 返回：一条苏格拉底式追问
-  String _generateMockResponse(String userInput) {
-    // 5 句预设追问，全部是开放式问题
-    // 设计原则：
-    // - 不带预设答案（不暗示"你应该...")
-    // - 引导用户审视自己的思考过程
-    // - 用具体问题而非抽象哲学
+  /// 生成 Mock AI 回复（引擎未就绪时的回退方案）
+  String _generateMockResponse() {
     const responses = [
       '你提到的这点很有意思——你能给我一个具体的例子吗？',
       '如果完全没有失败的风险，你的答案会变吗？',
@@ -248,7 +174,6 @@ class ChatProvider extends ChangeNotifier {
       '如果一位朋友处在你的位置，你给他什么建议？',
     ];
 
-    // 用消息数量对 5 取模，循环轮换
     return responses[_messages.length % responses.length];
   }
 }
