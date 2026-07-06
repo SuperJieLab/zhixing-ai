@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import 'dialogue_engine.dart';
-import 'llama_service.dart';
+import 'package:socratic_ai/core/engine/dialogue_engine.dart';
+import 'package:socratic_ai/core/engine/llama_service.dart';
 
 // ================================================================
 // 追问阶段 — 梯度策略

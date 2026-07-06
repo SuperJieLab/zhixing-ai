@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import '../models/chat_models.dart';
-import 'llama_service.dart';
+import 'package:socratic_ai/core/engine/llama_service.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 洞察总结服务
 ///

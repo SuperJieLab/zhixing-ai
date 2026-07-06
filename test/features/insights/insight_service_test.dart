@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/core/engine/insight_service.dart';
+import 'package:socratic_ai/features/insights/engine/insight_service.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
