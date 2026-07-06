@@ -71,7 +71,7 @@ class SocraticPrompter implements DialogueEngine {
   final LlamaService _llm;
 
   /// 已生成的 AI 追问次数（0 表示还没生成过任何追问）
-  /// 用于判断当前对话深度阶段：阶段 = _stageForRound(_roundIndex + 1)
+  /// 用于判断当前对话深度阶段：阶段 = _currentStage(_roundIndex + 1, ...)
   int _roundIndex = 0;
 
   /// 最近 3 轮的追问文本（用于去重检测）
@@ -126,9 +126,9 @@ class SocraticPrompter implements DialogueEngine {
 
     for (int attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
-        _llm.addUserMessage(
-          '请基于当前追问方向，换一个角度追问，不要重复之前的问题。',
-        );
+        const retryHint = '请基于当前追问方向，换一个角度追问，不要重复之前的问题。';
+        _llm.addUserMessage(retryHint);
+        _estimatedTokens += LlamaService.estimateTokens(retryHint);
       }
 
       final buffer = StringBuffer();
@@ -197,6 +197,7 @@ class SocraticPrompter implements DialogueEngine {
     _llm.dispose();
     _roundIndex = 0;
     _recentQuestions.clear();
+    _estimatedTokens = 0;
   }
 
   // ================================================================
