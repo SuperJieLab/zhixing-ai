@@ -374,3 +374,50 @@ TextPainter(text: ...)..layout()..paint(canvas, offset);  // 画文字
 
 两节点极近时斥力公式 `k / dist²` 爆炸性增长 → 位置溢出 Infinity → 后续运算变成 NaN。解法：力上限裁剪 + 位置 clamp 双保险。
 
+---
+
+## 九、CustomPainter 的手势交互机制
+
+### 9.1 问题：CustomPainter 画的节点没有自己的 GestureDetector
+
+普通 Widget 做法：每个节点包一个 `GestureDetector`。但 CustomPainter 画的节点是像素，不是独立 Widget。如果有 N 个节点就需要 N 层 Widget，性能开销大。
+
+### 9.2 解法：一层 GestureDetector + 数学命中检测
+
+一整层 `GestureDetector` 包住整块画布（`CustomPaint`），在回调中用 `hitTestNode` 判断命中了哪个节点。
+
+### 9.3 三种手势分路
+
+| 手势 | 判断条件 | 操作 |
+|---|---|---|
+| 双指缩放 | `pointerCount >= 2` | 更新 `_scale` (0.3x-2.5x) + `_offset` |
+| 单指拖拽节点 | `hitTestNode` 命中 | 更新 `node.x` / `node.y` |
+| 单指平移画布 | 未命中节点 | 更新 `_offset` |
+
+路径在 `onScaleStart` 阶段决定，整个手势中不变。
+
+### 9.4 坐标转换
+
+用户的触摸坐标（屏幕 px）和节点坐标（布局 0~1）不在同一坐标系。转换公式：
+
+```
+布局X = (手指X - 画布偏移X) / 缩放倍数 / 屏幕宽度
+```
+
+三个变换：减去平移偏移 → 除以缩放比例 → 除以画布尺寸（归一化）。
+
+### 9.5 刷新链路
+
+```
+手指移动 → onScaleUpdate → 更新状态 → setState()
+                                      ↓
+                              Flutter 触发 build()
+                                      ↓
+                              CustomPaint 调用 shouldRepaint
+                              (nodes 引用变了 → 返回 true)
+                                      ↓
+                              paint(Canvas, Size) 重绘整个画布
+```
+
+全程零数据拷贝，只改 double 值，GPU 重画一帧。
+
