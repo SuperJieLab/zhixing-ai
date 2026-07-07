@@ -65,3 +65,123 @@ class InsightResult {
     this.nextTopicSuggestion,
   });
 }
+
+/// 图谱节点 — 一个概念/洞察/话题
+///
+/// [label] 显示文本，[type] 节点分类（影响颜色），[weight] 重要性权重（影响大小）。
+/// [x] [y] 布局后的画布坐标（0-1 归一化），布局前为 null。
+/// [radius] 渲染半径（布局计算得出，与 weight 成正比）。
+class GraphNode {
+  final String id;
+  final String label;
+  final String type; // 'topic' | 'insight' | 'value' | 'action' | 'contradiction'
+  final double weight; // 0-1，布局时用于斥力计算
+  double? x;
+  double? y;
+  double? radius;
+  double? vx; // 速度向量（布局迭代用）
+  double? vy;
+
+  GraphNode({
+    required this.id,
+    required this.label,
+    required this.type,
+    this.weight = 0.5,
+    this.x,
+    this.y,
+    this.radius,
+    this.vx,
+    this.vy,
+  });
+
+  factory GraphNode.fromJson(Map<String, dynamic> json) {
+    return GraphNode(
+      id: json['id'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      type: json['type'] as String? ?? 'insight',
+      weight: (json['weight'] as num?)?.toDouble() ?? 0.5,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        'type': type,
+        'weight': weight,
+      };
+}
+
+/// 图谱连线 — 两个节点之间的关系
+///
+/// [source] [target] 是节点 id，[label] 是关系描述（如"推导出"、"包含"）。
+/// [strength] 关系强度（影响连线粗细和布局吸引力）。
+class GraphEdge {
+  final String source;
+  final String target;
+  final String label;
+  final double strength; // 0-1
+
+  GraphEdge({
+    required this.source,
+    required this.target,
+    this.label = '',
+    this.strength = 0.5,
+  });
+
+  factory GraphEdge.fromJson(Map<String, dynamic> json) {
+    return GraphEdge(
+      source: json['source'] as String? ?? '',
+      target: json['target'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      strength: (json['strength'] as num?)?.toDouble() ?? 0.5,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'source': source,
+        'target': target,
+        'label': label,
+        'strength': strength,
+      };
+}
+
+/// 对话思维图谱 — 一次对话的完整图结构
+///
+/// 由 [GraphService] 通过 LLM 分析对话产出。
+/// [MindMapPage] 接收并渲染。
+class ConversationGraph {
+  final List<GraphNode> nodes;
+  final List<GraphEdge> edges;
+
+  const ConversationGraph({this.nodes = const [], this.edges = const []});
+
+  factory ConversationGraph.fromJson(Map<String, dynamic> json) {
+    List<GraphNode> parseNodes(dynamic value) {
+      if (value is List) {
+        return value
+            .map((e) => GraphNode.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    }
+
+    List<GraphEdge> parseEdges(dynamic value) {
+      if (value is List) {
+        return value
+            .map((e) => GraphEdge.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    }
+
+    return ConversationGraph(
+      nodes: parseNodes(json['nodes']),
+      edges: parseEdges(json['edges']),
+    );
+  }
+
+  bool get isEmpty => nodes.isEmpty;
+  bool get isNotEmpty => nodes.isNotEmpty;
+  int get nodeCount => nodes.length;
+  int get edgeCount => edges.length;
+}
