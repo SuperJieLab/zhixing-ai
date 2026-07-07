@@ -291,3 +291,86 @@ Page 层做 Type B      →  正常的组装职责
 
 Page 被设计为"一次性组装上下文"——离开这个场景它就不存在了。Provider 被设计为"被组装的部件"——换上不同的 Page，同一个 Provider 应该还能用。把依赖关系放在组装者（Page）身上，被组装者（Provider）保持独立，这就是「接线层耦合」优于「接口层耦合」的核心原因。
 
+---
+
+## 七、CustomPainter — Flutter 的底层绘图 API
+
+### 7.1 是什么
+
+CustomPainter 是绕开 Widget 树、直接控制 Canvas 绘制像素的类。类比：普通 Widget 像乐高积木拼装，CustomPainter 像白纸+画笔。
+
+| 普通 Widget | CustomPainter |
+|---|---|
+| 乐高积木——用现成的组件拼装 | 白纸 + 画笔——从零画起 |
+| `Container > Row > Text` | `canvas.drawCircle(...)` |
+| 快、语义化、自动布局 | 自由、像素级控制、手动布局 |
+| 适合：按钮、列表、表单 | 适合：图表、图形编辑器、知识图谱 |
+
+### 7.2 三个核心方法
+
+| 方法 | 角色 | 说明 |
+|---|---|---|
+| `paint(Canvas, Size)` | **必须实现** | 每帧重绘时调用，给你画布+尺寸 |
+| `shouldRepaint(oldDelegate)` | **性能开关** | 返回 false 跳过绘制，避免无效重绘 |
+| `hitTest`（内置）/ 自定义 `hitTestNode` | **交互** | 判断用户点击是否命中某图形 |
+
+CustomPainter 的 `hitTest` 签名是 `bool? Function(Offset)`，返回是否命中。如果需要返回"命中了哪个节点"（如 `GraphNode?`），需要自定义一个 `hitTestNode(Offset, Size)` 方法，用数学公式（圆：`dx² + dy² < r²`）手工判断。
+
+### 7.3 使用姿势
+
+```dart
+// 在 Widget build() 中：
+CustomPaint(
+  painter: GraphPainter(nodes: nodes, edges: edges),
+  size: Size.infinite,  // 铺满可用区域
+)
+
+// GraphPainter.paint() 中：
+canvas.drawCircle(Offset(x, y), radius, paint);   // 画圆
+canvas.drawLine(from, to, paint);                  // 画线
+TextPainter(text: ...)..layout()..paint(canvas, offset);  // 画文字
+```
+
+### 7.4 与 iOS 的类比
+
+| Flutter | iOS |
+|---|---|
+| `CustomPainter` | `UIView.draw(_:)` 中写 Core Graphics |
+| `Canvas` | `CGContext` |
+| `Paint` | `CGColor` + `CGPath` 的属性合集 |
+| `TextPainter` | `NSAttributedString.draw(at:)` |
+
+---
+
+## 八、Force-Directed 布局算法
+
+### 8.1 是什么
+
+一个经典的图可视化算法（Fruchterman & Reingold, 1991），把图的节点当成物理粒子，模拟四种力让它们收敛到平衡位置。
+
+**直观类比：** 一把气球用皮筋绑在一起，松手后皮筋把相关的拉近，没绑的弹开，最终所有气球停在自然位置。
+
+### 8.2 四种力
+
+| 力 | 作用 | 公式 |
+|---|---|---|
+| 斥力 | 所有节点互相排斥，保持间距 | `F = k_repulsion / dist²` |
+| 吸引力 | 有连线两端互相吸引 | `F = dist × k_attraction × strength` |
+| 中心引力 | 整体聚拢在画面中央 | `F = (0.5 - pos) × 0.01` |
+| 边界约束 | 不飞出画面 | 软约束 + `clamp(0, 1)` |
+
+### 8.3 迭代收敛
+
+每轮：`计算合力 → 更新速度(v = (v+F)×阻尼) → 更新位置 → 检查能量是否低于阈值`。重复 100-150 轮，或能量 < 阈值时提前结束。
+
+### 8.4 本项目中的实现
+
+- ~130 行 Dart，零外部依赖
+- 固定随机种子（42），保证布局可复现
+- 力上限 `_maxForce = 10.0` + 位置裁剪 `.clamp(0, 1)` 双保险防止 NaN 溢出
+- 半径与节点 weight 成正比（28-48px）
+
+### 8.5 坑
+
+两节点极近时斥力公式 `k / dist²` 爆炸性增长 → 位置溢出 Infinity → 后续运算变成 NaN。解法：力上限裁剪 + 位置 clamp 双保险。
+
