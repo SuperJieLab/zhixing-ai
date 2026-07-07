@@ -402,7 +402,9 @@ MindNode:
 
 ---
 
-## 八、实施计划（10 天 MVP）
+## 八、实施计划（9 天核心版 + 高阶扩展）
+
+### 核心版（App Store 上架）
 
 | 天 | 阶段 | 内容 | 状态 |
 |:--:|------|------|:--:|
@@ -410,13 +412,55 @@ MindNode:
 | **2** | 端侧推理 | llama.cpp + Qwen3.5-2B + Metal 加速 | ✅ |
 | **3** | 对话引擎 | 梯度追问策略 + Context 管理 + Token 追踪 | ✅ |
 | **4** | 洞察总结 | InsightService + JSON 三层回退 + InsightsPage UI | ✅ |
-| **5a** | 端侧持久化 | sqflite 本地存储 + ConversationProvider + 历史列表 | 🔜 |
-| **5b** | 后端搭建 | Go + Gin + SQLite + Conversation CRUD API | |
-| **6** | 前后端联调 | Flutter 接后端 API + 对话同步 | |
-| **7** | 思维图谱 | 后端图谱引擎 + Flutter CustomPainter 渲染 + 交互 | |
-| **8** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | |
-| **9** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
-| **10** | 收尾 | README + 录 Demo + 截图 + Push GitHub | |
+| **5** | 端侧持久化 | sqflite 本地存储 + ConversationProvider + 历史列表 | ✅ |
+| **6** | 思维图谱 | LLM 端侧生成图谱 JSON + CustomPainter 渲染 + 手势交互 | 🔜 |
+| **7** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | |
+| **8** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
+| **9** | 收尾 | README + 录 Demo + 截图 + Push GitHub + 上架准备 | |
+
+### 高阶版（Resume 加分项 — 后续迭代）
+
+高阶功能分三个阶段，每个阶段都有独立的交付价值，且后一个阶段依赖前一个阶段。
+
+#### 高阶 1：云端同步（后端 + 联调）
+
+| 任务 | 内容 | 交付价值 |
+|------|------|------|
+| Go 后端 | Gin + SQLite + Conversation CRUD API | 数据有云端副本，不会丢 |
+| 前后端联调 | Flutter dio 接后端 + 对话自动同步 | 本地优先，云端备份 |
+| 冲突解决 | 时间戳排序 + 简单 last-write-wins | 多端写入不乱 |
+
+**依赖**：无，可以独立开始。
+
+#### 高阶 2：Web/iPad 回顾台
+
+| 任务 | 内容 | 交付价值 |
+|------|------|------|
+| Web 端 | 拉取历史对话 + 思维图谱展示 + 导出 | 大屏上回顾深度对话 |
+| iPad 适配 | 横屏双栏布局（列表 + 详情） | iPad 上更沉浸的回顾体验 |
+
+**依赖**：高阶 1（需要后端提供数据）。Web 回顾台在数据到云端后就是纯前端项目。
+
+#### 高阶 3：Watch 触发器 + 传感器
+
+| 任务 | 内容 | 交付价值 |
+|------|------|------|
+| HealthKit 对接 | 心率数据接入对话上下文 | 生理数据增强 AI 感知 |
+| Watch 语音回答 | WatchConnectivity 蓝牙通信 | 手表上快速回答 |
+| 每日推送 | APNs/FCM 定时推问题 | 被动触发，降低使用门槛 |
+
+**依赖**：
+- 每日推送 → 高阶 1（后端推送服务器）
+- Watch ↔ Phone 蓝牙 + HealthKit → **不依赖后端**（纯本地），可独立提前做
+
+#### 依赖关系图
+
+```
+高阶 1：后端 + 云端同步
+  ├── → 高阶 2：Web/iPad 回顾台
+  └── → 高阶 3：Watch 推送部分
+                Watch 传感器部分（独立，可提前做）
+```
 
 ### 每日详细计划
 
@@ -443,7 +487,7 @@ MindNode:
 - InsightsPage 完整 UI：洞察卡片 + 价值观标签 + 矛盾高亮 + stagger 入场动画
 - ChatPage._endConversation 异步化（loading 弹窗 → LLM 分析 → 跳转）
 
-**Day 5a — 端侧会话持久化 & 历史管理**
+**Day 5 — 端侧会话持久化 & 历史管理 ✅**
 
 > 实现计划：`docs/plans/2026-07-06-day5a-local-persistence.md`
 > 设计细节：见本文档第五节「页面 5：历史列表页」
@@ -451,47 +495,37 @@ MindNode:
 - sqflite 本地数据库（单表 conversations，messages 和 insight 以 JSON 列存储）
 - Conversation 数据模型（toMap/fromMap 序列化）
 - ConversationRepository（CRUD 单例）
-- ConversationProvider（ChangeNotifier 状态管理）
+- ConversationProvider（ChangeNotifier 状态管理 + 活跃会话生命周期）
 - ConversationCard（话题 + 轮次 + 洞察摘要 + 收藏星标 + 左滑删除）
 - HistoryPage 重写（列表 + 空状态 + 点击查看洞察）
-- ChatPage 集成：创建时入库 → 每轮完成时更新 messages_json → 结束时写入 insight_json
-- 验收：聊完退 App 再进 → 历史里能看到
+- ChatPage 集成：通过 ConversationProvider 管理会话生命周期
 
-**Day 5b — 后端搭建**
+**Day 6 — 思维图谱**
 
-- Go + Gin 项目初始化
-- SQLite + GORM 建表
-- Conversation CRUD API
-- Message CRUD API
-- 基础测试通过
+> 端侧 LLM 生成图谱结构 + Flutter CustomPainter 渲染，无需后端。
 
-**Day 6 — 前后端联调**
-
-- Flutter 添加 dio HTTP client
-- 对话开始时自动创建 Conversation
-- 每轮对话自动追加 Message
-- 历史列表从后端拉取（本地优先，后端同步）
-- 测试：手机聊完 → 后端有数据 → 列表能拉
-
-**Day 7 — 思维图谱**
-- 后端：分析对话提取节点 + 关联关系
-- 使用 dagre 库计算图谱布局（Go 侧，或调用 Python 脚本）
-- Flutter：CustomPainter 渲染图谱 + 手势交互
+- GraphService：复用 InsightService 模式，LLM 将对话全文转为节点/边 JSON
+- 图谱数据模型：`GraphNode`（label, weight, category）+ `GraphEdge`（from, to, label）
+- Dart 侧实现 force-directed 布局算法（无需 dagre 等外部库）
+- CustomPainter 渲染：节点（大小按权重）+ 连线（粗细按关联强度）+ 颜色分类
+- 手势交互：拖拽节点 / 缩放 / 点击展开详情
 - 测试：一次对话 → 生成可交互图谱
 
-**Day 8 — 错误覆盖 + Android 验证**
+**Day 7 — 错误覆盖 + Android 验证**
 - 实现所有状态矩阵 UI
 - 测试边界 case：空话题、超长回答、网络断连、模型 crash
 - Android 真机/模拟器跑通
 - 修复双端差异问题
 
-**Day 9 — 模型下载**
+**Day 8 — 模型下载**
+
 - HuggingFace 直链获取
 - dio 断点续传实现
 - 下载进度 Provider → UI 进度条
 - 下载完成自动触发模型加载
 
-**Day 10 — 收尾**
+**Day 9 — 收尾**
+
 - 写 README（架构图 + 截图 + 技术栈 + 快速开始）
 - 录 2 分钟 Demo 视频
 - 截图（6 个页面 + 错误状态）
@@ -504,7 +538,7 @@ MindNode:
 
 ### 简历落点
 
-> 独立开发基于 Flutter + llama.cpp 的苏格拉底式 AI 对话应用，通过 Dart FFI 桥接 Qwen 1.5B 端侧推理引擎，iOS CoreML / Android NNAPI 自动加速；Go 后端实现多端同步与思维图谱生成；一个代码库覆盖双端从 UI 到推理到后端联动的完整链路。
+> 独立开发基于 Flutter + llama.cpp 的苏格拉底式 AI 对话应用，通过 Dart FFI 桥接 Qwen3.5-2B 端侧推理引擎，Metal/CoreML 自动加速；端侧 LLM 驱动追问策略、洞察总结与思维图谱生成；完整数据本地持久化，隐私零上传；一个代码库覆盖双端从 UI 到推理的完整链路。
 
 ### 高频追问 + 标准回答
 
