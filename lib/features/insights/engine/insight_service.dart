@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 洞察总结服务
@@ -12,9 +11,9 @@ import 'package:socratic_ai/core/models/chat_models.dart';
 /// 通过 [LlamaService.engine] 创建独立的 [EngineChat]，
 /// 不干扰正在进行的对话 session。
 class InsightService {
-  final LlamaService _llm;
+  final LlamaEngine _engine;
 
-  InsightService(this._llm);
+  InsightService(this._engine);
 
   // ================================================================
   // 系统提示词
@@ -47,24 +46,13 @@ class InsightService {
     String topic,
     List<ChatMessage> conversation,
   ) async {
-    final engine = _llm.engine;
-    if (engine == null) {
-      debugPrint('[InsightService] 模型未加载，跳过洞察生成');
-      return const InsightResult(
-        coreInsights: [],
-        underlyingValues: [],
-        contradictionsFound: [],
-        nextTopicSuggestion: null,
-      );
-    }
-
     // 构建完整对话文本
     final conversationText = _buildConversationText(topic, conversation);
     debugPrint('[InsightService] 对话长度: ${conversationText.length} 字');
 
     try {
       // 创建独立的 chat 实例
-      final chat = await engine.createChat();
+      final chat = await _engine.createChat();
       try {
         chat.addSystem(_systemPrompt);
         chat.addUser(conversationText);
