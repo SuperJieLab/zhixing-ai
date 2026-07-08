@@ -39,6 +39,9 @@ class AppConstants {
   static const String macosDevModelAbsolutePath =
       '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen3.5-2b-q4_k_m.gguf';
 
+  /// 默认模型绝对路径（开发期硬编码，Day 8 模型下载后改为沙盒路径）
+  static const String defaultModelPath = macosDevModelAbsolutePath;
+
   // ─── 预设话题 ───
   ///
   /// 用户打开 App 时看到的 5 张话题卡片。
