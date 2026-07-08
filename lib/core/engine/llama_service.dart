@@ -1,204 +1,117 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
-/// LlamaService — 端侧 LLM 推理引擎封装
+import 'package:socratic_ai/core/constants.dart';
+
+/// 模型加载配置（值对象，决定缓存命中）
+class LlamaConfig {
+  final String modelPath;
+  final int contextSize;
+  final int gpuLayers;
+  final int threads;
+
+  const LlamaConfig({
+    required this.modelPath,
+    this.contextSize = 2048,
+    this.gpuLayers = -1,
+    this.threads = 4,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is LlamaConfig &&
+      modelPath == other.modelPath &&
+      contextSize == other.contextSize &&
+      gpuLayers == other.gpuLayers &&
+      threads == other.threads;
+
+  @override
+  int get hashCode => Object.hash(modelPath, contextSize, gpuLayers, threads);
+}
+
+/// 端侧 LLM 引擎缓存池（单例）
 ///
-/// 只负责 llama.cpp 引擎生命周期和底层的 chat 操作。
-/// 不包含任何业务逻辑（Prompt 模板、追问策略、去重等）。
-///
-/// 业务逻辑由 [SocraticPrompter] 负责，它组合 LlamaService 并实现 [DialogueEngine]。
+/// 不封装 Chat 操作。调用方拿到 [LlamaEngine] 后自行 `createChat()` 管理 session。
 ///
 /// 使用方式：
 /// ```dart
-/// final llm = LlamaService();
-/// await llm.loadModel(modelPath: '...', libraryPath: '...');
-/// llm.setSystemPrompt('你是一个助手...');
-/// llm.addUserMessage('你好');
-/// await for (final token in llm.generate()) {
-///   print(token);
-/// }
+/// final engine = await LlamaService.instance.ensureReady();
+/// final chat = await engine.createChat();
+/// chat.addSystem('...');
 /// ```
 class LlamaService {
-  LlamaEngine? _engine;
-  EngineChat? _chat;
+  static final LlamaService instance = LlamaService._();
 
-  bool _isLoaded = false;
-  bool _isLoading = false;
+  LlamaService._();
 
-  /// 模型是否已加载并就绪
-  bool get isLoaded => _isLoaded;
+  // key = LlamaConfig, value = 正在/已经加载的 Future
+  // 用 Future 而非 LlamaEngine —— 同 config 并发调用自动排队
+  final Map<LlamaConfig, Future<LlamaEngine>> _pool = {};
 
-  /// 是否正在加载中
-  bool get isLoading => _isLoading;
-
-  /// 当前设备的硬件加速器名称（Metal / Hexagon / null = CPU）
-  String? get acceleratorName => _engine?.primaryAcceleratorName;
-
-  /// 底层推理引擎（供 InsightService 等外部组件创建独立 chat 实例）
-  LlamaEngine? get engine => _engine;
+  /// 缓存池大小（仅供调试）
+  int get poolSize => _pool.length;
 
   // ================================================================
-  // 模型加载
+  // 三层 API
   // ================================================================
 
-  /// 加载 GGUF 模型并初始化推理引擎（指定 dylib 路径）。
-  Future<void> loadModel({
-    required String modelPath,
-    required String libraryPath,
-    int contextSize = 2048,
-    int gpuLayers = -1,
-    int threads = 4,
-  }) async {
-    if (_isLoaded || _isLoading) return;
-
-    _isLoading = true;
-    try {
-      debugPrint('[LlamaService] 正在加载模型: $modelPath');
-
-      _engine = await LlamaEngine.spawn(
-        libraryPath: libraryPath,
-        modelParams: ModelParams(
-          path: modelPath,
-          gpuLayers: gpuLayers,
-        ),
-        contextParams: ContextParams(
-          nCtx: contextSize,
-          nThreads: threads,
-          typeK: KvCacheType.q8_0,
-          typeV: KvCacheType.q8_0,
-        ),
-      );
-
-      debugPrint('[LlamaService] 引擎启动完成');
-      if (_engine!.hasAccelerator) {
-        debugPrint('[LlamaService] 加速器: ${_engine!.primaryAcceleratorName}');
-      }
-
-      _chat = await _engine!.createChat();
-      _isLoaded = true;
-      debugPrint('[LlamaService] 模型加载完成');
-    } catch (e, stack) {
-      debugPrint('[LlamaService] 加载失败: $e');
-      debugPrintStack(stackTrace: stack);
-      _engine?.dispose();
-      _engine = null;
-      rethrow;
-    } finally {
-      _isLoading = false;
-    }
-  }
-
-  /// 从已嵌入进程的 xcframework 加载（iOS/macOS App 打包场景）。
-  Future<void> loadModelFromProcess({
-    required String modelPath,
-    int contextSize = 2048,
-    int gpuLayers = -1,
-    int threads = 4,
-  }) async {
-    if (_isLoaded || _isLoading) return;
-
-    _isLoading = true;
-    try {
-      _engine = await LlamaEngine.spawnFromProcess(
-        modelParams: ModelParams(
-          path: modelPath,
-          gpuLayers: gpuLayers,
-        ),
-        contextParams: ContextParams(
-          nCtx: contextSize,
-          nThreads: threads,
-          typeK: KvCacheType.q8_0,
-          typeV: KvCacheType.q8_0,
-        ),
-      );
-
-      _chat = await _engine!.createChat();
-      _isLoaded = true;
-      debugPrint('[LlamaService] 模型加载完成（进程内符号）');
-    } catch (e, stack) {
-      debugPrint('[LlamaService] 加载失败: $e');
-      debugPrintStack(stackTrace: stack);
-      _engine?.dispose();
-      _engine = null;
-      rethrow;
-    } finally {
-      _isLoading = false;
-    }
-  }
-
-  // ================================================================
-  // Chat 操作（无状态，纯粹的消息传递）
-  // ================================================================
-
-  /// 设置系统提示词（必须在使用前调用）
-  void setSystemPrompt(String prompt) {
-    _ensureChat();
-    _chat!.addSystem(prompt);
-  }
-
-  /// 添加一条用户消息到对话历史
-  void addUserMessage(String message) {
-    _ensureChat();
-    _chat!.addUser(message);
-  }
-
-  /// 添加一条 assistant 消息到对话历史
-  void addAssistantMessage(String message) {
-    _ensureChat();
-    _chat!.addAssistant(message);
-  }
-
-  /// 流式生成回复
+  /// 默认模型 + 默认配置（99% 的使用场景）
   ///
-  /// 每 yield 一个 token 字符串。
-  /// 调用前需要先通过 [addUserMessage] 添加用户输入。
-  Stream<String> generate({
-    double temperature = 0.7,
-    double topP = 0.9,
-    int maxTokens = 256,
-    double repeatPenalty = 1.0,
-  }) async* {
-    _ensureChat();
+  /// 使用 [AppConstants.defaultModelPath]，搭配默认 contextSize / gpuLayers / threads。
+  Future<LlamaEngine> ensureReady() async {
+    return ensureReadyWithModel(AppConstants.defaultModelPath);
+  }
+
+  /// 指定模型路径（配置用默认值）
+  ///
+  /// [modelPath] 模型文件的绝对路径。
+  Future<LlamaEngine> ensureReadyWithModel(String modelPath) async {
+    return ensureReadyWithConfig(LlamaConfig(
+      modelPath: modelPath,
+      contextSize: AppConstants.modelContextSize,
+      gpuLayers: AppConstants.modelGpuLayers,
+      threads: AppConstants.modelThreads,
+    ));
+  }
+
+  /// 完全自定义配置
+  ///
+  /// 不同 [LlamaConfig] 生成不同缓存条目。
+  /// [config] 的四个字段全参与等值比较决定缓存命中。
+  Future<LlamaEngine> ensureReadyWithConfig(LlamaConfig config) async {
+    // 命中缓存
+    if (_pool.containsKey(config)) {
+      return _pool[config]!;
+    }
+
+    // 首次加载
+    final future = _loadEngine(config);
+    _pool[config] = future;
+
     try {
-      await for (final event in _chat!.generate(
-        sampler: SamplerParams(
-          temperature: temperature,
-          topP: topP,
-          repeatPenalty: repeatPenalty,
-        ),
-        maxTokens: maxTokens,
-      )) {
-        if (event is TokenEvent) {
-          yield event.text;
-        }
-      }
-    } on StateError catch (e) {
-      debugPrint('[LlamaService] StateError: $e');
-      yield '[生成错误]';
-    } catch (e, stack) {
-      debugPrint('[LlamaService] generate 异常: $e');
-      debugPrintStack(stackTrace: stack);
-      yield '[生成错误]';
+      final engine = await future;
+      debugPrint('[LlamaService] 引擎缓存命中: ${config.modelPath}');
+      return engine;
+    } catch (e) {
+      _pool.remove(config); // 失败不缓存，允许重试
+      rethrow;
     }
   }
 
-  /// 清空对话历史（保留系统提示词需要重新设置）
-  void clearHistory() {
-    _chat?.clearHistory();
-  }
-
-  /// 释放引擎及所有资源
-  Future<void> dispose() async {
-    debugPrint('[LlamaService] 正在释放引擎...');
-    _chat = null;
-    _engine?.dispose();
-    _engine = null;
-    _isLoaded = false;
+  /// 释放所有缓存的引擎
+  void dispose() {
+    debugPrint('[LlamaService] 正在释放 ${_pool.length} 个引擎...');
+    for (final entry in _pool.entries) {
+      entry.value.then((engine) => engine.dispose()).catchError((_) {});
+    }
+    _pool.clear();
     debugPrint('[LlamaService] 引擎已释放');
   }
 
   // ================================================================
-  // Token 估算工具（供上层 SocraticPrompter 调用）
+  // Token 估算工具（保留）
   // ================================================================
 
   /// 通用 token 估算工具（静态方法）
@@ -208,7 +121,6 @@ class LlamaService {
     int chineseCount = 0;
     int otherCount = 0;
     for (final char in text.runes) {
-      // CJK Unified Ideographs + Extension A
       if ((char >= 0x4E00 && char <= 0x9FFF) ||
           (char >= 0x3400 && char <= 0x4DBF) ||
           (char >= 0x3000 && char <= 0x303F)) {
@@ -224,9 +136,66 @@ class LlamaService {
   // 私有
   // ================================================================
 
-  void _ensureChat() {
-    if (_chat == null) {
-      throw StateError('LlamaService 未初始化，请先调用 loadModel');
+  /// 解析平台对应的 native library 路径
+  String _resolveLibraryPath() {
+    if (Platform.isMacOS) {
+      final exe = File(Platform.resolvedExecutable);
+      return '${exe.parent.parent.path}/Frameworks/libllama.dylib';
+    }
+    if (Platform.isAndroid) {
+      return 'libllama.so'; // Android .so 由 linker 加载
+    }
+    throw UnsupportedError('${Platform.operatingSystem} 暂不支持 LlamaService');
+  }
+
+  /// 底层引擎加载（平台感知）
+  Future<LlamaEngine> _loadEngine(LlamaConfig config) async {
+    debugPrint('[LlamaService] 正在加载引擎: ${config.modelPath}');
+
+    try {
+      LlamaEngine engine;
+
+      if (Platform.isIOS) {
+        // iOS: dylib 已嵌入 xcframework，用 spawnFromProcess
+        engine = await LlamaEngine.spawnFromProcess(
+          modelParams: ModelParams(
+            path: config.modelPath,
+            gpuLayers: config.gpuLayers,
+          ),
+          contextParams: ContextParams(
+            nCtx: config.contextSize,
+            nThreads: config.threads,
+            typeK: KvCacheType.q8_0,
+            typeV: KvCacheType.q8_0,
+          ),
+        );
+      } else {
+        // macOS / Android: 指定 dylib 路径
+        engine = await LlamaEngine.spawn(
+          libraryPath: _resolveLibraryPath(),
+          modelParams: ModelParams(
+            path: config.modelPath,
+            gpuLayers: config.gpuLayers,
+          ),
+          contextParams: ContextParams(
+            nCtx: config.contextSize,
+            nThreads: config.threads,
+            typeK: KvCacheType.q8_0,
+            typeV: KvCacheType.q8_0,
+          ),
+        );
+      }
+
+      debugPrint('[LlamaService] 引擎启动完成');
+      if (engine.hasAccelerator) {
+        debugPrint('[LlamaService] 加速器: ${engine.primaryAcceleratorName}');
+      }
+
+      return engine;
+    } catch (e, stack) {
+      debugPrint('[LlamaService] 引擎加载失败: $e');
+      debugPrintStack(stackTrace: stack);
+      rethrow;
     }
   }
 }
