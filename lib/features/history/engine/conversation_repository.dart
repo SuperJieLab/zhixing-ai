@@ -17,7 +17,7 @@ class ConversationRepository {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'socratic.db'),
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE conversations (
@@ -27,10 +27,18 @@ class ConversationRepository {
             is_favorite INTEGER DEFAULT 0,
             messages_json TEXT,
             insight_json TEXT,
+            graph_json TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE conversations ADD COLUMN graph_json TEXT',
+          );
+        }
       },
     );
   }
@@ -87,6 +95,19 @@ class ConversationRepository {
     }
     await _ensureDb.update('conversations', update,
         where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 保存思维图谱 JSON
+  Future<void> saveGraph(int id, ConversationGraph graph) async {
+    await _ensureDb.update(
+      'conversations',
+      {
+        'graph_json': jsonEncode(graph.toJson()),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   /// 切换收藏状态

@@ -20,14 +20,17 @@ class MindMapService {
   ///
   /// 处理 loading 弹窗、LLM 生成、错误提示、导航跳转的全部流程。
   /// [messages] 对话消息列表。
+  /// [onGenerated] 图谱生成成功后的回调（用于持久化）。
   Future<void> openMindMap(
     BuildContext context,
     String topic,
-    List<ChatMessage> messages,
-  ) async {
+    List<ChatMessage> messages, {
+    Future<void> Function(ConversationGraph)? onGenerated,
+  }) async {
     _showLoading(context);
     try {
       final graph = await _generate(topic, messages);
+      if (onGenerated != null) await onGenerated(graph);
       if (!context.mounted) return;
       _dismissLoading(context);
       if (!context.mounted) return;

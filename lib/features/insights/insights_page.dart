@@ -31,6 +31,9 @@ class InsightsPage extends StatefulWidget {
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
 
+  /// 图谱持久化回调（生成成功后调用）
+  final Future<void> Function(ConversationGraph)? onSaveGraph;
+
   const InsightsPage({
     super.key,
     required this.insight,
@@ -38,6 +41,7 @@ class InsightsPage extends StatefulWidget {
     this.graph,
     this.messages,
     this.fromHistory = false,
+    this.onSaveGraph,
   });
 
   @override
@@ -303,7 +307,12 @@ class _InsightsPageState extends State<InsightsPage>
       return;
     }
 
-    MindMapService().openMindMap(context, widget.topic, messages);
+    MindMapService().openMindMap(
+      context,
+      widget.topic,
+      messages,
+      onGenerated: widget.onSaveGraph,
+    );
   }
 
   void _navigateToMindMap(ConversationGraph graph) {

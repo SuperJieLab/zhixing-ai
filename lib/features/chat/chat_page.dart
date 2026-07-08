@@ -80,6 +80,7 @@ class _ChatPageState extends State<ChatPage> {
     final insight = await chatProvider.endConversation();
 
     // 持久化
+    final activeId = convProvider.activeConversationId;
     convProvider.finishConversation(
       insight.coreInsights.isNotEmpty ? insight : null,
     );
@@ -94,6 +95,9 @@ class _ChatPageState extends State<ChatPage> {
           insight: insight,
           topic: widget.topic,
           messages: chatProvider.messages,
+          onSaveGraph: activeId != null
+              ? (graph) => convProvider.saveGraph(activeId, graph)
+              : null,
         ),
       ),
     );

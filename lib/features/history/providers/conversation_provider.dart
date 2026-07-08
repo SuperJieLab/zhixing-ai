@@ -22,6 +22,9 @@ class ConversationProvider extends ChangeNotifier {
   /// 是否有活跃会话
   bool get hasActiveConversation => _activeConversationId != null;
 
+  /// 当前活跃会话的数据库 ID（null 表示没有活跃会话）
+  int? get activeConversationId => _activeConversationId;
+
   /// 开始一个新会话（入库 + 返回 id）
   Future<int> startConversation(String topic) async {
     final id = await _repo.create(topic: topic);
@@ -40,6 +43,11 @@ class ConversationProvider extends ChangeNotifier {
     if (_activeConversationId == null) return;
     await _repo.complete(_activeConversationId!, insight);
     _activeConversationId = null;
+  }
+
+  /// 保存思维图谱到指定会话
+  Future<void> saveGraph(int conversationId, ConversationGraph graph) async {
+    await _repo.saveGraph(conversationId, graph);
   }
 
   // ================================================================

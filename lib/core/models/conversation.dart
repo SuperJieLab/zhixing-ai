@@ -13,6 +13,7 @@ class Conversation {
   final bool isFavorite;
   final List<ChatMessage> messages;
   final InsightResult? insight;
+  final ConversationGraph? graph;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -23,6 +24,7 @@ class Conversation {
     this.isFavorite = false,
     this.messages = const [],
     this.insight,
+    this.graph,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -34,6 +36,9 @@ class Conversation {
 
   /// 是否有洞察总结
   bool get hasInsight => insight != null;
+
+  /// 是否有思维图谱
+  bool get hasGraph => graph != null;
 
   // ================================================================
   // 序列化
@@ -48,6 +53,7 @@ class Conversation {
       isFavorite: (map['is_favorite'] as int?) == 1,
       messages: _parseMessages(map['messages_json'] as String?),
       insight: _parseInsight(map['insight_json'] as String?),
+      graph: _parseGraph(map['graph_json'] as String?),
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
@@ -62,6 +68,7 @@ class Conversation {
       'is_favorite': isFavorite ? 1 : 0,
       'messages_json': _messagesToJson(messages),
       'insight_json': _insightToJson(insight),
+      'graph_json': _graphToJson(graph),
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -75,6 +82,7 @@ class Conversation {
     bool? isFavorite,
     List<ChatMessage>? messages,
     InsightResult? insight,
+    ConversationGraph? graph,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -85,6 +93,7 @@ class Conversation {
       isFavorite: isFavorite ?? this.isFavorite,
       messages: messages ?? this.messages,
       insight: insight ?? this.insight,
+      graph: graph ?? this.graph,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -140,5 +149,20 @@ class Conversation {
       'contradictions_found': insight.contradictionsFound,
       'next_topic_suggestion': insight.nextTopicSuggestion,
     });
+  }
+
+  static ConversationGraph? _parseGraph(String? json) {
+    if (json == null || json.isEmpty) return null;
+    try {
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      return ConversationGraph.fromJson(map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _graphToJson(ConversationGraph? graph) {
+    if (graph == null) return null;
+    return jsonEncode(graph.toJson());
   }
 }

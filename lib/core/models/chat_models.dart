@@ -180,6 +180,11 @@ class ConversationGraph {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+        'nodes': nodes.map((n) => n.toJson()).toList(),
+        'edges': edges.map((e) => e.toJson()).toList(),
+      };
+
   bool get isEmpty => nodes.isEmpty;
   bool get isNotEmpty => nodes.isNotEmpty;
   int get nodeCount => nodes.length;
