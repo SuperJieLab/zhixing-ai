@@ -7,6 +7,7 @@ import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
 import '../../../core/models/chat_models.dart';
 import '../../insights/engine/insight_service.dart';
+import '../../mindmap/engine/graph_service.dart';
 import '../engine/socratic_prompter.dart';
 
 /// 对话状态管理
@@ -206,6 +207,25 @@ class ChatProvider extends ChangeNotifier {
         underlyingValues: [],
         contradictionsFound: [],
       );
+    }
+  }
+
+  /// 生成对话思维图谱
+  ///
+  /// 通过 GraphService 调用 LLM 分析完整对话历史。
+  /// 引擎未就绪时返回空图谱。
+  Future<ConversationGraph> generateGraph() async {
+    final engine = _engine;
+    if (engine == null || engine is! SocraticPrompter) {
+      return const ConversationGraph();
+    }
+
+    try {
+      final service = GraphService(engine.llmService);
+      return await service.generate(topic, messages);
+    } catch (e) {
+      debugPrint('[ChatProvider] 图谱生成失败: $e');
+      return const ConversationGraph();
     }
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/theme.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_input.dart';
@@ -76,8 +77,13 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
 
-    // 调用 ChatProvider 生成洞察
-    final insight = await chatProvider.endConversation();
+    // 并行生成洞察和图谱
+    final results = await Future.wait([
+      chatProvider.endConversation(),
+      chatProvider.generateGraph(),
+    ]);
+    final insight = results[0] as InsightResult;
+    final graph = results[1] as ConversationGraph;
 
     // 持久化
     convProvider.finishConversation(
@@ -93,6 +99,7 @@ class _ChatPageState extends State<ChatPage> {
         builder: (_) => InsightsPage(
           insight: insight,
           topic: widget.topic,
+          graph: graph.isNotEmpty ? graph : null,
         ),
       ),
     );

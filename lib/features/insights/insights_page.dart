@@ -5,6 +5,7 @@ import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
 import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
 import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
 import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
+import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
@@ -20,6 +21,9 @@ class InsightsPage extends StatefulWidget {
   final InsightResult insight;
   final String topic;
 
+  /// 对话思维图谱（Day 6 产出，可为 null）
+  final ConversationGraph? graph;
+
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
 
@@ -27,6 +31,7 @@ class InsightsPage extends StatefulWidget {
     super.key,
     required this.insight,
     required this.topic,
+    this.graph,
     this.fromHistory = false,
   });
 
@@ -242,7 +247,19 @@ class _InsightsPageState extends State<InsightsPage>
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: null, // Day 7 启用
+            onPressed: widget.graph != null && widget.graph!.isNotEmpty
+                ? () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MindMapPage(
+                          graph: widget.graph!,
+                          topic: widget.topic,
+                        ),
+                      ),
+                    );
+                  }
+                : null,
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
