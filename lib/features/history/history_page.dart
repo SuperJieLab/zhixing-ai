@@ -94,8 +94,6 @@ class _HistoryPageState extends State<HistoryPage> {
 
   void _openInsight(Conversation conv) {
     if (conv.insight != null) {
-      final convId = conv.id;
-      final convProvider = context.read<ConversationProvider>();
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -104,10 +102,8 @@ class _HistoryPageState extends State<HistoryPage> {
             topic: conv.topic,
             messages: conv.messages,
             graph: conv.graph,
+            conversationId: conv.id,
             fromHistory: true,
-            onSaveGraph: convId != null
-                ? (graph) => convProvider.saveGraph(convId, graph)
-                : null,
           ),
         ),
       );

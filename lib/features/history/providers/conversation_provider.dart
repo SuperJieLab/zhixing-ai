@@ -45,11 +45,6 @@ class ConversationProvider extends ChangeNotifier {
     _activeConversationId = null;
   }
 
-  /// 保存思维图谱到指定会话
-  Future<void> saveGraph(int conversationId, ConversationGraph graph) async {
-    await _repo.saveGraph(conversationId, graph);
-  }
-
   // ================================================================
   // 历史列表
   // ================================================================

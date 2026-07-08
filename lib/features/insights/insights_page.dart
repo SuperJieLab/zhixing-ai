@@ -5,7 +5,6 @@ import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
 import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
 import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
 import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
-import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
 import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
@@ -28,11 +27,11 @@ class InsightsPage extends StatefulWidget {
   /// 对话消息列表（用于按需生成图谱；为 null 时按钮不可用）
   final List<ChatMessage>? messages;
 
+  /// 所属会话的数据库 ID（用于图谱自动持久化）
+  final int? conversationId;
+
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
-
-  /// 图谱持久化回调（生成成功后调用）
-  final Future<void> Function(ConversationGraph)? onSaveGraph;
 
   const InsightsPage({
     super.key,
@@ -40,8 +39,8 @@ class InsightsPage extends StatefulWidget {
     required this.topic,
     this.graph,
     this.messages,
+    this.conversationId,
     this.fromHistory = false,
-    this.onSaveGraph,
   });
 
   @override
@@ -293,12 +292,6 @@ class _InsightsPageState extends State<InsightsPage>
   }
 
   void _openMindMap(BuildContext context) {
-    // 已有预生成的图谱 → 直接打开
-    if (widget.graph != null && widget.graph!.isNotEmpty) {
-      _navigateToMindMap(widget.graph!);
-      return;
-    }
-
     final messages = widget.messages;
     if (messages == null || messages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -309,18 +302,10 @@ class _InsightsPageState extends State<InsightsPage>
 
     MindMapService().openMindMap(
       context,
-      widget.topic,
-      messages,
-      onGenerated: widget.onSaveGraph,
-    );
-  }
-
-  void _navigateToMindMap(ConversationGraph graph) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MindMapPage(graph: graph, topic: widget.topic),
-      ),
+      topic: widget.topic,
+      messages: messages,
+      conversationId: widget.conversationId,
+      cachedGraph: widget.graph,
     );
   }
 }

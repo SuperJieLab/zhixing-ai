@@ -95,9 +95,7 @@ class _ChatPageState extends State<ChatPage> {
           insight: insight,
           topic: widget.topic,
           messages: chatProvider.messages,
-          onSaveGraph: activeId != null
-              ? (graph) => convProvider.saveGraph(activeId, graph)
-              : null,
+          conversationId: activeId,
         ),
       ),
     );
