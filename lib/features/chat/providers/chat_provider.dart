@@ -1,13 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 
-import '../../../core/constants.dart';
 import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
 import '../../../core/models/chat_models.dart';
 import '../../insights/engine/insight_service.dart';
-import '../../mindmap/engine/graph_service.dart';
 import '../engine/socratic_prompter.dart';
 
 /// 对话状态管理
@@ -90,25 +86,8 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // ── dylib 路径：从 App Bundle 内部加载 ──
-      final executable = File(Platform.resolvedExecutable);
-      final bundleContents = executable.parent.parent; // MacOS → Contents
-      final libPath = '${bundleContents.path}/Frameworks/libllama.dylib';
-
-      // ── 模型路径：开发阶段用绝对路径 ──
-      // Day 9 模型自动下载到沙盒后将替换此逻辑
-      final modelPath = AppConstants.macosDevModelAbsolutePath;
-
-      final llm = LlamaService();
-      await llm.loadModel(
-        modelPath: modelPath,
-        libraryPath: libPath,
-        contextSize: AppConstants.modelContextSize,
-        gpuLayers: AppConstants.modelGpuLayers,
-        threads: AppConstants.modelThreads,
-      );
-
-      final engine = SocraticPrompter(llm);
+      final llmEngine = await LlamaService.instance.ensureReady();
+      final engine = SocraticPrompter(llmEngine);
       await engine.initialize();
       _engine = engine;
     } catch (e) {
@@ -198,7 +177,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
-      final service = InsightService(engine.llmService);
+      final service = InsightService(engine.engine);
       return await service.analyze(topic, messages);
     } catch (e) {
       debugPrint('[ChatProvider] 洞察生成失败: $e');
@@ -207,25 +186,6 @@ class ChatProvider extends ChangeNotifier {
         underlyingValues: [],
         contradictionsFound: [],
       );
-    }
-  }
-
-  /// 生成对话思维图谱
-  ///
-  /// 通过 GraphService 调用 LLM 分析完整对话历史。
-  /// 引擎未就绪时返回空图谱。
-  Future<ConversationGraph> generateGraph() async {
-    final engine = _engine;
-    if (engine == null || engine is! SocraticPrompter) {
-      return const ConversationGraph();
-    }
-
-    try {
-      final service = GraphService(engine.llmService);
-      return await service.generate(topic, messages);
-    } catch (e) {
-      debugPrint('[ChatProvider] 图谱生成失败: $e');
-      return const ConversationGraph();
     }
   }
 
