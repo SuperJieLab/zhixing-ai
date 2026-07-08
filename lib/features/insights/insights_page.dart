@@ -6,6 +6,7 @@ import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
 import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
 import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
 import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
+import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
@@ -21,8 +22,11 @@ class InsightsPage extends StatefulWidget {
   final InsightResult insight;
   final String topic;
 
-  /// 对话思维图谱（Day 6 产出，可为 null）
+  /// 对话思维图谱（预生成好的，如从历史读取；可为 null）
   final ConversationGraph? graph;
+
+  /// 对话消息列表（用于按需生成图谱；为 null 时按钮不可用）
+  final List<ChatMessage>? messages;
 
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
@@ -32,6 +36,7 @@ class InsightsPage extends StatefulWidget {
     required this.insight,
     required this.topic,
     this.graph,
+    this.messages,
     this.fromHistory = false,
   });
 
@@ -247,18 +252,8 @@ class _InsightsPageState extends State<InsightsPage>
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: widget.graph != null && widget.graph!.isNotEmpty
-                ? () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MindMapPage(
-                          graph: widget.graph!,
-                          topic: widget.topic,
-                        ),
-                      ),
-                    );
-                  }
+            onPressed: widget.messages != null
+                ? () => _openMindMap(context)
                 : null,
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -291,5 +286,32 @@ class _InsightsPageState extends State<InsightsPage>
         (route) => false,
       );
     }
+  }
+
+  void _openMindMap(BuildContext context) {
+    // 已有预生成的图谱 → 直接打开
+    if (widget.graph != null && widget.graph!.isNotEmpty) {
+      _navigateToMindMap(widget.graph!);
+      return;
+    }
+
+    final messages = widget.messages;
+    if (messages == null || messages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂无对话数据')),
+      );
+      return;
+    }
+
+    MindMapService().openMindMap(context, widget.topic, messages);
+  }
+
+  void _navigateToMindMap(ConversationGraph graph) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MindMapPage(graph: graph, topic: widget.topic),
+      ),
+    );
   }
 }
