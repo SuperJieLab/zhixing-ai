@@ -92,7 +92,7 @@ class LlamaService {
 
     try {
       final engine = await future;
-      debugPrint('[LlamaService] 引擎缓存命中: ${config.modelPath}');
+      debugPrint('[LlamaService] 引擎加载完成: ${config.modelPath}');
       return engine;
     } catch (e) {
       _pool.remove(config); // 失败不缓存，允许重试

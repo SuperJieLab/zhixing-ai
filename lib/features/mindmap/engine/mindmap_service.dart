@@ -46,14 +46,9 @@ class MindMapService {
     String topic,
     List<ChatMessage> messages,
   ) async {
-    try {
-      final engine = await LlamaService.instance.ensureReady();
-      final service = GraphService(engine);
-      return await service.generate(topic, messages);
-    } catch (e) {
-      debugPrint('[MindMapService] 获取引擎失败: $e');
-      return const ConversationGraph();
-    }
+    final engine = await LlamaService.instance.ensureReady();
+    final service = GraphService(engine);
+    return await service.generate(topic, messages);
   }
 
   void _showLoading(BuildContext context) {

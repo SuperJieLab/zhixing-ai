@@ -8,7 +8,7 @@ import 'package:socratic_ai/core/models/chat_models.dart';
 /// 洞察总结服务
 ///
 /// 接收完整对话历史，调用 LLM 提取结构化洞察。
-/// 通过 [LlamaService.engine] 创建独立的 [EngineChat]，
+/// 通过 [LlamaEngine] 创建独立的 [EngineChat]，
 /// 不干扰正在进行的对话 session。
 class InsightService {
   final LlamaEngine _engine;
