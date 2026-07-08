@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 思维图谱生成服务
@@ -11,9 +10,13 @@ import 'package:socratic_ai/core/models/chat_models.dart';
 /// 接收完整对话历史，调用 LLM 提取结构化图谱数据（节点 + 连线）。
 /// 复用 [InsightService] 的模式：独立 EngineChat → JSON 输出 → 三层回退解析。
 class GraphService {
-  final LlamaService _llm;
+  final LlamaEngine _engine;
 
-  GraphService(this._llm);
+  GraphService(this._engine);
+
+  /// 匹配 Qwen 模型的 `&lt;think&gt;...&lt;/think&gt;` 推理标签
+  static final _thinkTagPattern =
+      RegExp(r'<think>[\s\S]*?</think>', multiLine: true);
 
   // ================================================================
   // 系统提示词
@@ -33,7 +36,8 @@ class GraphService {
       '3. weight 值 0-1（topic 和核心 insight 给 1.0，次要节点给 0.5）\n'
       '4. 节点之间如果有明确关联（因果、包含、对比、矛盾），用 edge 连接\n'
       '5. edge 的 label 用 2-4 字简要描述关系（如"导致"、"包含"、"矛盾"）\n'
-      '6. 严格只输出 JSON，不要输出任何解释性文字\n'
+      '6. 严格只输出 JSON，不要输出任何解释性文字，不要输出 <think> 标签\n'
+      '7. 每条 edge 必须包含 source, target, label, strength 四个字段\n'
       '\n'
       '输出格式：\n'
       '{"nodes":[{"id":"n1","label":"职业转型","type":"topic","weight":1.0},'
@@ -52,17 +56,11 @@ class GraphService {
     String topic,
     List<ChatMessage> conversation,
   ) async {
-    final engine = _llm.engine;
-    if (engine == null) {
-      debugPrint('[GraphService] 模型未加载，跳过图谱生成');
-      return const ConversationGraph();
-    }
-
     final conversationText = _buildConversationText(topic, conversation);
     debugPrint('[GraphService] 对话长度: ${conversationText.length} 字');
 
     try {
-      final chat = await engine.createChat();
+      final chat = await _engine.createChat();
       try {
         chat.addSystem(_systemPrompt);
         chat.addUser(conversationText);
@@ -74,7 +72,7 @@ class GraphService {
             topP: 0.8,
             repeatPenalty: 1.1,
           ),
-          maxTokens: 512, // 图谱 JSON 比洞察大，给更多 token
+          maxTokens: 1024, // 图谱 JSON 较长（节点+连线），需要足够 token
         )) {
           if (event is TokenEvent) {
             buffer.write(event.text);
@@ -110,10 +108,14 @@ class GraphService {
 
   /// 三层回退 JSON 解析
   ConversationGraph _parseResponse(String raw) {
+    // 层 0：剥离 Qwen 模型的 <think> 推理内容
+    String cleaned = raw.replaceAll(_thinkTagPattern, '').trim();
+    if (cleaned.isEmpty) cleaned = raw.trim();
+
     // 层 1：直接 JSON 解析
     try {
       return ConversationGraph.fromJson(
-        jsonDecode(raw.trim()) as Map<String, dynamic>,
+        jsonDecode(cleaned) as Map<String, dynamic>,
       );
     } catch (_) {
       // 继续尝试
@@ -121,7 +123,7 @@ class GraphService {
 
     // 层 2：提取 markdown 代码块
     final codeBlock = RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```');
-    final codeMatch = codeBlock.firstMatch(raw);
+    final codeMatch = codeBlock.firstMatch(cleaned);
     if (codeMatch != null) {
       try {
         return ConversationGraph.fromJson(
@@ -134,7 +136,7 @@ class GraphService {
 
     // 层 3：提取最外层 JSON 对象
     final jsonObj = RegExp(r'\{[\s\S]*\}');
-    final jsonMatch = jsonObj.firstMatch(raw);
+    final jsonMatch = jsonObj.firstMatch(cleaned);
     if (jsonMatch != null) {
       try {
         return ConversationGraph.fromJson(
