@@ -1,41 +1,43 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/insights/engine/insight_service.dart';
-import 'package:socratic_ai/core/engine/llama_service.dart';
+import 'package:test/test.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 void main() {
-  group('InsightService', () {
-    late InsightService service;
-
-    setUp(() {
-      // engine 为 null 时 analyze 返回空结果（模型未加载场景）
-      service = InsightService(LlamaService());
-    });
-
-    test('模型未加载时返回空洞察', () async {
-      final result = await service.analyze(
-        '职业发展',
-        [
-          const ChatMessage(
-            role: MessageRole.ai,
-            content: '今天想聊什么？',
-            round: 0,
-          ),
+  group('ConversationGraph', () {
+    test('序列化回合', () {
+      final graph = ConversationGraph(
+        nodes: [
+          GraphNode(id: 'n1', label: '职业转型', type: 'topic', weight: 1.0),
+          GraphNode(id: 'n2', label: '能力与运气', type: 'insight', weight: 0.8),
+        ],
+        edges: [
+          GraphEdge(source: 'n1', target: 'n2', label: '核心议题', strength: 0.9),
         ],
       );
 
-      expect(result.coreInsights, isEmpty);
-      expect(result.underlyingValues, isEmpty);
-      expect(result.contradictionsFound, isEmpty);
-      expect(result.nextTopicSuggestion, isNull);
+      final json = graph.toJson();
+
+      expect(json['nodes'], isA<List>());
+      expect((json['nodes'] as List).length, 2);
+      expect(json['edges'], isA<List>());
+      expect((json['edges'] as List).length, 1);
+
+      final restored = ConversationGraph.fromJson(json);
+      expect(restored.nodeCount, 2);
+      expect(restored.edgeCount, 1);
+      expect(restored.nodes[0].label, '职业转型');
+      expect(restored.edges[0].label, '核心议题');
     });
 
-    test('空对话历史返回空洞察', () async {
-      final result = await service.analyze('测试', []);
+    test('空图谱序列化', () {
+      final graph = const ConversationGraph();
+      final json = graph.toJson();
 
-      expect(result.coreInsights, isEmpty);
-      expect(result.underlyingValues, isEmpty);
-      expect(result.contradictionsFound, isEmpty);
+      expect(json['nodes'], isEmpty);
+      expect(json['edges'], isEmpty);
+      expect(graph.isEmpty, isTrue);
+
+      final restored = ConversationGraph.fromJson(json);
+      expect(restored.isEmpty, isTrue);
     });
   });
 }

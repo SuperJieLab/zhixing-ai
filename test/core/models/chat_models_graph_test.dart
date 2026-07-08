@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 void main() {
