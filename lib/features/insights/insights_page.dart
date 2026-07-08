@@ -252,7 +252,7 @@ class _InsightsPageState extends State<InsightsPage>
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: widget.messages != null
+            onPressed: (widget.messages != null && widget.messages!.isNotEmpty)
                 ? () => _openMindMap(context)
                 : null,
             style: OutlinedButton.styleFrom(

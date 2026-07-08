@@ -22,16 +22,16 @@ class ForceDirectedLayout {
   final List<GraphEdge> edges;
 
   // 算法参数
-  static const double _repulsionStrength = 200.0;
-  static const double _attractionStrength = 0.01;
-  static const double _damping = 0.85;
+  static const double _repulsionStrength = 80.0;
+  static const double _attractionStrength = 0.03;
+  static const double _damping = 0.88;
   static const double _minVelocity = 0.01;
   static const double _maxForce = 10.0;
   static const int _maxIterations = 150;
 
   // 节点半径范围
-  static const double _minRadius = 28.0;
-  static const double _maxRadius = 48.0;
+  static const double _minRadius = 36.0;
+  static const double _maxRadius = 56.0;
 
   ForceDirectedLayout({
     required this.nodes,
@@ -92,15 +92,15 @@ class ForceDirectedLayout {
         }
 
         // 中心引力：所有节点轻微向中心靠拢
-        fx += (0.5 - node.x!) * 0.01;
-        fy += (0.5 - node.y!) * 0.01;
+        fx += (0.5 - node.x!) * 0.03;
+        fy += (0.5 - node.y!) * 0.03;
 
         // 边界约束力
-        const margin = 0.1;
-        if (node.x! < margin) fx += (margin - node.x!) * 0.5;
-        if (node.x! > 1.0 - margin) fx -= (node.x! - (1.0 - margin)) * 0.5;
-        if (node.y! < margin) fy += (margin - node.y!) * 0.5;
-        if (node.y! > 1.0 - margin) fy -= (node.y! - (1.0 - margin)) * 0.5;
+        const margin = 0.15;
+        if (node.x! < margin) fx += (margin - node.x!) * 0.8;
+        if (node.x! > 1.0 - margin) fx -= (node.x! - (1.0 - margin)) * 0.8;
+        if (node.y! < margin) fy += (margin - node.y!) * 0.8;
+        if (node.y! > 1.0 - margin) fy -= (node.y! - (1.0 - margin)) * 0.8;
 
         // 更新速度（含阻尼衰减和力上限）
         fx = fx.clamp(-_maxForce, _maxForce);

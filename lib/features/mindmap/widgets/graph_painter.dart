@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -115,7 +116,7 @@ class GraphPainter extends CustomPainter {
           text: TextSpan(
             text: edge.label,
             style: TextStyle(
-              fontSize: 10 / scale,
+              fontSize: math.max(9, 10 / scale),
               color: AppTheme.textSecondary,
               background: Paint()..color = AppTheme.background.withValues(alpha: 0.85),
             ),
@@ -161,12 +162,12 @@ class GraphPainter extends CustomPainter {
       canvas.drawCircle(Offset(cx, cy), r, strokePaint);
 
       // 节点标签（限制两行）
-      final labelMaxWidth = r * 1.6;
+      final labelMaxWidth = r * 1.8;
       final tp = TextPainter(
         text: TextSpan(
           text: node.label,
           style: TextStyle(
-            fontSize: (isSelected ? 13 : 12) * scale,
+            fontSize: math.max(11, (isSelected ? 14 : 13) * scale),
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             color: isSelected ? color : AppTheme.textPrimary,
             height: 1.3,
@@ -184,7 +185,7 @@ class GraphPainter extends CustomPainter {
         text: TextSpan(
           text: tag,
           style: TextStyle(
-            fontSize: 9 * scale,
+            fontSize: math.max(8, 9 * scale),
             color: AppTheme.textSecondary,
           ),
         ),

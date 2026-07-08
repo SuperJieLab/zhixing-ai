@@ -21,11 +21,11 @@ class MindMapPage extends StatefulWidget {
 
 class _MindMapPageState extends State<MindMapPage> {
   // 交互状态
-  double _scale = 0.7;
+  double _scale = 1.0;
   Offset _offset = Offset.zero;
   GraphNode? _selectedNode;
   GraphNode? _draggedNode;
-  double _baseScale = 0.7;
+  double _baseScale = 1.0;
   Offset _baseOffset = Offset.zero;
 
   // 布局结果（深拷贝避免影响原始数据）

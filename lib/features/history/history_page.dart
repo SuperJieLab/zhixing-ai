@@ -100,6 +100,7 @@ class _HistoryPageState extends State<HistoryPage> {
           builder: (_) => InsightsPage(
             insight: conv.insight!,
             topic: conv.topic,
+            messages: conv.messages,
             fromHistory: true,
           ),
         ),
