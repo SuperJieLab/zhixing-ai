@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 
@@ -68,7 +69,8 @@ const _socraticSystemPrompt = '''
 ///
 /// ChatProvider 只依赖 [DialogueEngine] 接口，不感知底层实现。
 class SocraticPrompter implements DialogueEngine {
-  final LlamaService _llm;
+  final LlamaEngine _engine;
+  EngineChat? _chat;
 
   /// 已生成的 AI 追问次数（0 表示还没生成过任何追问）
   /// 用于判断当前对话深度阶段：阶段 = _currentStage(_roundIndex + 1, ...)
@@ -82,28 +84,33 @@ class SocraticPrompter implements DialogueEngine {
   /// 此计数器仅用于日志警告。
   int _estimatedTokens = 0;
 
-  SocraticPrompter(this._llm);
+  SocraticPrompter(this._engine);
 
   // ================================================================
   // DialogueEngine 接口实现
   // ================================================================
 
   @override
-  bool get isReady => _llm.isLoaded;
+  bool get isReady => true;
 
   /// 底层 LLM 服务（供 InsightService 创建独立 chat 实例）
-  LlamaService get llmService => _llm;
+  LlamaEngine get engine => _engine;
 
   @override
   Future<bool> initialize() async {
-    if (!_llm.isLoaded) return false;
-    _llm.setSystemPrompt(_socraticSystemPrompt);
-    return true;
+    try {
+      _chat = await _engine.createChat();
+      _chat!.addSystem(_socraticSystemPrompt);
+      return true;
+    } catch (e) {
+      debugPrint('[SocraticPrompter] 初始化失败: $e');
+      return false;
+    }
   }
 
   @override
   void seedContext(String welcomeMessage) {
-    _llm.addAssistantMessage(welcomeMessage);
+    _chat!.addAssistant(welcomeMessage);
     _estimatedTokens += LlamaService.estimateTokens(_socraticSystemPrompt);
     _estimatedTokens += LlamaService.estimateTokens(welcomeMessage);
   }
@@ -115,7 +122,7 @@ class SocraticPrompter implements DialogueEngine {
     final hint = _stageHints[stage]!;
 
     final formattedMessage = '$hint\n$userMessage';
-    _llm.addUserMessage(formattedMessage);
+    _chat!.addUser(formattedMessage);
     _estimatedTokens += LlamaService.estimateTokens(formattedMessage);
 
     // 上下文接近上限时日志警告（llama.cpp KV cache 自动截断早期消息）
@@ -130,19 +137,23 @@ class SocraticPrompter implements DialogueEngine {
     for (int attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
         const retryHint = '请基于当前追问方向，换一个角度追问，不要重复之前的问题。';
-        _llm.addUserMessage(retryHint);
+        _chat!.addUser(retryHint);
         _estimatedTokens += LlamaService.estimateTokens(retryHint);
       }
 
       final buffer = StringBuffer();
       try {
-        await for (final token in _llm.generate(
-          temperature: 0.5,
-          topP: 0.85,
+        await for (final event in _chat!.generate(
+          sampler: SamplerParams(
+            temperature: 0.5,
+            topP: 0.85,
+            repeatPenalty: 1.15,
+          ),
           maxTokens: 128,
-          repeatPenalty: 1.15,
         )) {
-          buffer.write(token);
+          if (event is TokenEvent) {
+            buffer.write(event.text);
+          }
         }
       } catch (e, stack) {
         debugPrint('[SocraticPrompter] generate 异常: $e');
@@ -188,8 +199,8 @@ class SocraticPrompter implements DialogueEngine {
 
   @override
   void reset() {
-    _llm.clearHistory();
-    _llm.setSystemPrompt(_socraticSystemPrompt);
+    _chat?.clearHistory();
+    _chat?.addSystem(_socraticSystemPrompt);
     _roundIndex = 0;
     _recentQuestions.clear();
     _estimatedTokens = LlamaService.estimateTokens(_socraticSystemPrompt);
@@ -197,7 +208,9 @@ class SocraticPrompter implements DialogueEngine {
 
   @override
   void dispose() {
-    _llm.dispose();
+    _chat?.dispose();
+    _chat = null;
+    // 不 dispose _engine —— 由 LlamaService 缓存池管理
     _roundIndex = 0;
     _recentQuestions.clear();
     _estimatedTokens = 0;
