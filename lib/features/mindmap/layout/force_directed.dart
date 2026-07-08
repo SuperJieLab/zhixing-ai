@@ -121,9 +121,47 @@ class ForceDirectedLayout {
       if (totalEnergy < _minVelocity * nodes.length) break;
     }
 
-    // 3. 计算半径（与 weight 成正比）
+    // 3. 硬约束：将所有节点缩放到可见区域内
+    _fitToBounds();
+
+    // 4. 计算半径（与 weight 成正比）
     for (final node in nodes) {
       node.radius = _minRadius + (_maxRadius - _minRadius) * node.weight;
+    }
+  }
+
+  /// 将所有节点坐标缩放到 [margin, 1-margin] 范围内
+  void _fitToBounds() {
+    if (nodes.length <= 1) return;
+
+    const margin = 0.15;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+
+    for (final node in nodes) {
+      minX = min(minX, node.x!);
+      minY = min(minY, node.y!);
+      maxX = max(maxX, node.x!);
+      maxY = max(maxY, node.y!);
+    }
+
+    final rangeX = maxX - minX;
+    final rangeY = maxY - minY;
+    if (rangeX < 0.01 && rangeY < 0.01) return; // 所有节点几乎重叠
+
+    final targetRange = 1.0 - 2 * margin; // 0.7
+    final scale = min(targetRange / rangeX, targetRange / rangeY);
+
+    // 居中偏移
+    final centerX = (minX + maxX) / 2;
+    final centerY = (minY + maxY) / 2;
+
+    for (final node in nodes) {
+      node.x = 0.5 + (node.x! - centerX) * scale;
+      node.y = 0.5 + (node.y! - centerY) * scale;
+      // 兜底 clamp
+      node.x = node.x!.clamp(margin, 1.0 - margin);
+      node.y = node.y!.clamp(margin, 1.0 - margin);
     }
   }
 

@@ -91,14 +91,22 @@ class _MindMapPageState extends State<MindMapPage> {
       onScaleUpdate: _onScaleUpdate,
       onTapUp: _onTapUp,
       child: ClipRect(
-        child: CustomPaint(
-          painter: GraphPainter(
-            nodes: _nodes,
-            edges: _edges,
-            selectedNode: _selectedNode,
-            scale: _scale,
-          ),
-          size: Size.infinite,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final canvasSize = Size(
+              constraints.maxWidth,
+              constraints.maxHeight,
+            );
+            return CustomPaint(
+              painter: GraphPainter(
+                nodes: _nodes,
+                edges: _edges,
+                selectedNode: _selectedNode,
+                scale: _scale,
+              ),
+              size: canvasSize,
+            );
+          },
         ),
       ),
     );
