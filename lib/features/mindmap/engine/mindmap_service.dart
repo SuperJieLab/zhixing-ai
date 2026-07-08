@@ -19,11 +19,11 @@ class MindMapService {
   // 对外接口
   // ================================================================
 
-  /// 打开思维图谱
+  /// 打开思维图谱，返回最终使用的图谱（供调用方缓存）。
   ///
-  /// 优先使用 [cachedGraph]（已持久化的数据），没有则走 LLM 生成。
-  /// [conversationId] 非 null 时，生成的图谱会自动保存到数据库。
-  Future<void> openMindMap(
+  /// 命中缓存 → 直接导航，返回缓存数据。
+  /// 未命中   → LLM 生成 + 自动持久化 + 导航，返回新生成的数据。
+  Future<ConversationGraph?> openMindMap(
     BuildContext context, {
     required String topic,
     required List<ChatMessage> messages,
@@ -33,7 +33,7 @@ class MindMapService {
     // 命中缓存 → 直接打开
     if (cachedGraph != null && cachedGraph.isNotEmpty) {
       _navigate(context, topic, cachedGraph);
-      return;
+      return cachedGraph;
     }
 
     // 无缓存 → 生成 + 持久化 + 打开
@@ -46,13 +46,15 @@ class MindMapService {
         await _repo.saveGraph(conversationId, graph);
       }
 
-      if (!context.mounted) return;
+      if (!context.mounted) return null;
       _dismissLoading(context);
-      if (!context.mounted) return;
+      if (!context.mounted) return null;
       _navigate(context, topic, graph);
+      return graph;
     } catch (e) {
       if (context.mounted) _dismissLoading(context);
       if (context.mounted) _showError(context, e);
+      return null;
     }
   }
 

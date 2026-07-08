@@ -52,6 +52,9 @@ class _InsightsPageState extends State<InsightsPage>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
 
+  /// 本地缓存的图谱（优先于 widget.graph，同一页面内复用）
+  ConversationGraph? _localGraph;
+
   @override
   void initState() {
     super.initState();
@@ -305,7 +308,11 @@ class _InsightsPageState extends State<InsightsPage>
       topic: widget.topic,
       messages: messages,
       conversationId: widget.conversationId,
-      cachedGraph: widget.graph,
-    );
+      cachedGraph: _localGraph ?? widget.graph,
+    ).then((graph) {
+      if (graph != null && mounted) {
+        setState(() => _localGraph = graph);
+      }
+    });
   }
 }
