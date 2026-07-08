@@ -421,3 +421,65 @@ TextPainter(text: ...)..layout()..paint(canvas, offset);  // 画文字
 
 全程零数据拷贝，只改 double 值，GPU 重画一帧。
 
+---
+
+## 十、Day 6 思维图谱 — 架构演进记录
+
+### 10.1 问题 1：图谱生成时机不对
+
+**初始方案**：结束对话时并行生成洞察和图谱（`Future.wait`）。
+
+**问题**：
+1. 旧对话（Day 6 之前完成的）永远无法生成图谱——因为 generation 只在 `_endConversation` 中触发
+2. 即使不想看图谱也要浪费 LLM 调用（800+ tokens 的图谱 JSON）
+3. `Future.wait` 导致两个 `engine.createChat()` 并发冲突
+
+**修复**：改为**按需生成**——结束对话只生成洞察，用户点击「查看思维图谱」按钮时才调用 LLM 生成图谱。
+
+### 10.2 问题 2：回调注入过度复杂
+
+**中间方案**：InsightsPage 通过 `onGenerateGraph` 回调接收生成能力。
+
+**问题**：回调需要 ChatPage 或 ChatProvider 注入——图谱生成本质上是 MindMap 自己的能力，不应该依赖调用方提供。
+
+**修复**：让 `LlamaService` 成为全局单例（`LlamaService.instance`），任何模块都可以直接用它来创建 `GraphService`。
+
+### 10.3 问题 3：Service 命名和位置混乱
+
+**中间方案**：创建 `MindMapProvider`（`extends ChangeNotifier`），放在 `mindmap/providers/`。
+
+**问题**：
+- 没有使用任何 ChangeNotifier 特性（无 `notifyListeners`，无 `Consumer`）
+- 命名 `Provider` 暗示它是 Flutter Provider 状态管理，但它只是一个编排 Service
+- 放在 `providers/` 目录与其他 Service 命名不一致（项目里 Service 都在 `engine/`）
+
+**修复**：
+- 重命名为 `MindMapService`，不继承 `ChangeNotifier`
+- 移到 `mindmap/engine/mindmap_service.dart`，与 `GraphService` 并列
+- 不用全局注入，按需创建：`MindMapService(LlamaService.instance).openMindMap(...)`
+
+### 10.4 问题 4：Qwen 模型 think 标签 + token 截断
+
+**问题**：Qwen3.5-2B 输出 `<think>...</think>` 推理标签包裹 JSON，且 `maxTokens=512` 不够图谱 JSON 完整输出。
+
+**修复**：
+- 新增层 0：正则剥离 `<think>...</think>` 标签
+- `maxTokens: 512` → `1024`
+- Prompt 加固：明确禁止 think 标签输出
+
+### 10.5 最终架构
+
+```
+InsightsPage._openMindMap()
+  → MindMapService(LlamaService.instance).openMindMap(context, topic, messages)
+    → _showLoading() → GraphService.generate() → _dismissLoading() → _navigate()
+
+InsightsPage 只认识 MindMapService，不知道 GraphService/LlamaService 的存在。
+```
+
+**设计原则沉淀：**
+- **能力归属**：图谱生成（loading/LLM/跳转）归 MindMap，调用方只负责触发
+- **全局单例**：`LlamaService` 是 App 级资源，全局单例比层层传递更干净
+- **命名一致**：所有 Service 都在 `engine/`，命名 `XxxService`
+- **按需创建**：不需要全局注入的 Service，在使用点直接 `new`
+

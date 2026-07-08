@@ -55,10 +55,24 @@ Day 7-9 待开始 ⬜
 
 新增文件结构：
 lib/features/mindmap/
-├── engine/graph_service.dart
-├── layout/force_directed.dart
+├── engine/
+│   ├── graph_service.dart          # LLM → JSON 解析
+│   └── mindmap_service.dart        # loading + 生成 + 跳转编排
+├── layout/force_directed.dart     # Force-directed 布局算法
 ├── widgets/
-│   ├── graph_painter.dart
-│   └── node_detail_sheet.dart
-└── mindmap_page.dart
+│   ├── graph_painter.dart         # CustomPainter 渲染
+│   └── node_detail_sheet.dart     # 节点详情弹窗
+└── mindmap_page.dart              # 图谱页面 + 手势交互
+
+## 架构调整记录
+
+Day 6 实现过程中经历了三轮架构优化（详见 flutter-core-concepts.md 第十章）：
+
+| 轮次 | 问题 | 调整 |
+|:--|------|------|
+| 1 | 图谱生成时机不当：旧对话无法生成，浪费 LLM 调用 | 结束对话时生成 → 按钮点击时按需生成 |
+| 2 | 回调注入过度复杂 | LlamaService 全局单例，任何模块直接使用 |
+| 3 | 命名和位置混乱：MindMapProvider 并非 Provider | 重命名 MindMapService，移入 engine/ |
+
+最终调用链：`InsightsPage → MindMapService(LlamaService.instance).openMindMap()`— 一行搞定。
 ```
