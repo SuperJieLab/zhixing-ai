@@ -52,8 +52,8 @@ class _InsightsPageState extends State<InsightsPage>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
 
-  /// 本地缓存的图谱（优先于 widget.graph，同一页面内复用）
-  ConversationGraph? _localGraph;
+  /// 图谱服务（同一页面内复用，内部自动缓存已生成的数据）
+  final MindMapService _mindMapService = MindMapService();
 
   @override
   void initState() {
@@ -303,16 +303,12 @@ class _InsightsPageState extends State<InsightsPage>
       return;
     }
 
-    MindMapService().openMindMap(
+    _mindMapService.openMindMap(
       context,
       topic: widget.topic,
       messages: messages,
       conversationId: widget.conversationId,
-      cachedGraph: _localGraph ?? widget.graph,
-    ).then((graph) {
-      if (graph != null && mounted) {
-        setState(() => _localGraph = graph);
-      }
-    });
+      cachedGraph: widget.graph,
+    );
   }
 }

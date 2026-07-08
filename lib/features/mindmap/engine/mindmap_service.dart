@@ -9,9 +9,12 @@ import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
 /// 思维图谱服务
 ///
 /// 封装图谱的打开、生成、缓存、持久化等全部逻辑。
-/// 调用方只需传 [topic] + [messages] + 可选的 [conversationId] + [cachedGraph]。
+/// 调用方只需保持同一个实例，每次调 [openMindMap] 即可。
 class MindMapService {
   final ConversationRepository _repo = ConversationRepository();
+
+  /// 内部缓存（生成一次后复用，避免重复 LLM 调用）
+  ConversationGraph? _graph;
 
   MindMapService();
 
@@ -19,24 +22,31 @@ class MindMapService {
   // 对外接口
   // ================================================================
 
-  /// 打开思维图谱，返回最终使用的图谱（供调用方缓存）。
+  /// 打开思维图谱
   ///
-  /// 命中缓存 → 直接导航，返回缓存数据。
-  /// 未命中   → LLM 生成 + 自动持久化 + 导航，返回新生成的数据。
-  Future<ConversationGraph?> openMindMap(
+  /// 内部缓存优先，其次 [cachedGraph]（来自 DB），否则走 LLM 生成。
+  /// [conversationId] 非 null 时，生成的图谱会自动保存到数据库。
+  Future<void> openMindMap(
     BuildContext context, {
     required String topic,
     required List<ChatMessage> messages,
     int? conversationId,
     ConversationGraph? cachedGraph,
   }) async {
-    // 命中缓存 → 直接打开
-    if (cachedGraph != null && cachedGraph.isNotEmpty) {
-      _navigate(context, topic, cachedGraph);
-      return cachedGraph;
+    // 内部缓存命中
+    if (_graph != null && _graph!.isNotEmpty) {
+      _navigate(context, topic, _graph!);
+      return;
     }
 
-    // 无缓存 → 生成 + 持久化 + 打开
+    // 外部传入的缓存（如从 DB 读取的）
+    if (cachedGraph != null && cachedGraph.isNotEmpty) {
+      _graph = cachedGraph;
+      _navigate(context, topic, cachedGraph);
+      return;
+    }
+
+    // 无缓存 → 生成 + 持久化 + 缓存 + 打开
     _showLoading(context);
     try {
       final graph = await _generate(topic, messages);
@@ -46,15 +56,15 @@ class MindMapService {
         await _repo.saveGraph(conversationId, graph);
       }
 
-      if (!context.mounted) return null;
+      _graph = graph;
+
+      if (!context.mounted) return;
       _dismissLoading(context);
-      if (!context.mounted) return null;
+      if (!context.mounted) return;
       _navigate(context, topic, graph);
-      return graph;
     } catch (e) {
       if (context.mounted) _dismissLoading(context);
       if (context.mounted) _showError(context, e);
-      return null;
     }
   }
 
