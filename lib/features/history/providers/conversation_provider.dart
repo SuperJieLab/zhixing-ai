@@ -52,21 +52,33 @@ class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   bool _isLoading = false;
 
+  String? _error;
+  String? get error => _error;
+  bool get hasError => _error != null;
+
   List<Conversation> get conversations => _conversations;
   bool get isLoading => _isLoading;
 
   /// 从数据库加载所有会话
   Future<void> loadAll() async {
     _isLoading = true;
+    _error = null;
     notifyListeners();
     try {
       _conversations = await _repo.listAll();
     } catch (e) {
       debugPrint('[ConversationProvider] 加载失败: $e');
+      _error = '无法加载对话记录，请检查存储空间后重试';
+      _conversations = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// 重试加载历史记录
+  Future<void> retry() async {
+    await loadAll();
   }
 
   /// 切换收藏状态
@@ -82,8 +94,14 @@ class ConversationProvider extends ChangeNotifier {
 
   /// 删除会话
   Future<void> deleteConversation(int id) async {
-    await _repo.delete(id);
-    _conversations.removeWhere((c) => c.id == id);
-    notifyListeners();
+    try {
+      await _repo.delete(id);
+      _conversations.removeWhere((c) => c.id == id);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[ConversationProvider] 删除失败: $e');
+      _error = '操作失败，请重试';
+      notifyListeners();
+    }
   }
 }

@@ -49,6 +49,10 @@ class _HistoryPageState extends State<HistoryPage> {
             );
           }
 
+          if (provider.hasError) {
+            return _buildErrorView(provider);
+          }
+
           if (provider.conversations.isEmpty) {
             return _buildEmptyState();
           }
@@ -88,6 +92,32 @@ class _HistoryPageState extends State<HistoryPage> {
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildErrorView(ConversationProvider provider) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.storage_outlined, size: 64, color: AppTheme.textSecondary),
+            const SizedBox(height: 16),
+            Text(
+              provider.error ?? '加载失败',
+              style: const TextStyle(fontSize: 16, color: AppTheme.textPrimary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => provider.retry(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
       ),
     );
   }
