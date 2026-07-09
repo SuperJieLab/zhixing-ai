@@ -10,11 +10,12 @@
 | Day | 阶段 | 核心目标 | 产出物 |
 |:--:|------|------|------|
 | 1 | 工程搭建 | App 可跑，话题选择页 + 对话页 UI 完整 | 2 页 UI + 路由 + 状态管理骨架 |
-| 2 | 端侧推理 | Dart→C++→CoreML 链路跑通 | 模型加载 + 首次推理输出 |
+| 2 | 端侧推理 | Dart→C++→Metal 链路跑通 | 模型加载 + 首次推理输出 |
 | 3 | 对话引擎 | AI 连续追问 5+ 轮不跑偏 | Prompt 模板 + 追问策略 + 上下文管理 |
 | 4 | 洞察总结 | 对话结束 → 洞察卡片正确渲染 | 总结 Prompt + JSON 解析 + UI 页 |
 | 5 | 端侧持久化 | 会话历史持久化 + 历史列表可用 | sqflite + ConversationProvider + HistoryPage |
-| 6 | 思维图谱 | 一次对话 → 可交互图谱 | 端侧 LLM 生成图谱 JSON + CustomPainter 渲染 |
+| 6 | 思维图谱 | 一次对话 → 可交互图谱 + 持久化 | ✅ 端侧 LLM 生成图谱 + CustomPainter 渲染 + 手势 + 缓存 |
+| 6a | 架构重构 | LlamaService 缓存池 + 分层内聚 | ✅ 重构 8 文件，消除回调，测试修复 |
 | 7 | 错误覆盖 | 所有错误状态 UI 到位，双端跑通 | 状态矩阵全覆盖 + Android 验证 |
 | 8 | 模型下载 | 首次启动自动下载模型到沙盒 | 断点续传 + 进度条 |
 | 9 | 收尾 | 仓库可对外展示 | README + Demo 视频 + 截图 + 上架准备 |
@@ -171,7 +172,7 @@ lib/
 - [x] JSON 解析失败时有兜底展示（三层回退：直接解析→代码块→正则→原始文本）
 - [x] 洞察卡片正确渲染：核心洞察 × N + 价值观标签 + 矛盾
 - [x] 对话完成动画展示（fade-in + stagger slide-up 入场动效）
-- [x] 「查看思维图谱」（置灰待 Day 7）和「开始新对话」按钮可用
+- [x] 「查看思维图谱」按钮可用（Day 6 实现完整交互）
 
 **技术决策点**：
 | 决策 | 选项 | 推荐 |
@@ -339,40 +340,46 @@ lib/features/history/
 
 ---
 
-## Day 6 — 思维图谱
+## Day 6 — 思维图谱 ✅
+
+> 已全部完成。详见 `docs/notes/2026-07-09/思维图谱-手势与布局修复.md`
 
 ### 6.1 端侧 LLM 生成图谱
 
-**目标**：端侧 LLM 分析一次对话，产出可渲染的图谱节点+连线（纯端侧，无后端）。
-
 **产出物**：
-- `GraphService`：复用 InsightService 模式，LLM 将对话全文转为结构化图谱 JSON
-- 图谱数据模型：`GraphNode`（label, weight, category）+ `GraphEdge`（from, to, label）
-- Dart 侧 force-directed 布局算法
+- `GraphService`：LLM 将对话全文转为结构化图谱 JSON
+- 图谱数据模型：`GraphNode` + `GraphEdge` + `ConversationGraph`
+- Dart 侧辐射分布 + 微力调整布局算法
+- `maxTokens=3072`，`contextSize=4096`
 
 **验收标准**：
-- [ ] LLM 输出合法图谱 JSON（节点数组 + 连线数组）
-- [ ] 每个节点包含：id, label, type (topic/insight/value/action)
-- [ ] 连线包含：source, target, label
-- [ ] 图谱数据至少包含 3+ 节点和连线
-- [ ] JSON 解析失败时有纯文本兜底
+- [x] LLM 输出合法图谱 JSON（节点数组 + 连线数组）
+- [x] 每个节点包含：id, label, type (topic/insight/value/action/contradiction)
+- [x] 连线包含：source, target, label, strength
+- [x] 图谱数据至少包含 3+ 节点和连线（实际 6-13 节点）
+- [x] JSON 解析失败时三层回退（去 think 标签 → 直接解析 → 提取 JSON 片段）
 
 ### 6.2 Flutter 图谱渲染
 
-**目标**：Flutter 渲染可缩放、平移的交互式思维图谱。
-
 **验收标准**：
-- [ ] CustomPainter 正确渲染节点（圆形 + 标签）和连线
-- [ ] 节点大小按权重变化，连线粗细按关联强度变化
-- [ ] 手势交互：拖拽节点 / 双指缩放 / 单指平移
-- [ ] 点击节点高亮 + 显示详情
-- [ ] 图谱首次加载有入场动画（节点逐个出现）
+- [x] CustomPainter 正确渲染节点（圆形 + 主标签 + 类型标签）和连线
+- [x] 节点大小按 weight 变化（36-56px），连线粗细按 strength 变化
+- [x] 手势交互：拖拽节点 / 双指缩放（以捏合点为锚点）/ 单指平移
+- [x] 点击节点高亮（光晕 + 白色文字）+ 底部弹窗详情
+- [ ] 图谱首次加载有入场动画（节点逐个出现）— 待 Day 7 润色
+- [x] 图谱持久化（DB 存储 + 内存缓存）
 
-**技术决策点**：
-| 决策 | 选项 | 推荐 |
-|------|------|:--:|
-| 图谱生成 | LLM 端侧 / 规则引擎 | **LLM 端侧**（复用 InsightService 模式，JSON 输出） |
-| 布局算法 | force-directed 自实现 / dagre 库 | **force-directed**（无需外部依赖，简单高效） |
+### 6.3 架构重构
+
+- [x] LlamaService 引擎缓存池（Map<LlamaConfig, Future<LlamaEngine>>）
+- [x] MindMapService 内聚 saveGraph（消除 ChatPage/HistoryPage 回调）
+- [x] 分层规范执行（engine ↔ repository ↔ provider ↔ page）
+
+**布局算法决策点**：
+| 决策 | 结果 |
+|------|------|
+| 纯力导向 | ❌ 多节点（6+）四角堆叠（斥力远超中心引力 60+ 倍）|
+| 辐射分布 + 微力 | ✅ 确定性环形初始化 + 极弱力微调（斥力 0.001/dist，600 倍削弱）|
 
 ---
 
@@ -477,7 +484,7 @@ lib/features/history/
 | Qwen 1.5B 追问质量不够 | Day 3 | 加强 Dart 层策略；备选 Qwen 2.5 3B |
 | dart_llama 包不成熟 | Day 2 | 手写 dart:ffi ~200 行 |
 | 模型 1.2GB 下载太慢 | Day 8 | HuggingFace 直链 + 断点续传 |
-| 10 天太紧 | Day 6 | 思维图谱 LLM JSON 模式；后端移至高阶版 |
+| 10 天太紧 | Day 6 | 思维图谱 LLM JSON 模式 + 端侧布局（已完成，无后端依赖）|
 | 中文追问重复 | Day 3 | repeat_penalty 1.15 + Prompt 强化 |
 | Android 碎片化 | Day 8 | 限定 Android 10+，无 NPU 降级 CPU |
 | Go 后端时间不够 | 高阶 | 已移至后续迭代；核心版无后端依赖 |

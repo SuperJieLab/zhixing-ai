@@ -73,7 +73,7 @@ class GraphService {
             topP: 0.8,
             repeatPenalty: 1.1,
           ),
-          maxTokens: 2048,
+          maxTokens: 3072,
         )) {
           if (event is TokenEvent) {
             buffer.write(event.text);

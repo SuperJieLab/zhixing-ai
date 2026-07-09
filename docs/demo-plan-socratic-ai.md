@@ -1,7 +1,7 @@
 # 苏格拉底式 AI 对话 — MVP 执行方案
 
-> 反过来的聊天机器人：不是用户问 AI，而是 AI 追问用户。
-> 一个产品打通 **跨平台（Flutter）+ 端侧 AI（llama.cpp）+ 后端（Go）** 三层技术栈。
+> 最后更新：2026-07-09
+> 当前进度：Day 6 完成（含 Day 6a 架构重构），下一个里程碑：Day 7 错误覆盖
 
 ---
 
@@ -36,7 +36,7 @@
 | 聊天界面（AI 提问，用户回答） | ✅ | |
 | 对话历史列表 | ✅ | |
 | 后端 — 对话存储 + 多端同步 | ✅ | |
-| 后端 — 思维图谱生成 | ✅ | |
+| 端侧 — 思维图谱生成 + 交互可视化 | ✅ | |
 | 话题推荐（基于历史） | | v1.1 |
 | 语音输入 | | v1.1 |
 | Watch 端触发 + 心率感知 | | v1.2 |
@@ -115,16 +115,17 @@ AI 会在内部追踪对话深度 state，决定何时追问、何时总结：
 │       └─────── API Client ──────────────│
 │                    ↓                     │
 ├──────────────────────────────────────────┤
-│           Backend (Go)                   │
-│  ┌──────────┐  ┌───────────────┐        │
-│  │ REST API  │  │ 思维图谱引擎  │        │
-│  │ - 对话CRUD│  │ - 节点提取    │        │
-│  │ - 用户同步│  │ - 关联分析    │        │
-│  └──────────┘  │ - 图谱布局    │        │
-│         │      └───────────────┘        │
-│    PostgreSQL / SQLite                  │
+│           Backend (Go) — 规划中          │
+│  ┌──────────┐                            │
+│  │ REST API  │                            │
+│  │ - 对话CRUD│                            │
+│  │ - 用户同步│                            │
+│  └──────────┘                            │
+│         │                                │
+│    PostgreSQL / SQLite                   │
 └──────────────────────────────────────────┘
 ```
+> 注：Day 6 实现后，图谱生成和渲染完全在端侧完成（LLM 生成 JSON → Dart 布局 → CustomPainter 渲染），无需后端参与。
 
 ### 关键设计决策
 
@@ -200,7 +201,7 @@ summary      → 追问方向：【总结】引导回顾对话，问"最大的�
 
 | 参数 | 值 | 原因 |
 |------|-----|------|
-| Context 窗口 | 2048 tokens | 保留完整对话历史，iPhone 推理 < 5s |
+| Context 窗口 | 4096 tokens | 端侧推理，保留完整对话历史 |
 | Temperature | 0.5 | 追问需要一定变化，但不能太随机 |
 | Max output | 128 tokens | 一次只问一个问题，不需要长输出 |
 | Top-p | 0.85 | 保证追问多样性同时不失控 |
@@ -292,6 +293,7 @@ Conversation (sqflite)
   id, topic, status(active/completed), is_favorite
   messages_json (List<ChatMessage> JSON)
   insight_json (InsightResult JSON, nullable)
+  graph_json (ConversationGraph JSON, nullable)  ← Day 6 DB v2 迁移
   created_at, updated_at
 ```
 
@@ -376,7 +378,7 @@ MindNode:
 | 数据库 MVP | SQLite (纯文件) | 零运维，开发机直接跑 |
 | 数据库生产 | PostgreSQL | 图谱查询（JSONB 存节点关系） |
 | 部署 | 阿里云/腾讯云 ECS | 最小实例即可（1C2G） |
-| 图谱布局 | 服务端计算 dagre 布局 | 返回节点坐标，客户端只渲染 |
+| 图谱布局 | Dart 端侧辐射分布 | 计算节点坐标，客户端直接渲染 |
 
 ---
 
@@ -413,7 +415,8 @@ MindNode:
 | **3** | 对话引擎 | 梯度追问策略 + Context 管理 + Token 追踪 | ✅ |
 | **4** | 洞察总结 | InsightService + JSON 三层回退 + InsightsPage UI | ✅ |
 | **5** | 端侧持久化 | sqflite 本地存储 + ConversationProvider + 历史列表 | ✅ |
-| **6** | 思维图谱 | LLM 端侧生成图谱 JSON + CustomPainter 渲染 + 手势交互 | 🔜 |
+| **6** | 思维图谱 | LLM 端侧生成图谱 JSON + CustomPainter 渲染 + 手势交互 | ✅ |
+| **6a** | 架构重构 | LlamaService 缓存池 + 分层梳理 + MindMapService 内聚 | ✅ |
 | **7** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | |
 | **8** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
 | **9** | 收尾 | README + 录 Demo + 截图 + Push GitHub + 上架准备 | |
@@ -500,16 +503,70 @@ MindNode:
 - HistoryPage 重写（列表 + 空状态 + 点击查看洞察）
 - ChatPage 集成：通过 ConversationProvider 管理会话生命周期
 
-**Day 6 — 思维图谱**
+**Day 6 — 思维图谱 ✅**
 
 > 端侧 LLM 生成图谱结构 + Flutter CustomPainter 渲染，无需后端。
+> 实施总结：`docs/notes/2026-07-09/思维图谱-手势与布局修复.md`
 
-- GraphService：复用 InsightService 模式，LLM 将对话全文转为节点/边 JSON
-- 图谱数据模型：`GraphNode`（label, weight, category）+ `GraphEdge`（from, to, label）
-- Dart 侧实现 force-directed 布局算法（无需 dagre 等外部库）
-- CustomPainter 渲染：节点（大小按权重）+ 连线（粗细按关联强度）+ 颜色分类
-- 手势交互：拖拽节点 / 缩放 / 点击展开详情
-- 测试：一次对话 → 生成可交互图谱
+### 已完成
+
+- **GraphService**：LLM 将对话转为节点/边 JSON，紧凑格式 Prompt（`maxTokens=3072`，`contextSize=4096`）
+- **图谱数据模型**：`GraphNode`（label, weight, type）+ `ConversationGraph`（nodes + edges + toJson/fromJson）
+- **布局算法**：辐射分布 + 微力调整（替代纯力导向，解决多节点四角堆叠问题）
+- **CustomPainter 渲染**（GraphPainter）：节点（大小按权重，36-56px）+ 连线（粗细按 strength）+ 颜色分类（topic/insight/value/action/contradiction）+ 类型标签
+- **手势交互**（MindMapPage）：点击选中→弹窗详情 / 拖拽节点 / 双指缩放（以捏合点为锚点）/ 单指平移
+- **图谱持久化**：DB v2 迁移（graph_json 列）+ Memory cache（MindMapService._graph）+ L1/L2 两层缓存
+- **NodeDetailSheet**：底部弹窗展示节点详情（关联连线 + 上下游节点）
+
+### 关键修复（Day 6 后续）
+
+| 问题 | 根因 | 解决 |
+|---|---|---|
+| 节点飞出屏幕 | `CustomPaint(size: Size.infinite)` | `LayoutBuilder` 取实际尺寸 |
+| 手势全部失效 | painter 未用 canvas 变换；hit test 坐标不统一 | 统一 `_canvasSize`；painter 加 `translate+scale` |
+| 四角堆叠 | 斥力 600 倍于中心引力 + 硬 clamp | 辐射分布 + 微力（斥力降至 0.001/dist） |
+| 缩放左上角锚点 | `canvas.scale()` 从原点缩放 | 以双指捏合点为锚点调整 offset |
+| 平移震动 | `focalPointDelta` 是单帧增量 | `_offset += focalPointDelta` 累加 |
+| 选中态文字消失 | 文字色 = 填充色 = 同一个 color | 选中文字改为白色 |
+| 上下文溢出 | `contextSize=2048` | 扩大到 4096 |
+| JSON 截断 | `maxTokens=1024` | 扩大到 3072 |
+
+### 架构亮点
+
+```
+MindMapService（图谱生命周期）
+  ├── 内部缓存 _graph（L1，同页复用）
+  ├── DB 持久化（L2，跨会话复用）
+  ├── GraphService（LLM 生成）
+  └── 导航 MindMapPage（可视化）
+       ├── ForceDirectedLayout（辐射分布 + 微力）
+       ├── GraphPainter（CustomPaint + canvas 变换）
+       └── 手势（GestureDetector + 坐标变换）
+```
+
+**Day 6a — 架构重构 ✅**
+
+> LlamaService 缓存池重构 + MindMapService 内聚 + 分层梳理
+
+- **LlamaService 重构**：从单例 loadModel 改为引擎缓存池（`Map<LlamaConfig, Future<LlamaEngine>>`）
+  - 三层 API：`ensureReady()` / `ensureReadyWithModel(path)` / `ensureReadyWithConfig(config)`
+  - 并发排队（池里存 Future），失败不缓存
+  - Chat 操作各自面对 EngineChat，LlamaService 不封装
+- **分层清理**：去掉 InsightsPage → LlamaService 直接引用；MindMapService 直接持有 ConversationRepository
+- **回调消除**：saveGraph 逻辑从 ChatPage/HistoryPage 回调 → 内聚到 MindMapService（传 conversationId）
+- **测试修复**：InsightService 不再无参构造（接收 LlamaEngine），测试改为纯 Dart（`package:test`）
+
+### 代码量
+
+| 层 | 文件 | 行数 |
+|---|---|---|
+| MindMap engine | graph_service / mindmap_service | ~200 |
+| Layout | force_directed | ~100 |
+| Painter | graph_painter | ~250 |
+| Page + gestures | mindmap_page | ~200 |
+| Detail sheet | node_detail_sheet | ~100 |
+| Core model | chat_models (ConversationGraph) | ~50 |
+| **小计** | | **~900 行新增** |
 
 **Day 7 — 错误覆盖 + Android 验证**
 - 实现所有状态矩阵 UI
@@ -548,7 +605,7 @@ MindNode:
 | 「1.5B 模型怎么做追问？质量够吗？」 | 追问比回答简单——问一个好问题不需要太多知识，需要的是对用户上一条回答的分析能力。加上 Dart 层追问策略辅助 Prompt，实测 80% 追问是合理且有深度的。质量不够的 20% 做了容错兜底 |
 | 「为什么用 Dart FFI 不用 MethodChannel？」 | 跨平台一致性：一份 Dart 代码双端共享推理逻辑，MethodChannel 需要 Swift + Kotlin 两套 Native 代码 |
 | 「端侧推理和云端 API 的边界怎么划分？」 | 核心对话在端侧——隐私敏感，需要低延迟实时追问。后端只存脱敏后的结构化数据（话题、洞察、图谱节点），不存原始对话内容 |
-| 「思维图谱怎么做出来的？」 | 服务端分析对话提取主题词和关联，dagre 布局算法计算节点坐标，Flutter CustomPainter 渲染交互式可视化。1B 小模型做不好全局图谱分析，所以放在有更多算力的服务端 |
+| 「思维图谱怎么做出来的？」 | 端侧 LLM（Qwen3.5-2B）直接分析对话输出 JSON 图谱结构，Dart 侧实现辐射分布布局算法计算节点坐标（无需 dagre 等外部库），Flutter CustomPainter 渲染可交互可视化（支持拖拽节点、双指缩放、点击详情） |
 | 「如果用户回答很短或者敷衍怎么办？」 | Prompt 里有追问具体化的规则（「能举一个具体例子吗？」），Dart 层也会检测回答长度，太短则自动注入追问策略提示 |
 | 「为什么用 Go 写后端？」 | IM 背景下习惯了高并发场景思考。Go 轻量（单二进制部署）、协程天然高并发、编译快迭代快，适合 MVP 阶段快速验证 |
 
@@ -572,8 +629,8 @@ MindNode:
 | 后端框架 | Gin | HTTP 路由 |
 | ORM | GORM | 数据库操作 |
 | 数据库 | SQLite (MVP) → PostgreSQL (生产) | 持久化 |
-| 图谱布局 | dagre (Go 或 Python) | 思维图谱节点坐标 |
-| 图谱渲染 | Flutter CustomPainter | 交互式可视化 |
+| 图谱布局 | Dart 辐射分布 + 微力调整 | 思维图谱节点坐标（纯端侧，无外部库） |
+| 图谱渲染 | Flutter CustomPainter | 交互式可视化 + 手势 |
 
 ---
 
