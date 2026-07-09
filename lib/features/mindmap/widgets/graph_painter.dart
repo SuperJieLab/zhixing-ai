@@ -85,9 +85,14 @@ class GraphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
     canvas.save();
     canvas.translate(offset.dx, offset.dy);
+    canvas.translate(cx, cy);
     canvas.scale(scale);
+    canvas.translate(-cx, -cy);
     _drawEdges(canvas, size);
     _drawNodes(canvas, size);
     canvas.restore();

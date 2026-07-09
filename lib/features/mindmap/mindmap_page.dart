@@ -109,13 +109,23 @@ class _MindMapPageState extends State<MindMapPage> {
 
   // ── 手势实现 ──
 
+  /// 屏幕坐标 → canvas 像素坐标（适配中心锚点缩放）
+  Offset _screenToCanvas(Offset screenPos, Size canvasSize) {
+    final cx = canvasSize.width / 2;
+    final cy = canvasSize.height / 2;
+    return Offset(
+      cx + (screenPos.dx - cx - _offset.dx) / _scale,
+      cy + (screenPos.dy - cy - _offset.dy) / _scale,
+    );
+  }
+
   void _onScaleStart(ScaleStartDetails details, Size canvasSize) {
     _baseScale = _scale;
 
-    // 触摸点 → canvas 像素坐标
-    final lx = (details.localFocalPoint.dx - _offset.dx) / _scale;
-    final ly = (details.localFocalPoint.dy - _offset.dy) / _scale;
-    _draggedNode = _hitTestLayout(Offset(lx, ly), canvasSize);
+    _draggedNode = _hitTestLayout(
+      _screenToCanvas(details.localFocalPoint, canvasSize),
+      canvasSize,
+    );
     if (_draggedNode != null) {
       setState(() => _selectedNode = _draggedNode);
     }
@@ -128,7 +138,7 @@ class _MindMapPageState extends State<MindMapPage> {
         _scale = (_baseScale * details.scale).clamp(0.3, 2.5);
         _offset += details.focalPointDelta;
       } else {
-        // 单指拖拽节点（归一化坐标）
+        // 单指拖拽节点（center 项抵消，delta/scale/size 公式不变）
         final dx = details.focalPointDelta.dx / (_scale * canvasSize.width);
         final dy = details.focalPointDelta.dy / (_scale * canvasSize.height);
         _draggedNode!.x = ((_draggedNode!.x ?? 0.5) + dx).clamp(0.05, 0.95);
@@ -138,9 +148,10 @@ class _MindMapPageState extends State<MindMapPage> {
   }
 
   void _onTapUp(TapUpDetails details, Size canvasSize) {
-    final lx = (details.localPosition.dx - _offset.dx) / _scale;
-    final ly = (details.localPosition.dy - _offset.dy) / _scale;
-    final hitNode = _hitTestLayout(Offset(lx, ly), canvasSize);
+    final hitNode = _hitTestLayout(
+      _screenToCanvas(details.localPosition, canvasSize),
+      canvasSize,
+    );
 
     if (hitNode != null) {
       setState(() => _selectedNode = hitNode);
