@@ -179,7 +179,7 @@ class GraphPainter extends CustomPainter {
           style: TextStyle(
             fontSize: (isSelected ? 14 : 13),
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            color: isSelected ? color : AppTheme.textPrimary,
+            color: isSelected ? Colors.white : AppTheme.textPrimary,
             height: 1.3,
           ),
         ),
@@ -203,7 +203,7 @@ class GraphPainter extends CustomPainter {
       )..layout();
       tagPainter.paint(
         canvas,
-        Offset(cx - tagPainter.width / 2, cy + r + 4),
+        Offset(cx - tagPainter.width / 2, cy + r + 8),
       );
     }
   }
