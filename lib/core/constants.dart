@@ -16,7 +16,7 @@ class AppConstants {
   static const String modelFileName = 'qwen3.5-2b-q4_k_m.gguf';
 
   /// 模型上下文窗口（token）
-  static const int modelContextSize = 2048;
+  static const int modelContextSize = 4096;
 
   /// GPU 层数：-1 = 全部卸载到 GPU（Metal），0 = 纯 CPU
   static const int modelGpuLayers = -1;

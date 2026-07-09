@@ -14,7 +14,7 @@ class LlamaConfig {
 
   const LlamaConfig({
     required this.modelPath,
-    this.contextSize = 2048,
+    this.contextSize = 4096,
     this.gpuLayers = -1,
     this.threads = 4,
   });
