@@ -114,10 +114,9 @@ class _MindMapPageState extends State<MindMapPage> {
     _baseScale = _scale;
     _baseOffset = _offset;
 
-    // 触摸点 → 布局坐标系
+    // 触摸点 → canvas 像素坐标
     final lx = (details.localFocalPoint.dx - _offset.dx) / _scale;
     final ly = (details.localFocalPoint.dy - _offset.dy) / _scale;
-
     _draggedNode = _hitTestLayout(Offset(lx, ly), canvasSize);
     if (_draggedNode != null) {
       setState(() => _selectedNode = _draggedNode);
@@ -127,17 +126,15 @@ class _MindMapPageState extends State<MindMapPage> {
   void _onScaleUpdate(ScaleUpdateDetails details, Size canvasSize) {
     setState(() {
       if (details.pointerCount >= 2 || _draggedNode == null) {
-        // 双指缩放 + 平移
+        // 双指缩放 + 单指平移
         _scale = (_baseScale * details.scale).clamp(0.3, 2.5);
-        _offset = _baseOffset + details.focalPoint - details.localFocalPoint;
+        _offset = _baseOffset + details.focalPointDelta;
       } else {
-        // 单指拖拽节点（布局坐标系内）
-        _draggedNode!.x = (_draggedNode!.x ?? 0.5) +
-            details.focalPointDelta.dx / (_scale * canvasSize.width);
-        _draggedNode!.y = (_draggedNode!.y ?? 0.5) +
-            details.focalPointDelta.dy / (_scale * canvasSize.height);
-        _draggedNode!.x = _draggedNode!.x!.clamp(0.05, 0.95);
-        _draggedNode!.y = _draggedNode!.y!.clamp(0.05, 0.95);
+        // 单指拖拽节点（归一化坐标）
+        final dx = details.focalPointDelta.dx / (_scale * canvasSize.width);
+        final dy = details.focalPointDelta.dy / (_scale * canvasSize.height);
+        _draggedNode!.x = ((_draggedNode!.x ?? 0.5) + dx).clamp(0.05, 0.95);
+        _draggedNode!.y = ((_draggedNode!.y ?? 0.5) + dy).clamp(0.05, 0.95);
       }
     });
   }
