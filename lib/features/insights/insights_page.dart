@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
+import 'package:socratic_ai/features/insights/providers/insight_provider.dart';
 import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
 import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
 import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
 import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
-import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
@@ -53,8 +53,8 @@ class _InsightsPageState extends State<InsightsPage>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
 
-  /// 图谱服务（同一页面内复用，内部自动缓存已生成的数据）
-  final MindMapService _mindMapService = MindMapService();
+  /// 洞察页面状态（封装 MindMapService）
+  final InsightProvider _insightProvider = InsightProvider();
 
   @override
   void initState() {
@@ -302,7 +302,7 @@ class _InsightsPageState extends State<InsightsPage>
       return;
     }
 
-    _mindMapService.openMindMap(
+    _insightProvider.openMindMap(
       context,
       topic: widget.topic,
       messages: messages,
