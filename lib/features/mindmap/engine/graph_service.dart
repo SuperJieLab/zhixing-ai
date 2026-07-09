@@ -96,26 +96,12 @@ class GraphService {
   // 私有
   // ================================================================
 
-  /// 构建对话文本（截断到 ~600 字，为 system prompt + 输出预留空间）
   String _buildConversationText(String topic, List<ChatMessage> conversation) {
-    const maxChars = 600;
     final buffer = StringBuffer();
     buffer.writeln('话题：$topic\n');
-
-    // 从末尾往前收集消息，直到接近上限
-    final messages = <String>[];
-    var totalChars = 0;
-    for (final msg in conversation.reversed) {
+    for (final msg in conversation) {
       final role = msg.role == MessageRole.ai ? 'AI' : '用户';
-      final line = '$role：${msg.content}';
-      messages.add(line);
-      totalChars += line.length;
-      if (totalChars >= maxChars) break;
-    }
-
-    // 恢复正序写入
-    for (final line in messages.reversed) {
-      buffer.writeln(line);
+      buffer.writeln('$role：${msg.content}');
     }
     return buffer.toString();
   }
