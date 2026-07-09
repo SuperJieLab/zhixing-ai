@@ -132,19 +132,39 @@ class _MindMapPageState extends State<MindMapPage> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details, Size canvasSize) {
-    setState(() {
-      if (details.pointerCount >= 2 || _draggedNode == null) {
-        // 双指缩放 + 单指平移
-        _scale = (_baseScale * details.scale).clamp(0.3, 2.5);
-        _offset += details.focalPointDelta;
-      } else {
-        // 单指拖拽节点（center 项抵消，delta/scale/size 公式不变）
+    if (details.pointerCount >= 2 || _draggedNode == null) {
+      // 双指缩放 + 单指平移
+      final oldScale = _scale;
+      final newScale = (_baseScale * details.scale).clamp(0.3, 2.5);
+
+      // 累计平移
+      Offset newOffset = _offset + details.focalPointDelta;
+
+      // 缩放时调整 offset，使双指中点保持不动
+      if (newScale != oldScale) {
+        final focal = details.localFocalPoint;
+        final cx = canvasSize.width / 2;
+        final cy = canvasSize.height / 2;
+        final ratio = newScale / oldScale;
+        newOffset = Offset(
+          focal.dx - cx - ratio * (focal.dx - newOffset.dx - cx),
+          focal.dy - cy - ratio * (focal.dy - newOffset.dy - cy),
+        );
+      }
+
+      setState(() {
+        _scale = newScale;
+        _offset = newOffset;
+      });
+    } else {
+      // 单指拖拽节点
+      setState(() {
         final dx = details.focalPointDelta.dx / (_scale * canvasSize.width);
         final dy = details.focalPointDelta.dy / (_scale * canvasSize.height);
         _draggedNode!.x = ((_draggedNode!.x ?? 0.5) + dx).clamp(0.05, 0.95);
         _draggedNode!.y = ((_draggedNode!.y ?? 0.5) + dy).clamp(0.05, 0.95);
-      }
-    });
+      });
+    }
   }
 
   void _onTapUp(TapUpDetails details, Size canvasSize) {
