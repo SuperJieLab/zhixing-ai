@@ -249,6 +249,15 @@ class _ChatPageState extends State<ChatPage> {
                   ),
                 ChatInput(
                   onSend: (message) {
+                    if (message.length > 3000) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('回答过长（${message.length}/3000），请精简后发送'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                      return;
+                    }
                     chatProvider.sendMessage(message);
                   },
                 ),

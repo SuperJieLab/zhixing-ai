@@ -189,6 +189,13 @@ class TopicSelectionPage extends StatelessWidget {
                               builder: (_) => ChatPage(topic: trimmed),
                             ),
                           );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('请输入话题内容'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
                         }
                       },
 

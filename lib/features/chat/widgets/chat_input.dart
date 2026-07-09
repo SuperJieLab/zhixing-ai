@@ -119,6 +119,31 @@ class _ChatInputState extends State<ChatInput> {
                 // textInputAction: 键盘右下角显示「完成」按钮
                 textInputAction: TextInputAction.done,
 
+                // 字符上限（非强制限制，仅计数器提示）
+                maxLength: 3000,
+
+                // 允许多行输入
+                maxLines: null,
+
+                // 自定义计数器：仅在超过 2500 字符时显示
+                buildCounter: (
+                  context, {
+                  required currentLength,
+                  required isFocused,
+                  maxLength,
+                }) {
+                  if (currentLength > 2500) {
+                    return Text(
+                      '$currentLength/$maxLength',
+                      style: const TextStyle(
+                        color: AppTheme.accent,
+                        fontSize: 12,
+                      ),
+                    );
+                  }
+                  return null;
+                },
+
                 // onSubmitted: 用户按键盘上的「完成」键触发
                 // (_) 表示不关心传入的字符串参数（因为 controller 已经持有）
                 onSubmitted: (_) => _handleSubmit(),
@@ -144,6 +169,9 @@ class _ChatInputState extends State<ChatInput> {
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
                   ),
+
+                  // 隐藏默认计数器文字
+                  counterText: '',
                 ),
               ),
             ),
