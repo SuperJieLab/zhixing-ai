@@ -7,7 +7,6 @@ import 'package:socratic_ai/features/mindmap/widgets/node_detail_sheet.dart';
 
 /// 思维图谱页面
 ///
-/// 展示一次对话的知识图谱可视化。
 /// 交互：拖拽节点 / 双指缩放 / 单指平移 / 点击查看详情。
 class MindMapPage extends StatefulWidget {
   final ConversationGraph graph;
@@ -20,7 +19,7 @@ class MindMapPage extends StatefulWidget {
 }
 
 class _MindMapPageState extends State<MindMapPage> {
-  // 交互状态
+  // ── 交互状态 ──
   double _scale = 1.0;
   Offset _offset = Offset.zero;
   GraphNode? _selectedNode;
@@ -28,10 +27,13 @@ class _MindMapPageState extends State<MindMapPage> {
   double _baseScale = 1.0;
   Offset _baseOffset = Offset.zero;
 
-  // 布局结果（深拷贝避免影响原始数据）
+  // ── 布局 ──
   late final List<GraphNode> _nodes;
   late final List<GraphEdge> _edges;
   bool _layoutDone = false;
+
+  // ── 画布实际尺寸（LayoutBuilder 提供，与 paint / 手势统一） ──
+  Size? _canvasSize;
 
   @override
   void initState() {
@@ -50,6 +52,7 @@ class _MindMapPageState extends State<MindMapPage> {
   void _runLayout(Size size) {
     if (_layoutDone) return;
     _layoutDone = true;
+    _canvasSize = size;
     final layout = ForceDirectedLayout(nodes: _nodes, edges: _edges);
     layout.run();
     setState(() {});
@@ -57,19 +60,16 @@ class _MindMapPageState extends State<MindMapPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isEmpty = _nodes.isEmpty;
-
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         backgroundColor: AppTheme.background,
         title: Text(widget.topic),
       ),
-      body: isEmpty
+      body: _nodes.isEmpty
           ? _buildEmptyState()
           : LayoutBuilder(
               builder: (context, constraints) {
-                // 拿到实际尺寸后运行布局
                 if (!_layoutDone) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     _runLayout(constraints.biggest);
@@ -82,88 +82,70 @@ class _MindMapPageState extends State<MindMapPage> {
   }
 
   // ================================================================
-  // 图谱交互
+  // 图谱 + 手势
   // ================================================================
 
   Widget _buildGraph() {
+    final size = _canvasSize;
+    if (size == null) return const SizedBox.shrink();
+
     return GestureDetector(
-      onScaleStart: _onScaleStart,
-      onScaleUpdate: _onScaleUpdate,
-      onTapUp: _onTapUp,
+      onScaleStart: (d) => _onScaleStart(d, size),
+      onScaleUpdate: (d) => _onScaleUpdate(d, size),
+      onTapUp: (d) => _onTapUp(d, size),
       child: ClipRect(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final canvasSize = Size(
-              constraints.maxWidth,
-              constraints.maxHeight,
-            );
-            return CustomPaint(
-              painter: GraphPainter(
-                nodes: _nodes,
-                edges: _edges,
-                selectedNode: _selectedNode,
-                scale: _scale,
-              ),
-              size: canvasSize,
-            );
-          },
+        child: CustomPaint(
+          painter: GraphPainter(
+            nodes: _nodes,
+            edges: _edges,
+            selectedNode: _selectedNode,
+            scale: _scale,
+            offset: _offset,
+          ),
+          size: size,
         ),
       ),
     );
   }
 
-  void _onScaleStart(ScaleStartDetails details) {
+  // ── 手势实现 ──
+
+  void _onScaleStart(ScaleStartDetails details, Size canvasSize) {
     _baseScale = _scale;
     _baseOffset = _offset;
 
-    // 检测是否拖拽节点
-    final size = MediaQuery.of(context).size;
-    final graphPainter = GraphPainter(
-      nodes: _nodes,
-      edges: _edges,
-      scale: _scale,
-    );
-    final transformedPos = Offset(
-      (details.localFocalPoint.dx - _offset.dx) / _scale,
-      (details.localFocalPoint.dy - _offset.dy) / _scale,
-    );
-    _draggedNode = graphPainter.hitTestNode(transformedPos, size);
+    // 触摸点 → 布局坐标系
+    final lx = (details.localFocalPoint.dx - _offset.dx) / _scale;
+    final ly = (details.localFocalPoint.dy - _offset.dy) / _scale;
+
+    _draggedNode = _hitTestLayout(Offset(lx, ly), canvasSize);
     if (_draggedNode != null) {
-      _selectedNode = _draggedNode;
+      setState(() => _selectedNode = _draggedNode);
     }
   }
 
-  void _onScaleUpdate(ScaleUpdateDetails details) {
+  void _onScaleUpdate(ScaleUpdateDetails details, Size canvasSize) {
     setState(() {
       if (details.pointerCount >= 2 || _draggedNode == null) {
-        // 双指缩放 + 平移画布
+        // 双指缩放 + 平移
         _scale = (_baseScale * details.scale).clamp(0.3, 2.5);
         _offset = _baseOffset + details.focalPoint - details.localFocalPoint;
       } else {
-        // 单指拖拽节点
-        final size = MediaQuery.of(context).size;
-        _draggedNode!.x = (_draggedNode!.x ?? 0) +
-            details.focalPointDelta.dx / (_scale * size.width);
-        _draggedNode!.y = (_draggedNode!.y ?? 0) +
-            details.focalPointDelta.dy / (_scale * size.height);
+        // 单指拖拽节点（布局坐标系内）
+        _draggedNode!.x = (_draggedNode!.x ?? 0.5) +
+            details.focalPointDelta.dx / (_scale * canvasSize.width);
+        _draggedNode!.y = (_draggedNode!.y ?? 0.5) +
+            details.focalPointDelta.dy / (_scale * canvasSize.height);
         _draggedNode!.x = _draggedNode!.x!.clamp(0.05, 0.95);
         _draggedNode!.y = _draggedNode!.y!.clamp(0.05, 0.95);
       }
     });
   }
 
-  void _onTapUp(TapUpDetails details) {
-    final size = MediaQuery.of(context).size;
-    final graphPainter = GraphPainter(
-      nodes: _nodes,
-      edges: _edges,
-      scale: _scale,
-    );
-    final transformedPos = Offset(
-      (details.localPosition.dx - _offset.dx) / _scale,
-      (details.localPosition.dy - _offset.dy) / _scale,
-    );
-    final hitNode = graphPainter.hitTestNode(transformedPos, size);
+  void _onTapUp(TapUpDetails details, Size canvasSize) {
+    final lx = (details.localPosition.dx - _offset.dx) / _scale;
+    final ly = (details.localPosition.dy - _offset.dy) / _scale;
+    final hitNode = _hitTestLayout(Offset(lx, ly), canvasSize);
 
     if (hitNode != null) {
       setState(() => _selectedNode = hitNode);
@@ -171,6 +153,22 @@ class _MindMapPageState extends State<MindMapPage> {
     } else {
       setState(() => _selectedNode = null);
     }
+  }
+
+  /// 在布局坐标系中检测命中了哪个节点
+  ///
+  /// [layoutPos] 已经是 canvas 像素坐标 `(local - offset) / scale`。
+  GraphNode? _hitTestLayout(Offset layoutPos, Size canvasSize) {
+    for (final node in _nodes) {
+      if (node.x == null || node.y == null || node.radius == null) continue;
+      final cx = node.x! * canvasSize.width;
+      final cy = node.y! * canvasSize.height;
+      final r = node.radius!;
+      final dx = layoutPos.dx - cx;
+      final dy = layoutPos.dy - cy;
+      if (dx * dx + dy * dy <= r * r) return node;
+    }
+    return null;
   }
 
   void _showDetailSheet(GraphNode node) {

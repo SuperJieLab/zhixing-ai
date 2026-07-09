@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -15,12 +14,14 @@ class GraphPainter extends CustomPainter {
   final List<GraphEdge> edges;
   final GraphNode? selectedNode;
   final double scale;
+  final Offset offset;
 
   GraphPainter({
     required this.nodes,
     required this.edges,
     this.selectedNode,
     this.scale = 1.0,
+    this.offset = Offset.zero,
   });
 
   // ================================================================
@@ -84,8 +85,12 @@ class GraphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.translate(offset.dx, offset.dy);
+    canvas.scale(scale);
     _drawEdges(canvas, size);
     _drawNodes(canvas, size);
+    canvas.restore();
   }
 
   void _drawEdges(Canvas canvas, Size size) {
@@ -116,7 +121,7 @@ class GraphPainter extends CustomPainter {
           text: TextSpan(
             text: edge.label,
             style: TextStyle(
-              fontSize: math.max(9, 10 / scale),
+              fontSize: 10,
               color: AppTheme.textSecondary,
               background: Paint()..color = AppTheme.background.withValues(alpha: 0.85),
             ),
@@ -134,7 +139,7 @@ class GraphPainter extends CustomPainter {
 
       final cx = node.x! * size.width;
       final cy = node.y! * size.height;
-      final r = (node.radius ?? 32) * scale;
+      final r = node.radius ?? 32;
       final isSelected = node.id == selectedNode?.id;
       final color = _nodeColor(node.type);
       final fillColor = _nodeFillColor(node.type);
@@ -167,7 +172,7 @@ class GraphPainter extends CustomPainter {
         text: TextSpan(
           text: node.label,
           style: TextStyle(
-            fontSize: math.max(11, (isSelected ? 14 : 13) * scale),
+            fontSize: (isSelected ? 14 : 13),
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             color: isSelected ? color : AppTheme.textPrimary,
             height: 1.3,
@@ -185,7 +190,7 @@ class GraphPainter extends CustomPainter {
         text: TextSpan(
           text: tag,
           style: TextStyle(
-            fontSize: math.max(8, 9 * scale),
+            fontSize: 9,
             color: AppTheme.textSecondary,
           ),
         ),
@@ -193,27 +198,9 @@ class GraphPainter extends CustomPainter {
       )..layout();
       tagPainter.paint(
         canvas,
-        Offset(cx - tagPainter.width / 2, cy + r + 4 * scale),
+        Offset(cx - tagPainter.width / 2, cy + r + 4),
       );
     }
-  }
-
-  // ================================================================
-  // 命中检测（供 MindMapPage 手势交互使用）
-  // ================================================================
-
-  /// 返回给定画布坐标下的节点（null = 没命中）
-  GraphNode? hitTestNode(Offset position, Size size) {
-    for (final node in nodes) {
-      if (node.x == null || node.y == null) continue;
-      final cx = node.x! * size.width;
-      final cy = node.y! * size.height;
-      final r = (node.radius ?? 32) * scale;
-      final dx = position.dx - cx;
-      final dy = position.dy - cy;
-      if (dx * dx + dy * dy <= r * r) return node;
-    }
-    return null;
   }
 
   // ================================================================
@@ -231,6 +218,7 @@ class GraphPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant GraphPainter oldDelegate) {
     return oldDelegate.scale != scale ||
+        oldDelegate.offset != offset ||
         oldDelegate.selectedNode?.id != selectedNode?.id ||
         oldDelegate.nodes != nodes;
   }
