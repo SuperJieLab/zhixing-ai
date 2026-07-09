@@ -25,7 +25,6 @@ class _MindMapPageState extends State<MindMapPage> {
   GraphNode? _selectedNode;
   GraphNode? _draggedNode;
   double _baseScale = 1.0;
-  Offset _baseOffset = Offset.zero;
 
   // ── 布局 ──
   late final List<GraphNode> _nodes;
@@ -112,7 +111,6 @@ class _MindMapPageState extends State<MindMapPage> {
 
   void _onScaleStart(ScaleStartDetails details, Size canvasSize) {
     _baseScale = _scale;
-    _baseOffset = _offset;
 
     // 触摸点 → canvas 像素坐标
     final lx = (details.localFocalPoint.dx - _offset.dx) / _scale;
@@ -128,7 +126,7 @@ class _MindMapPageState extends State<MindMapPage> {
       if (details.pointerCount >= 2 || _draggedNode == null) {
         // 双指缩放 + 单指平移
         _scale = (_baseScale * details.scale).clamp(0.3, 2.5);
-        _offset = _baseOffset + details.focalPointDelta;
+        _offset += details.focalPointDelta;
       } else {
         // 单指拖拽节点（归一化坐标）
         final dx = details.focalPointDelta.dx / (_scale * canvasSize.width);
