@@ -32,6 +32,7 @@ class _ChatPageState extends State<ChatPage> {
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = -1;
   bool _conversationStarted = false;
+  bool _errorListenerSetup = false;
 
   @override
   void initState() {
@@ -121,6 +122,24 @@ class _ChatPageState extends State<ChatPage> {
       },
       child: Consumer<ChatProvider>(
         builder: (context, chatProvider, _) {
+          // 设置推理错误监听器（仅一次）
+          if (!_errorListenerSetup) {
+            _errorListenerSetup = true;
+            chatProvider.addListener(() {
+              final error = chatProvider.error;
+              if (error != null && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('AI 推理遇到问题，当前为兜底回复'),
+                    behavior: SnackBarBehavior.floating,
+                    duration: Duration(seconds: 3),
+                  ),
+                );
+                chatProvider.clearError();
+              }
+            });
+          }
+
           // 模型加载中 → 全屏 loading
           if (chatProvider.isModelLoading) {
             return Scaffold(
@@ -142,6 +161,11 @@ class _ChatPageState extends State<ChatPage> {
                 ),
               ),
             );
+          }
+
+          // 模型加载失败 → 错误视图
+          if (chatProvider.hasModelError) {
+            return _buildModelErrorView(chatProvider);
           }
 
           // 模型就绪时创建持久化记录（仅一次）
@@ -232,6 +256,55 @@ class _ChatPageState extends State<ChatPage> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildModelErrorView(ChatProvider provider) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: AppTheme.background,
+        title: Text(widget.topic),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: AppTheme.primary),
+              const SizedBox(height: 16),
+              const Text(
+                'AI 模型加载失败',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '请确保设备有足够存储空间并重试',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => provider.retryLoadModel(),
+                icon: const Icon(Icons.refresh),
+                label: const Text('重试'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  '返回',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

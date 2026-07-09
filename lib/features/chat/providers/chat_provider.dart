@@ -42,17 +42,29 @@ class ChatProvider extends ChangeNotifier {
   /// 模型加载错误信息
   String? get modelError => _modelError;
 
+  /// 是否存在模型加载错误
+  bool get hasModelError => _modelError != null;
+
   // ================================================================
   // 对话状态
   // ================================================================
 
   int _round = 1;
   bool _isThinking = false;
+  String? _error;
   final List<ChatMessage> _messages = [];
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   int get round => _round;
   bool get isThinking => _isThinking;
+
+  /// 推理错误信息（由 ChatPage 监听并弹出 SnackBar）
+  String? get error => _error;
+
+  /// 清除推理错误状态
+  void clearError() {
+    _error = null;
+  }
 
   // ================================================================
   // 生命周期
@@ -97,6 +109,14 @@ class ChatProvider extends ChangeNotifier {
       _isModelLoading = false;
       notifyListeners();
     }
+  }
+
+  /// 重试加载模型
+  ///
+  /// 清除上一次错误状态后重新调用 [loadModel]。
+  Future<void> retryLoadModel() async {
+    _modelError = null;
+    await loadModel();
   }
 
   // ================================================================
@@ -149,6 +169,7 @@ class ChatProvider extends ChangeNotifier {
     } catch (e, stack) {
       debugPrint('[ChatProvider] 推理失败: $e');
       debugPrintStack(stackTrace: stack);
+      _error = e.toString();
       _messages[aiMessageIndex] = ChatMessage(
         role: MessageRole.ai,
         content: '抱歉，我在思考时遇到了一些问题。你能换个方式再说说吗？',
