@@ -183,9 +183,10 @@ class _MindMapPageState extends State<MindMapPage> {
 
   /// 在布局坐标系中检测命中了哪个节点
   ///
-  /// [layoutPos] 已经是 canvas 像素坐标 `(local - offset) / scale`。
+  /// [layoutPos] 已经是 canvas 像素坐标 `(local - focal - offset) / scale + focal`。
+  /// 倒序遍历：后绘制的节点（视觉上层）优先命中。
   GraphNode? _hitTestLayout(Offset layoutPos, Size canvasSize) {
-    for (final node in _nodes) {
+    for (final node in _nodes.reversed) {
       if (node.x == null || node.y == null || node.radius == null) continue;
       final cx = node.x! * canvasSize.width;
       final cy = node.y! * canvasSize.height;
