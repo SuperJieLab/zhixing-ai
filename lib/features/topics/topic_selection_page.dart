@@ -4,6 +4,7 @@ import 'package:socratic_ai/core/constants.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
+import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/features/history/history_page.dart';
 
@@ -190,12 +191,7 @@ class TopicSelectionPage extends StatelessWidget {
                             ),
                           );
                         } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('请输入话题内容'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
+                          SnackBarThrottle.show(context, '请输入话题内容');
                         }
                       },
 

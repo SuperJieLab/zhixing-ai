@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/history/engine/conversation_repository.dart';
 import 'package:socratic_ai/features/mindmap/engine/graph_service.dart';
@@ -108,9 +109,7 @@ class MindMapService {
   }
 
   void _showError(BuildContext context, Object e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('图谱生成失败: $e')),
-    );
+    SnackBarThrottle.show(context, '图谱生成失败: $e');
   }
 
   void _navigate(BuildContext context, String topic, ConversationGraph graph) {

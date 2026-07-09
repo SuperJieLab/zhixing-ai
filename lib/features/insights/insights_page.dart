@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
 import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
@@ -297,9 +298,7 @@ class _InsightsPageState extends State<InsightsPage>
   void _openMindMap(BuildContext context) {
     final messages = widget.messages;
     if (messages == null || messages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂无对话数据')),
-      );
+      SnackBarThrottle.show(context, '暂无对话数据');
       return;
     }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
+import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/history/providers/conversation_provider.dart';
 import 'package:socratic_ai/features/history/widgets/conversation_card.dart';
@@ -138,9 +139,7 @@ class _HistoryPageState extends State<HistoryPage> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该对话尚无洞察总结')),
-      );
+      SnackBarThrottle.show(context, '该对话尚无洞察总结');
     }
   }
 }

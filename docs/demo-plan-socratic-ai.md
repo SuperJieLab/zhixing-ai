@@ -1,7 +1,7 @@
 # 苏格拉底式 AI 对话 — MVP 执行方案
 
 > 最后更新：2026-07-09
-> 当前进度：Day 6 完成（含 Day 6a 架构重构），下一个里程碑：Day 7 错误覆盖
+> 当前进度：Day 7 完成，下一个里程碑：Day 8 模型下载
 
 ---
 
@@ -417,7 +417,7 @@ MindNode:
 | **5** | 端侧持久化 | sqflite 本地存储 + ConversationProvider + 历史列表 | ✅ |
 | **6** | 思维图谱 | LLM 端侧生成图谱 JSON + CustomPainter 渲染 + 手势交互 | ✅ |
 | **6a** | 架构重构 | LlamaService 缓存池 + 分层梳理 + MindMapService 内聚 | ✅ |
-| **7** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | |
+| **7** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | ✅ |
 | **8** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
 | **9** | 收尾 | README + 录 Demo + 截图 + Push GitHub + 上架准备 | |
 

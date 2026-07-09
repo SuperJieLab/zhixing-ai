@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
@@ -128,13 +129,7 @@ class _ChatPageState extends State<ChatPage> {
             chatProvider.addListener(() {
               final error = chatProvider.error;
               if (error != null && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('AI 推理遇到问题，当前为兜底回复'),
-                    behavior: SnackBarBehavior.floating,
-                    duration: Duration(seconds: 3),
-                  ),
-                );
+                SnackBarThrottle.show(context, 'AI 推理遇到问题，当前为兜底回复');
                 chatProvider.clearError();
               }
             });
@@ -250,12 +245,7 @@ class _ChatPageState extends State<ChatPage> {
                 ChatInput(
                   onSend: (message) {
                     if (message.length > 3000) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('回答过长（${message.length}/3000），请精简后发送'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                      SnackBarThrottle.show(context, '回答过长（${message.length}/3000），请精简后发送');
                       return;
                     }
                     chatProvider.sendMessage(message);
