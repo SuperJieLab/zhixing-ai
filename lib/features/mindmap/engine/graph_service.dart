@@ -38,6 +38,7 @@ class GraphService {
       '5. edge 的 label 用 2-4 字简要描述关系（如"导致"、"包含"、"矛盾"）\n'
       '6. 严格只输出 JSON，不要输出任何解释性文字，不要输出 <think> 标签\n'
       '7. 每条 edge 必须包含 source, target, label, strength 四个字段\n'
+      '8. JSON 必须为紧凑格式（单行，不要换行，不要多余空格）\n'
       '\n'
       '输出格式：\n'
       '{"nodes":[{"id":"n1","label":"职业转型","type":"topic","weight":1.0},'
