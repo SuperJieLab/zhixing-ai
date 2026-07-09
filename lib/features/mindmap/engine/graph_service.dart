@@ -72,7 +72,7 @@ class GraphService {
             topP: 0.8,
             repeatPenalty: 1.1,
           ),
-          maxTokens: 1024, // 图谱 JSON 较长（节点+连线），需要足够 token
+          maxTokens: 2048,
         )) {
           if (event is TokenEvent) {
             buffer.write(event.text);
