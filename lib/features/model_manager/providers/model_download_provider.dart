@@ -65,22 +65,7 @@ class ModelDownloadProvider extends ChangeNotifier {
     _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateSpeed(model.id));
 
     try {
-      final success = await _service.download(
-        url: model.downloadUrl,
-        savePath: savePath,
-        onProgress: ({required received, required total}) {
-          final effectiveTotal = total > 0 ? total : model.sizeBytes;
-          _states[model.id] = ModelDownloadState(
-            status: DownloadStatus.downloading,
-            progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
-            receivedBytes: received,
-            totalBytes: effectiveTotal,
-            speedText: _states[model.id]?.speedText ?? '',
-            etaText: _states[model.id]?.etaText ?? '',
-          );
-          notifyListeners();
-        },
-      );
+      final success = await _downloadWithFallback(model, savePath);
 
       _speedTimer?.cancel();
 
@@ -106,6 +91,46 @@ class ModelDownloadProvider extends ChangeNotifier {
         totalBytes: _states[model.id]?.totalBytes ?? model.sizeBytes,
       );
       notifyListeners();
+    }
+  }
+
+  /// 下载：先尝试 HuggingFace 直链，失败则 fallback 到 hf-mirror 国内镜像
+  Future<bool> _downloadWithFallback(AvailableModel model, String savePath) async {
+    try {
+      return await _service.download(
+        url: model.downloadUrl,
+        savePath: savePath,
+        onProgress: ({required received, required total}) {
+          final effectiveTotal = total > 0 ? total : model.sizeBytes;
+          _states[model.id] = ModelDownloadState(
+            status: DownloadStatus.downloading,
+            progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
+            receivedBytes: received,
+            totalBytes: effectiveTotal,
+            speedText: _states[model.id]?.speedText ?? '',
+            etaText: _states[model.id]?.etaText ?? '',
+          );
+          notifyListeners();
+        },
+      );
+    } on Exception catch (_) {
+      // HuggingFace 直连失败（如国内网络不通），改用 hf-mirror 镜像
+      return _service.download(
+        url: model.mirrorUrl,
+        savePath: savePath,
+        onProgress: ({required received, required total}) {
+          final effectiveTotal = total > 0 ? total : model.sizeBytes;
+          _states[model.id] = ModelDownloadState(
+            status: DownloadStatus.downloading,
+            progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
+            receivedBytes: received,
+            totalBytes: effectiveTotal,
+            speedText: _states[model.id]?.speedText ?? '',
+            etaText: _states[model.id]?.etaText ?? '',
+          );
+          notifyListeners();
+        },
+      );
     }
   }
 
