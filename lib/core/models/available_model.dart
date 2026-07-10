@@ -34,9 +34,9 @@ class AvailableModel {
       name: 'Qwen3.5-2B',
       description: '中文苏格拉底对话，最新推荐',
       quant: 'Q4_K_M',
-      sizeBytes: 1400000000,
+      sizeBytes: 1270808032,
       fileName: 'Qwen3.5-2B-Q4_K_M.gguf',
-      hfRepo: 'bartowski/Qwen_Qwen3.5-2B-GGUF',
+      hfRepo: 'lmstudio-community/Qwen3.5-2B-GGUF',
     ),
     AvailableModel(
       id: 'qwen2.5-1.5b-q4km',
