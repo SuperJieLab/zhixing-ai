@@ -14,9 +14,6 @@ class AppConstants {
 
   // ─── LLM 模型配置 ───
 
-  /// GGUF 模型文件名（当前使用 Qwen3.5-2B）
-  static const String modelFileName = 'qwen3.5-2b-q4_k_m.gguf';
-
   /// 模型上下文窗口（token）
   static const int modelContextSize = 4096;
 
@@ -26,36 +23,19 @@ class AppConstants {
   /// CPU 推理线程数
   static const int modelThreads = 4;
 
-  /// macOS 开发环境下的 libllama.dylib 路径
-  /// 生产环境请使用 [LlamaService.loadModelFromProcess]
-  static const String macosLibPath =
-      'macos/Runner/libs/libllama.dylib';
-
-  /// macOS 开发环境下的 GGUF 模型相对路径（从项目根目录算起）
-  /// Day 9 将替换为自动下载到沙盒目录
-  static const String macosDevModelPath =
-      'assets/models/qwen3.5-2b-q4_k_m.gguf';
-
-  // ⚠️ 开发阶段硬编码：macOS debug build 无法通过相对路径访问项目目录
-  // 生产环境此常量将被移除，Day 9 实现模型自动下载
-  static const String macosDevModelAbsolutePath =
-      '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen3.5-2b-q4_k_m.gguf';
-
-  /// 默认模型绝对路径（运行时动态设置）
-  /// Day 8 之前使用开发硬编码路径；下载完成后切换为沙盒路径。
-  static String defaultModelPath = macosDevModelAbsolutePath;
+  /// 默认模型路径（运行时由下载系统动态设置）
+  /// 初始为空字符串，表示尚未下载任何模型。
+  /// 下载完成后 [ModelDownloadProvider] 会将其设为沙盒路径。
+  static String defaultModelPath = '';
 
   // ─── 模型下载 ───
 
   /// 沙盒内模型存储子目录
   static const String modelSubDir = 'models';
 
-  /// 模型文件预期大小（字节），用于完整性校验
-  static const int modelExpectedSize = 1130000000;
-
   /// 检查当前 [defaultModelPath] 指向的模型文件是否存在
   static bool isModelAvailable() {
-    return File(defaultModelPath).existsSync();
+    return defaultModelPath.isNotEmpty && File(defaultModelPath).existsSync();
   }
 
   // ─── 预设话题 ───
