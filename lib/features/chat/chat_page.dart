@@ -5,21 +5,13 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_input.dart';
-import 'package:socratic_ai/features/history/providers/conversation_provider.dart';
 import 'package:socratic_ai/features/insights/insights_page.dart';
 
 /// 对话页面
 ///
 /// 用户与 AI 进行苏格拉底式深度对话。
-/// 模型加载由 [ChatProvider.loadModel] 负责，加载期间显示进度。
-///
-/// ## 分层
-/// ChatPage 只依赖：
-/// - ChatProvider（Provider）
-/// - ConversationProvider（Provider）
-/// - chat widgets（同 feature）
-/// - InsightsPage（跨 feature 页面跳转）
-/// - core/theme（全局样式）
+/// 所有持久化和业务逻辑都由 [ChatProvider] 管理，
+/// ChatPage 只负责 UI 渲染和页面跳转。
 class ChatPage extends StatefulWidget {
   final String topic;
 
@@ -35,20 +27,19 @@ class _ChatPageState extends State<ChatPage> {
   bool _conversationStarted = false;
   bool _errorListenerSetup = false;
 
-  @override
-  void initState() {
-    super.initState();
-  }
+  /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
+  ChatProvider? _listenedProvider;
 
   @override
   void dispose() {
+    _listenedProvider?.removeListener(_onChatError);
     _scrollController.dispose();
     super.dispose();
   }
 
   Future<void> _endConversation(BuildContext context) async {
     final chatProvider = context.read<ChatProvider>();
-    final convProvider = context.read<ConversationProvider>();
+    final activeId = chatProvider.activeConversationId;
 
     // 显示 loading 弹窗
     if (!context.mounted) return;
@@ -78,14 +69,8 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
 
-    // 生成洞察
+    // 生成洞察（ChatProvider 内部会完成持久化）
     final insight = await chatProvider.endConversation();
-
-    // 持久化
-    final activeId = convProvider.activeConversationId;
-    convProvider.finishConversation(
-      insight.coreInsights.isNotEmpty ? insight : null,
-    );
 
     // 关闭 loading，跳转
     if (!context.mounted) return;
@@ -103,22 +88,22 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  void _onChatError() {
+    final provider = _listenedProvider;
+    if (provider == null || !mounted) return;
+    final error = provider.error;
+    if (error != null) {
+      SnackBarThrottle.show(context, 'AI 推理遇到问题，当前为兜底回复');
+      provider.clearError();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (ctx) {
-        final convProvider = ctx.read<ConversationProvider>();
-        late final ChatProvider provider;
-        provider = ChatProvider(
-          topic: widget.topic,
-          onMessagesChanged: () {
-            convProvider.saveMessages(provider.messages);
-          },
-        );
-
-        // 创建后立即触发模型加载（异步，不阻塞 UI）
+      create: (_) {
+        final provider = ChatProvider(topic: widget.topic);
         provider.loadModel();
-
         return provider;
       },
       child: Consumer<ChatProvider>(
@@ -126,13 +111,8 @@ class _ChatPageState extends State<ChatPage> {
           // 设置推理错误监听器（仅一次）
           if (!_errorListenerSetup) {
             _errorListenerSetup = true;
-            chatProvider.addListener(() {
-              final error = chatProvider.error;
-              if (error != null && context.mounted) {
-                SnackBarThrottle.show(context, 'AI 推理遇到问题，当前为兜底回复');
-                chatProvider.clearError();
-              }
-            });
+            _listenedProvider = chatProvider;
+            chatProvider.addListener(_onChatError);
           }
 
           // 模型加载中 → 全屏 loading
@@ -167,7 +147,7 @@ class _ChatPageState extends State<ChatPage> {
           if (chatProvider.isModelReady && !_conversationStarted) {
             _conversationStarted = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.read<ConversationProvider>().startConversation(widget.topic);
+              chatProvider.startConversation();
             });
           }
 
@@ -271,7 +251,7 @@ class _ChatPageState extends State<ChatPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 64, color: AppTheme.primary),
+              const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
               const SizedBox(height: 16),
               const Text(
                 'AI 模型加载失败',

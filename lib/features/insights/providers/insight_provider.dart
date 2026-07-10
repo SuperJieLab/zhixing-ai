@@ -10,13 +10,13 @@ import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 /// ## 分层
 /// InsightProvider 是 page 和 engine 之间的接线层：
 /// page → 只看到 provider 和 model，不会直接引用 engine 层的 MindMapService。
-class InsightProvider extends ChangeNotifier {
+///
+/// ## 设计决策
+/// 不继承 ChangeNotifier，因为当前 InsightProvider 自身没有需要
+/// Page 响应式监听的状态——加载中/错误等都由 MindMapService 内的
+/// Dialog/SnackBar 直接处理。
+class InsightProvider {
   final MindMapService _mindMapService = MindMapService();
-
-  bool _isGenerating = false;
-
-  /// 是否正在生成图谱
-  bool get isGenerating => _isGenerating;
 
   /// 打开思维图谱
   ///
@@ -27,19 +27,13 @@ class InsightProvider extends ChangeNotifier {
     required List<ChatMessage> messages,
     int? conversationId,
     ConversationGraph? cachedGraph,
-  }) async {
-    _isGenerating = true;
-    notifyListeners();
-
-    await _mindMapService.openMindMap(
+  }) {
+    return _mindMapService.openMindMap(
       context,
       topic: topic,
       messages: messages,
       conversationId: conversationId,
       cachedGraph: cachedGraph,
     );
-
-    _isGenerating = false;
-    notifyListeners();
   }
 }

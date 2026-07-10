@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/engine/conversation_service.dart';
 import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
 import '../../../core/models/chat_models.dart';
@@ -10,20 +11,18 @@ import '../engine/socratic_prompter.dart';
 ///
 /// 负责整个苏格拉底式对话的完整生命周期：
 /// - 加载 LLM 模型（loadModel）
-/// - 生成欢迎消息 + 接收用户输入 + 生成 AI 追问（sendMessage）
+/// - 创建持久化记录（startConversation）
+/// - 接收用户输入 + 生成 AI 追问（sendMessage）
 /// - 结束对话并生成洞察总结（endConversation）
 ///
 /// ## 分层
-/// ChatPage 只通过 ChatProvider 交互，不直接接触 LlamaService / SocraticPrompter / InsightService。
+/// ChatPage 只通过 ChatProvider 交互，不直接接触任何 Service 层。
 ///
 /// ## ChangeNotifier 模式
 /// 调用 notifyListeners() 通知所有监听者（Widget）刷新 UI。
 class ChatProvider extends ChangeNotifier {
-  /// 对话话题标题
-  final String topic;
-
-  /// 消息变更回调（由 ChatPage 注入持久化写入逻辑）
-  final VoidCallback? _onMessagesChanged;
+  final String _topic;
+  final ConversationService _conversationService = ConversationService();
 
   // ================================================================
   // 引擎状态
@@ -33,16 +32,9 @@ class ChatProvider extends ChangeNotifier {
   bool _isModelLoading = false;
   String? _modelError;
 
-  /// 模型是否已就绪
   bool get isModelReady => _engine != null && _engine!.isReady;
-
-  /// 模型是否加载中
   bool get isModelLoading => _isModelLoading;
-
-  /// 模型加载错误信息
   String? get modelError => _modelError;
-
-  /// 是否存在模型加载错误
   bool get hasModelError => _modelError != null;
 
   // ================================================================
@@ -67,13 +59,24 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // ================================================================
+  // 持久化
+  // ================================================================
+
+  int? _activeConversationId;
+
+  /// 当前会话的数据库 ID（null 表示尚未创建）
+  int? get activeConversationId => _activeConversationId;
+
+  /// 创建持久化记录
+  Future<void> startConversation() async {
+    _activeConversationId = await _conversationService.createConversation(_topic);
+  }
+
+  // ================================================================
   // 生命周期
   // ================================================================
 
-  ChatProvider({
-    required this.topic,
-    VoidCallback? onMessagesChanged,
-  }) : _onMessagesChanged = onMessagesChanged {
+  ChatProvider({required String topic}) : _topic = topic {
     _addWelcomeMessage();
   }
 
@@ -179,7 +182,7 @@ class ChatProvider extends ChangeNotifier {
       _round++;
       _isThinking = false;
       notifyListeners();
-      _onMessagesChanged?.call();
+      _saveMessages();
     }
   }
 
@@ -199,7 +202,17 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       final service = InsightService(engine.engine);
-      return await service.analyze(topic, messages);
+      final insight = await service.analyze(_topic, messages);
+
+      // 持久化洞察
+      if (_activeConversationId != null) {
+        await _conversationService.finishConversation(
+          _activeConversationId!,
+          insight.coreInsights.isNotEmpty ? insight : null,
+        );
+      }
+
+      return insight;
     } catch (e) {
       debugPrint('[ChatProvider] 洞察生成失败: $e');
       return const InsightResult(
@@ -213,6 +226,11 @@ class ChatProvider extends ChangeNotifier {
   // ================================================================
   // 私有
   // ================================================================
+
+  void _saveMessages() {
+    if (_activeConversationId == null) return;
+    _conversationService.saveMessages(_activeConversationId!, _messages);
+  }
 
   void _addWelcomeMessage() {
     const openings = <String, String>{
@@ -228,7 +246,7 @@ class ChatProvider extends ChangeNotifier {
           '这段关系让你在意的地方是什么——是对方的期待，还是你对自己在这段关系里的要求？',
     };
 
-    final opening = openings[topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
+    final opening = openings[_topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
 
     _messages.add(ChatMessage(
       role: MessageRole.ai,

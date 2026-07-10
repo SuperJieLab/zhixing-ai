@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/history/providers/conversation_provider.dart';
 import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
@@ -13,19 +12,16 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 /// 1. 空内容/纯空格提交 → 显示 SnackBar 提示
 /// 2. 有效话题提交 → 导航到 ChatPage
 void main() {
-  /// 构建带有所有必需 Provider 的测试 Widget
+  /// 构建带有 TopicProvider 的测试 Widget
   ///
-  /// ChatPage 内部会通过 ctx.read<ConversationProvider>() 读取，
-  /// 因此测试需要在 MaterialApp 之上提供 ConversationProvider。
+  /// ChatPage 内部直接使用 ConversationService（不再依赖 Provider 注入），
+  /// 因此测试中不需要提供 ConversationProvider。
   Widget buildTestApp() {
-    return ChangeNotifierProvider(
-      create: (_) => ConversationProvider(),
-      child: MaterialApp(
-        theme: AppTheme.lightTheme,
-        home: ChangeNotifierProvider(
-          create: (_) => TopicProvider(),
-          child: const TopicSelectionPage(),
-        ),
+    return MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: ChangeNotifierProvider(
+        create: (_) => TopicProvider(),
+        child: const TopicSelectionPage(),
       ),
     );
   }

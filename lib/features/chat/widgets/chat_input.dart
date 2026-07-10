@@ -136,7 +136,7 @@ class _ChatInputState extends State<ChatInput> {
                     return Text(
                       '$currentLength/$maxLength',
                       style: const TextStyle(
-                        color: AppTheme.accent,
+                        color: AppTheme.warning,
                         fontSize: 12,
                       ),
                     );
