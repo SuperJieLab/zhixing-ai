@@ -6,7 +6,7 @@ import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/chat/model_manage_page.dart';
+import 'package:socratic_ai/features/model_manager/model_manage_page.dart';
 import 'package:socratic_ai/features/history/history_page.dart';
 
 /// 话题选择页面（首页）

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:socratic_ai/core/models/available_model.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/chat/providers/model_download_provider.dart';
+import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
 
 /// 模型管理页
 ///
