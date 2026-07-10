@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 /// 下载进度回调
 typedef DownloadProgress = void Function({
@@ -19,6 +20,8 @@ class ModelDownloadService {
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(minutes: 30),
+    followRedirects: true,
+    maxRedirects: 10,
   ));
 
   CancelToken? _cancelToken;
@@ -36,9 +39,14 @@ class ModelDownloadService {
     final file = File(savePath);
     final startByte = await file.exists() ? await file.length() : 0;
 
+    debugPrint('[ModelDownload] 开始下载: $url');
+    debugPrint('[ModelDownload] 保存路径: $savePath');
+    debugPrint('[ModelDownload] 断点续传起始: $startByte bytes');
+
     final headers = <String, dynamic>{};
     if (startByte > 0) {
       headers['Range'] = 'bytes=$startByte-';
+      debugPrint('[ModelDownload] Range 头: bytes=$startByte-');
     }
 
     try {
@@ -58,8 +66,13 @@ class ModelDownloadService {
         },
       );
 
+      debugPrint('[ModelDownload] 完成, statusCode=${response.statusCode}');
       return response.statusCode == 200 || response.statusCode == 206;
     } on DioException catch (e) {
+      debugPrint('[ModelDownload] DioException type=${e.type}');
+      debugPrint('[ModelDownload] DioException message=${e.message}');
+      debugPrint('[ModelDownload] DioException error=${e.error}');
+      debugPrint('[ModelDownload] DioException url=${e.requestOptions.uri}');
       if (e.type == DioExceptionType.cancel) return false;
       rethrow;
     }

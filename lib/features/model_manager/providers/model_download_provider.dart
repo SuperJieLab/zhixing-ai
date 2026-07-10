@@ -94,44 +94,23 @@ class ModelDownloadProvider extends ChangeNotifier {
     }
   }
 
-  /// 下载：先尝试 hf-mirror 国内镜像，失败则回退 HuggingFace 直链
   Future<bool> _downloadWithFallback(AvailableModel model, String savePath) async {
-    try {
-      return await _service.download(
-        url: model.mirrorUrl,
-        savePath: savePath,
-        onProgress: ({required received, required total}) {
-          final effectiveTotal = total > 0 ? total : model.sizeBytes;
-          _states[model.id] = ModelDownloadState(
-            status: DownloadStatus.downloading,
-            progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
-            receivedBytes: received,
-            totalBytes: effectiveTotal,
-            speedText: _states[model.id]?.speedText ?? '',
-            etaText: _states[model.id]?.etaText ?? '',
-          );
-          notifyListeners();
-        },
-      );
-    } catch (_) {
-      // 镜像也失败，试直连
-      return _service.download(
-        url: model.downloadUrl,
-        savePath: savePath,
-        onProgress: ({required received, required total}) {
-          final effectiveTotal = total > 0 ? total : model.sizeBytes;
-          _states[model.id] = ModelDownloadState(
-            status: DownloadStatus.downloading,
-            progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
-            receivedBytes: received,
-            totalBytes: effectiveTotal,
-            speedText: _states[model.id]?.speedText ?? '',
-            etaText: _states[model.id]?.etaText ?? '',
-          );
-          notifyListeners();
-        },
-      );
-    }
+    return _service.download(
+      url: model.mirrorUrl,
+      savePath: savePath,
+      onProgress: ({required received, required total}) {
+        final effectiveTotal = total > 0 ? total : model.sizeBytes;
+        _states[model.id] = ModelDownloadState(
+          status: DownloadStatus.downloading,
+          progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
+          receivedBytes: received,
+          totalBytes: effectiveTotal,
+          speedText: _states[model.id]?.speedText ?? '',
+          etaText: _states[model.id]?.etaText ?? '',
+        );
+        notifyListeners();
+      },
+    );
   }
 
   void _updateSpeed(String modelId) {
