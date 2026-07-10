@@ -94,11 +94,11 @@ class ModelDownloadProvider extends ChangeNotifier {
     }
   }
 
-  /// 下载：先尝试 HuggingFace 直链，失败则 fallback 到 hf-mirror 国内镜像
+  /// 下载：先尝试 hf-mirror 国内镜像，失败则回退 HuggingFace 直链
   Future<bool> _downloadWithFallback(AvailableModel model, String savePath) async {
     try {
       return await _service.download(
-        url: model.downloadUrl,
+        url: model.mirrorUrl,
         savePath: savePath,
         onProgress: ({required received, required total}) {
           final effectiveTotal = total > 0 ? total : model.sizeBytes;
@@ -113,10 +113,10 @@ class ModelDownloadProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
-    } on Exception catch (_) {
-      // HuggingFace 直连失败（如国内网络不通），改用 hf-mirror 镜像
+    } catch (_) {
+      // 镜像也失败，试直连
       return _service.download(
-        url: model.mirrorUrl,
+        url: model.downloadUrl,
         savePath: savePath,
         onProgress: ({required received, required total}) {
           final effectiveTotal = total > 0 ? total : model.sizeBytes;
