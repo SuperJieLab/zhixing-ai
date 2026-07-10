@@ -9,6 +9,7 @@ class AvailableModel {
   final String quant;
   final int sizeBytes;
   final String fileName;
+  final String hfRepo;
 
   const AvailableModel({
     required this.id,
@@ -17,23 +18,34 @@ class AvailableModel {
     required this.quant,
     required this.sizeBytes,
     required this.fileName,
+    required this.hfRepo,
   });
 
   String get downloadUrl =>
-      'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/$fileName';
+      'https://huggingface.co/$hfRepo/resolve/main/$fileName';
 
   String get mirrorUrl =>
-      'https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/$fileName';
+      'https://hf-mirror.com/$hfRepo/resolve/main/$fileName';
 
-  /// MVP 可用模型列表（目前仅 Qwen2.5-1.5B）
+  /// 可用模型列表
   static const List<AvailableModel> available = [
+    AvailableModel(
+      id: 'qwen3.5-2b-q4km',
+      name: 'Qwen3.5-2B',
+      description: '中文苏格拉底对话，最新推荐',
+      quant: 'Q4_K_M',
+      sizeBytes: 1400000000,
+      fileName: 'Qwen3.5-2B-Q4_K_M.gguf',
+      hfRepo: 'bartowski/Qwen_Qwen3.5-2B-GGUF',
+    ),
     AvailableModel(
       id: 'qwen2.5-1.5b-q4km',
       name: 'Qwen2.5-1.5B',
-      description: '中文苏格拉底对话，端侧推理',
+      description: '轻量端侧推理，体积更小',
       quant: 'Q4_K_M',
       sizeBytes: 1130000000,
       fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+      hfRepo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
     ),
   ];
 }
