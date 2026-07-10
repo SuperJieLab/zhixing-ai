@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// 应用常量与预设数据
 ///
 /// 存放不会在运行时变化的静态数据，比如 App 名称、
@@ -39,8 +41,22 @@ class AppConstants {
   static const String macosDevModelAbsolutePath =
       '/Users/superjie-mac/projects/socratic-ai/assets/models/qwen3.5-2b-q4_k_m.gguf';
 
-  /// 默认模型绝对路径（开发期硬编码，Day 8 模型下载后改为沙盒路径）
-  static const String defaultModelPath = macosDevModelAbsolutePath;
+  /// 默认模型绝对路径（运行时动态设置）
+  /// Day 8 之前使用开发硬编码路径；下载完成后切换为沙盒路径。
+  static String defaultModelPath = macosDevModelAbsolutePath;
+
+  // ─── 模型下载 ───
+
+  /// 沙盒内模型存储子目录
+  static const String modelSubDir = 'models';
+
+  /// 模型文件预期大小（字节），用于完整性校验
+  static const int modelExpectedSize = 1130000000;
+
+  /// 检查当前 [defaultModelPath] 指向的模型文件是否存在
+  static bool isModelAvailable() {
+    return File(defaultModelPath).existsSync();
+  }
 
   // ─── 预设话题 ───
   ///
