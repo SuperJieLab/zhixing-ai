@@ -6,6 +6,7 @@ import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
+import 'package:socratic_ai/features/chat/model_manage_page.dart';
 import 'package:socratic_ai/features/history/history_page.dart';
 
 /// 话题选择页面（首页）
@@ -52,7 +53,20 @@ class TopicSelectionPage extends StatelessWidget {
 
         // actions 是 AppBar 右侧的按钮列表
         actions: [
-          // 历史记录按钮（MVP 阶段为占位图标，Day 10 实现）
+          // 模型管理入口
+          IconButton(
+            icon: const Icon(Icons.memory, color: AppTheme.textSecondary),
+            tooltip: '模型管理',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ModelManagePage(),
+                ),
+              );
+            },
+          ),
+          // 历史记录按钮
           IconButton(
             icon: const Icon(Icons.history, color: AppTheme.textSecondary),
             tooltip: '历史对话', // 长按时的提示文字
@@ -138,6 +152,10 @@ class TopicSelectionPage extends StatelessWidget {
                       topic: topic,
                       // 用户点击卡片时的处理逻辑
                       onTap: (t) {
+                        if (!AppConstants.isModelAvailable()) {
+                          _showModelRequiredSnackBar(context);
+                          return;
+                        }
                         // 告诉 TopicProvider：用户选了这个话题
                         context.read<TopicProvider>().selectTopic(t.title);
 
@@ -181,6 +199,10 @@ class TopicSelectionPage extends StatelessWidget {
 
                       // onSubmitted：用户按回车键时触发
                       onSubmitted: (value) {
+                        if (!AppConstants.isModelAvailable()) {
+                          _showModelRequiredSnackBar(context);
+                          return;
+                        }
                         final trimmed = value.trim();
                         // 只有非空输入才跳转
                         if (trimmed.isNotEmpty) {
@@ -247,4 +269,23 @@ class TopicSelectionPage extends StatelessWidget {
       ),
     );
   }
+}
+
+void _showModelRequiredSnackBar(BuildContext context) {
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: const Text('请先下载 AI 模型'),
+      action: SnackBarAction(
+        label: '去下载',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ModelManagePage()),
+          );
+        },
+      ),
+      duration: const Duration(seconds: 4),
+    ),
+  );
 }
