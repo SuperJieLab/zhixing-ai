@@ -50,6 +50,9 @@ class ModelDownloadProvider extends ChangeNotifier {
 
   String? get activeModelId => _activeModelId;
 
+  /// 是否有可用模型（checkLocalModels 完成或下载完成后为 true）
+  bool get hasModel => _activeModelId != null;
+
   Future<String> _savePath(AvailableModel model) async {
     final dir = await getApplicationDocumentsDirectory();
     return '${dir.path}/${AppConstants.modelSubDir}/${model.fileName}';

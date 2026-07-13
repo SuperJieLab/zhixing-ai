@@ -7,6 +7,7 @@ import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/features/model_manager/model_manage_page.dart';
+import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
 import 'package:socratic_ai/features/history/history_page.dart';
 
 /// 话题选择页面（首页）
@@ -33,6 +34,9 @@ class TopicSelectionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // 监听模型就绪状态，确保 checkLocalModels() 完成后自动重建
+    final hasModel = context.watch<ModelDownloadProvider>().hasModel;
 
     return Scaffold(
       // ============================================================
@@ -152,7 +156,7 @@ class TopicSelectionPage extends StatelessWidget {
                       topic: topic,
                       // 用户点击卡片时的处理逻辑
                       onTap: (t) {
-                        if (!AppConstants.isModelAvailable()) {
+                        if (!hasModel) {
                           _showModelRequiredSnackBar(context);
                           return;
                         }
@@ -199,7 +203,7 @@ class TopicSelectionPage extends StatelessWidget {
 
                       // onSubmitted：用户按回车键时触发
                       onSubmitted: (value) {
-                        if (!AppConstants.isModelAvailable()) {
+                        if (!hasModel) {
                           _showModelRequiredSnackBar(context);
                           return;
                         }
