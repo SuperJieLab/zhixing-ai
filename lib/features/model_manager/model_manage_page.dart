@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:socratic_ai/core/engine/model_manager.dart';
 import 'package:socratic_ai/core/models/available_model.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
 
 /// 模型管理页
 ///

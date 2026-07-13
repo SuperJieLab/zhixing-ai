@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
+import 'package:socratic_ai/core/engine/model_manager.dart';
 
 void main() {
   group('ModelDownloadProvider formatting', () {
