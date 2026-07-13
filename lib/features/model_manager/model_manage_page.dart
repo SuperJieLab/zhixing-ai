@@ -4,14 +4,26 @@ import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/engine/model_manager.dart';
 import 'package:socratic_ai/core/models/available_model.dart';
 import 'package:socratic_ai/core/theme.dart';
+import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
 
 /// 模型管理页
 ///
 /// 展示可用模型列表 + 下载交互。
-/// 当前 APP 只有一个活跃模型，下载完成即自动启用。
+/// 页面内部通过 ChangeNotifierProvider 管理 DownloadProvider 生命周期。
+/// 模型就绪状态从全局 ModelManager 读取。
 class ModelManagePage extends StatelessWidget {
   const ModelManagePage({super.key});
 
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => ModelDownloadProvider(),
+      child: _ModelManageContent(),
+    );
+  }
+}
+
+class _ModelManageContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -41,117 +53,121 @@ class _ModelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ModelDownloadProvider>(
-      builder: (context, provider, _) {
-        final state = provider.stateOf(model.id);
+    // 同时监听全局就绪状态和页面内下载状态
+    final downloadProvider = context.watch<ModelDownloadProvider>();
+    final downloadState = downloadProvider.stateOf(model.id);
+    final isGloballyReady = context.watch<ModelManager>().activeModelId == model.id;
 
-        return Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    // 优先显示全局就绪状态；其次看下载状态
+    final state = isGloballyReady
+        ? const ModelDownloadState(status: DownloadStatus.completed, progress: 1.0)
+        : downloadState;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 标题行
+            Row(
               children: [
-                // 标题行
-                Row(
-                  children: [
-                    const Icon(Icons.memory, size: 28, color: AppTheme.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            model.name,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            model.description,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildAction(context, provider, state),
-                  ],
-                ),
-
-                const SizedBox(height: 10),
-
-                // 模型详情
-                Text(
-                  '${model.quant} 量化 · ${ModelDownloadProvider.formatBytes(model.sizeBytes)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.black38),
-                ),
-
-                // 下载进度条
-                if (state.status == DownloadStatus.downloading) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: state.progress > 0 ? state.progress : null,
-                      minHeight: 6,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                const Icon(Icons.memory, size: 28, color: AppTheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${(state.progress * 100).toInt()}%',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        model.name,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
-                        state.speedText,
-                        style: const TextStyle(fontSize: 12, color: Colors.black45),
-                      ),
-                      Text(
-                        state.etaText,
-                        style: const TextStyle(fontSize: 12, color: Colors.black45),
+                        model.description,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textSecondary,
+                        ),
                       ),
                     ],
                   ),
-                ],
-
-                // 失败消息
-                if (state.status == DownloadStatus.failed && state.error != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    state.error!,
-                    style: const TextStyle(fontSize: 12, color: AppTheme.error),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-
-                // 完成提示
-                if (state.status == DownloadStatus.completed) ...[
-                  const SizedBox(height: 4),
-                  const Text(
-                    '模型已就绪，可以开始对话了',
-                    style: TextStyle(fontSize: 12, color: AppTheme.primary),
-                  ),
-                ],
+                ),
+                _buildAction(context, downloadProvider, state),
               ],
             ),
-          ),
-        );
-      },
+
+            const SizedBox(height: 10),
+
+            // 模型详情
+            Text(
+              '${model.quant} 量化 · ${ModelDownloadProvider.formatBytes(model.sizeBytes)}',
+              style: const TextStyle(fontSize: 12, color: Colors.black38),
+            ),
+
+            // 下载进度条
+            if (state.status == DownloadStatus.downloading) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: state.progress > 0 ? state.progress : null,
+                  minHeight: 6,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${(state.progress * 100).toInt()}%',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    state.speedText,
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                  ),
+                  Text(
+                    state.etaText,
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                  ),
+                ],
+              ),
+            ],
+
+            // 失败消息
+            if (state.status == DownloadStatus.failed && state.error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                state.error!,
+                style: const TextStyle(fontSize: 12, color: AppTheme.error),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+
+            // 完成提示
+            if (state.status == DownloadStatus.completed) ...[
+              const SizedBox(height: 4),
+              const Text(
+                '模型已就绪，可以开始对话了',
+                style: TextStyle(fontSize: 12, color: AppTheme.primary),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

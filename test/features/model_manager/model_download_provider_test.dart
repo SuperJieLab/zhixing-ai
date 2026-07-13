@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/core/engine/model_manager.dart';
+import 'package:socratic_ai/features/model_manager/providers/model_download_provider.dart';
 
 void main() {
   group('ModelDownloadProvider formatting', () {
@@ -39,13 +39,6 @@ void main() {
       expect(state.error, isNull);
       expect(state.receivedBytes, 0);
       expect(state.totalBytes, 0);
-    });
-
-    test('activeModelId is null initially', () {
-      final provider = ModelDownloadProvider();
-      addTearDown(provider.dispose);
-
-      expect(provider.activeModelId, isNull);
     });
   });
 }

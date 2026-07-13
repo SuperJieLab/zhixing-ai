@@ -1,203 +1,57 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/engine/model_download_service.dart';
 import 'package:socratic_ai/core/models/available_model.dart';
 
-enum DownloadStatus { idle, downloading, completed, failed, cancelled }
-
-/// 单个模型的下载状态快照
-class ModelDownloadState {
-  final DownloadStatus status;
-  final double progress;
-  final int receivedBytes;
-  final int totalBytes;
-  final String speedText;
-  final String etaText;
-  final String? error;
-
-  const ModelDownloadState({
-    this.status = DownloadStatus.idle,
-    this.progress = 0.0,
-    this.receivedBytes = 0,
-    this.totalBytes = 0,
-    this.speedText = '',
-    this.etaText = '',
-    this.error,
-  });
-}
-
-/// 模型下载状态管理
+/// 模型就绪状态管理（core 层）
 ///
-/// 管理下载生命周期：检查本地 → 下载 → 进度 → 完成/失败。
-/// 在 main() 的 MultiProvider 中全局注入。
-class ModelDownloadProvider extends ChangeNotifier {
-  final ModelDownloadService _service = ModelDownloadService.instance;
+/// 只负责回答一个问题：本地是否有可用模型？
+/// 不涉及下载、进度、速度等 UI 相关的下载管理逻辑。
+///
+/// 在 main() 的 MultiProvider 中全局注入，
+/// TopicSelectionPage、ChatPage 等通过 watch 消费就绪状态。
+class ModelManager extends ChangeNotifier {
+  static final ModelManager instance = ModelManager._();
 
-  final Map<String, ModelDownloadState> _states = {};
+  ModelManager._();
 
-  Timer? _speedTimer;
-  int _lastReceived = 0;
-  DateTime _lastCheckTime = DateTime.now();
   String? _activeModelId;
 
-  ModelDownloadState stateOf(String modelId) =>
-      _states[modelId] ?? const ModelDownloadState();
-
-  String? get activeModelId => _activeModelId;
-
-  /// 是否有可用模型（checkLocalModels 完成或下载完成后为 true）
+  /// 是否有可用模型
   bool get hasModel => _activeModelId != null;
 
-  Future<String> _savePath(AvailableModel model) async {
+  /// 当前活跃模型的 ID
+  String? get activeModelId => _activeModelId;
+
+  /// 模型文件在沙盒中的保存路径
+  Future<String> savePath(AvailableModel model) async {
     final dir = await getApplicationDocumentsDirectory();
     return '${dir.path}/${AppConstants.modelSubDir}/${model.fileName}';
   }
 
-  Future<void> startDownload(AvailableModel model) async {
-    final savePath = await _savePath(model);
-
-    _states[model.id] = const ModelDownloadState(status: DownloadStatus.downloading);
-    notifyListeners();
-
-    _speedTimer?.cancel();
-    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateSpeed(model.id));
-
-    try {
-      final success = await _downloadWithFallback(model, savePath);
-
-      _speedTimer?.cancel();
-
-      if (success) {
-        _states[model.id] = ModelDownloadState(
-          status: DownloadStatus.completed,
-          progress: 1.0,
-          receivedBytes: model.sizeBytes,
-          totalBytes: model.sizeBytes,
-        );
-        _activeModelId = model.id;
-        AppConstants.defaultModelPath = savePath;
-      } else {
-        _states[model.id] = const ModelDownloadState(status: DownloadStatus.cancelled);
-      }
-      notifyListeners();
-    } catch (e) {
-      _speedTimer?.cancel();
-      _states[model.id] = ModelDownloadState(
-        status: DownloadStatus.failed,
-        error: e.toString(),
-        receivedBytes: _states[model.id]?.receivedBytes ?? 0,
-        totalBytes: _states[model.id]?.totalBytes ?? model.sizeBytes,
-      );
-      notifyListeners();
-    }
-  }
-
-  Future<bool> _downloadWithFallback(AvailableModel model, String savePath) async {
-    return _service.download(
-      url: model.mirrorUrl,
-      savePath: savePath,
-      onProgress: ({required received, required total}) {
-        final effectiveTotal = total > 0 ? total : model.sizeBytes;
-        _states[model.id] = ModelDownloadState(
-          status: DownloadStatus.downloading,
-          progress: effectiveTotal > 0 ? received / effectiveTotal : 0,
-          receivedBytes: received,
-          totalBytes: effectiveTotal,
-          speedText: _states[model.id]?.speedText ?? '',
-          etaText: _states[model.id]?.etaText ?? '',
-        );
-        notifyListeners();
-      },
-    );
-  }
-
-  void _updateSpeed(String modelId) {
-    final state = _states[modelId];
-    if (state == null || state.status != DownloadStatus.downloading) return;
-
-    final now = DateTime.now();
-    final elapsed = now.difference(_lastCheckTime).inMilliseconds / 1000.0;
-    if (elapsed <= 0) return;
-
-    final delta = state.receivedBytes - _lastReceived;
-    final speedBytes = delta / elapsed;
-
-    final remaining = state.totalBytes - state.receivedBytes;
-    final etaSeconds = speedBytes > 0 && remaining > 0
-        ? (remaining / speedBytes).round()
-        : 0;
-
-    _states[modelId] = ModelDownloadState(
-      status: state.status,
-      progress: state.progress,
-      receivedBytes: state.receivedBytes,
-      totalBytes: state.totalBytes,
-      speedText: formatSpeed(speedBytes),
-      etaText: etaSeconds > 0 ? formatEta(etaSeconds) : '',
-    );
-    _lastReceived = state.receivedBytes;
-    _lastCheckTime = now;
-    notifyListeners();
-  }
-
-  void cancelDownload(String modelId) {
-    _service.cancel();
-    _speedTimer?.cancel();
-    _states.remove(modelId);
-    notifyListeners();
-  }
-
+  /// 扫描本地已下载的模型，设置就绪状态
+  ///
+  /// 在 main() 的 Provider create 中调用（异步，不 await）。
+  /// 完成后 notifyListeners() → 依赖方自动重建。
   Future<void> checkLocalModels() async {
     for (final model in AvailableModel.available) {
-      final savePath = await _savePath(model);
-      final file = File(savePath);
+      final path = await savePath(model);
+      final file = File(path);
       if (await file.exists() && await file.length() >= model.sizeBytes * 0.99) {
-        _states[model.id] = ModelDownloadState(
-          status: DownloadStatus.completed,
-          progress: 1.0,
-          receivedBytes: model.sizeBytes,
-          totalBytes: model.sizeBytes,
-        );
         _activeModelId = model.id;
-        AppConstants.defaultModelPath = savePath;
+        AppConstants.defaultModelPath = path;
       }
     }
     notifyListeners();
   }
 
-  @override
-  void dispose() {
-    _speedTimer?.cancel();
-    super.dispose();
-  }
-
-  // ─── 格式化工具（public 以便测试和 UI 复用） ───
-
-  static String formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
-
-  static String formatSpeed(double bytesPerSecond) {
-    if (bytesPerSecond < 1024) return '${bytesPerSecond.toInt()} B/s';
-    if (bytesPerSecond < 1024 * 1024) {
-      return '${(bytesPerSecond / 1024).toStringAsFixed(1)} KB/s';
-    }
-    return '${(bytesPerSecond / (1024 * 1024)).toStringAsFixed(1)} MB/s';
-  }
-
-  static String formatEta(int seconds) {
-    if (seconds < 60) return '剩余 $seconds 秒';
-    if (seconds < 3600) return '剩余 ${seconds ~/ 60} 分钟';
-    return '剩余 ${seconds ~/ 3600} 小时';
+  /// 下载完成后由 [ModelDownloadProvider] 调用，设置模型就绪
+  void setModelReady(String modelId, String savePath) {
+    _activeModelId = modelId;
+    AppConstants.defaultModelPath = savePath;
+    notifyListeners();
   }
 }

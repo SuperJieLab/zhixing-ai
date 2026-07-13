@@ -36,7 +36,7 @@ class TopicSelectionPage extends StatelessWidget {
     final theme = Theme.of(context);
 
     // 监听模型就绪状态，确保 checkLocalModels() 完成后自动重建
-    final hasModel = context.watch<ModelDownloadProvider>().hasModel;
+    final hasModel = context.watch<ModelManager>().hasModel;
 
     return Scaffold(
       // ============================================================
