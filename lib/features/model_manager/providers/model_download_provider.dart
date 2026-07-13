@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:socratic_ai/core/engine/model_manager.dart';
 import 'package:socratic_ai/core/models/available_model.dart';
-import 'package:socratic_ai/features/model_manager/model_download_service.dart';
+import 'package:socratic_ai/features/model_manager/engine/model_download_service.dart';
 
 enum DownloadStatus { idle, downloading, completed, failed, cancelled }
 
