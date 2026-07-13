@@ -10,13 +10,12 @@ typedef DownloadProgress = void Function({
   required int total,
 });
 
-/// 模型下载服务（单例）
+/// 模型下载服务
 ///
 /// 使用 dio HTTP Range 实现断点续传。
-/// 同一时刻只能有一个下载任务。
+/// 由 [ModelDownloadProvider] 创建并管理生命周期。
 class ModelDownloadService {
-  ModelDownloadService._();
-  static final instance = ModelDownloadService._();
+  ModelDownloadService();
 
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 30),
