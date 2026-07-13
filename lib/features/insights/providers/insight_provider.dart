@@ -16,7 +16,10 @@ import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 /// Page 响应式监听的状态——加载中/错误等都由 MindMapService 内的
 /// Dialog/SnackBar 直接处理。
 class InsightProvider {
-  final MindMapService _mindMapService = MindMapService();
+  final MindMapService _mindMapService;
+
+  InsightProvider({MindMapService? mindMapService})
+      : _mindMapService = mindMapService ?? MindMapService();
 
   /// 打开思维图谱
   ///

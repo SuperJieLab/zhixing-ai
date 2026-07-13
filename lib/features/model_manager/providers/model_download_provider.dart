@@ -37,7 +37,10 @@ class ModelDownloadState {
 /// 不使用 Provider 全局注入——由 [ModelManagePage] 内部自行管理，
 /// 通过 [ChangeNotifierProvider] 在页面 widget tree 内注入。
 class ModelDownloadProvider extends ChangeNotifier {
-  final ModelDownloadService _service = ModelDownloadService();
+  final ModelDownloadService _service;
+
+  ModelDownloadProvider({ModelDownloadService? service})
+      : _service = service ?? ModelDownloadService();
 
   final Map<String, ModelDownloadState> _states = {};
 

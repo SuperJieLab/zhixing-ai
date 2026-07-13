@@ -23,7 +23,7 @@ import '../engine/socratic_prompter.dart';
 /// 调用 notifyListeners() 通知所有监听者（Widget）刷新 UI。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
-  final ConversationService _conversationService = ConversationService();
+  final ConversationService _conversationService;
 
   // ================================================================
   // 引擎状态
@@ -77,7 +77,9 @@ class ChatProvider extends ChangeNotifier {
   // 生命周期
   // ================================================================
 
-  ChatProvider({required String topic}) : _topic = topic {
+  ChatProvider({required String topic, ConversationService? conversationService})
+      : _topic = topic,
+        _conversationService = conversationService ?? ConversationService() {
     _addWelcomeMessage();
   }
 

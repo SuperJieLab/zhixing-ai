@@ -12,7 +12,10 @@ import 'package:socratic_ai/core/models/conversation.dart';
 /// HistoryProvider 是 HistoryPage 的专属状态管理层，
 /// 不跨 feature 共享（跨 feature 的数据访问走 ConversationService）。
 class HistoryProvider extends ChangeNotifier {
-  final ConversationService _conversationService = ConversationService();
+  final ConversationService _conversationService;
+
+  HistoryProvider({ConversationService? conversationService})
+      : _conversationService = conversationService ?? ConversationService();
 
   List<Conversation> _conversations = [];
   bool _isLoading = false;
