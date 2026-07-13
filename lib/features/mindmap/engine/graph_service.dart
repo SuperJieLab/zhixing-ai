@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 思维图谱生成服务
@@ -58,7 +58,7 @@ class GraphService {
     List<ChatMessage> conversation,
   ) async {
     final conversationText = _buildConversationText(topic, conversation);
-    debugPrint('[GraphService] 对话长度: ${conversationText.length} 字');
+    AppLogger.info('GraphService', '对话长度: ${conversationText.length} 字');
 
     try {
       final chat = await _engine.createChat();
@@ -81,14 +81,13 @@ class GraphService {
         }
 
         final rawResponse = buffer.toString().trim();
-        debugPrint('[GraphService] 原始回复: $rawResponse');
+        AppLogger.info('GraphService', '原始回复: $rawResponse');
         return _parseResponse(rawResponse);
       } finally {
         chat.dispose();
       }
     } catch (e, stack) {
-      debugPrint('[GraphService] 图谱生成失败: $e');
-      debugPrintStack(stackTrace: stack);
+      AppLogger.error('GraphService', '图谱生成失败', e, stack);
       return const ConversationGraph();
     }
   }
@@ -149,7 +148,7 @@ class GraphService {
     }
 
     // 兜底：空图谱，UI 展示空状态
-    debugPrint('[GraphService] JSON 解析全部失败');
+    AppLogger.warn('GraphService', 'JSON 解析全部失败');
     return const ConversationGraph();
   }
 }

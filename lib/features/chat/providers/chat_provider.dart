@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/engine/conversation_service.dart';
 import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
+import '../../../core/logger.dart';
 import '../../../core/models/chat_models.dart';
 import '../../insights/engine/insight_service.dart';
 import '../engine/socratic_prompter.dart';
@@ -106,7 +107,7 @@ class ChatProvider extends ChangeNotifier {
       await engine.initialize();
       _engine = engine;
     } catch (e) {
-      debugPrint('[ChatProvider] 模型加载失败，将使用 Mock 回复: $e');
+      AppLogger.warn('ChatProvider', '模型加载失败，将使用 Mock 回复: $e');
       _modelError = e.toString();
     } finally {
       _isModelLoading = false;
@@ -170,8 +171,7 @@ class ChatProvider extends ChangeNotifier {
         }
       }
     } catch (e, stack) {
-      debugPrint('[ChatProvider] 推理失败: $e');
-      debugPrintStack(stackTrace: stack);
+      AppLogger.error('ChatProvider', '推理失败', e, stack);
       _error = e.toString();
       _messages[aiMessageIndex] = ChatMessage(
         role: MessageRole.ai,
@@ -214,7 +214,7 @@ class ChatProvider extends ChangeNotifier {
 
       return insight;
     } catch (e) {
-      debugPrint('[ChatProvider] 洞察生成失败: $e');
+      AppLogger.error('ChatProvider', '洞察生成失败', e);
       return const InsightResult(
         coreInsights: ['对话分析完成'],
         underlyingValues: [],

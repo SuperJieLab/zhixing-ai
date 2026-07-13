@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:socratic_ai/core/engine/conversation_service.dart';
+import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 
 /// History 页面状态管理
@@ -31,7 +32,7 @@ class HistoryProvider extends ChangeNotifier {
     try {
       _conversations = await _conversationService.loadAll();
     } catch (e) {
-      debugPrint('[HistoryProvider] 加载失败: $e');
+      AppLogger.error('HistoryProvider', '加载失败', e);
       _error = '无法加载对话记录，请检查存储空间后重试';
       _conversations = [];
     } finally {
@@ -55,7 +56,7 @@ class HistoryProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('[HistoryProvider] 切换收藏失败: $e');
+      AppLogger.error('HistoryProvider', '切换收藏失败', e);
     }
   }
 
@@ -66,7 +67,7 @@ class HistoryProvider extends ChangeNotifier {
       _conversations.removeWhere((c) => c.id == id);
       notifyListeners();
     } catch (e) {
-      debugPrint('[HistoryProvider] 删除失败: $e');
+      AppLogger.error('HistoryProvider', '删除失败', e);
     }
   }
 }

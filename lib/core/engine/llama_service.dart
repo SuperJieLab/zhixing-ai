@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 import 'package:socratic_ai/core/constants.dart';
+import 'package:socratic_ai/core/logger.dart';
 
 /// 模型加载配置（值对象，决定缓存命中）
 class LlamaConfig {
@@ -92,7 +92,7 @@ class LlamaService {
 
     try {
       final engine = await future;
-      debugPrint('[LlamaService] 引擎加载完成: ${config.modelPath}');
+      AppLogger.info('LlamaService', '引擎加载完成: ${config.modelPath}');
       return engine;
     } catch (e) {
       _pool.remove(config); // 失败不缓存，允许重试
@@ -102,12 +102,12 @@ class LlamaService {
 
   /// 释放所有缓存的引擎
   void dispose() {
-    debugPrint('[LlamaService] 正在释放 ${_pool.length} 个引擎...');
+    AppLogger.info('LlamaService', '正在释放 ${_pool.length} 个引擎...');
     for (final entry in _pool.entries) {
       entry.value.then((engine) => engine.dispose()).catchError((_) {});
     }
     _pool.clear();
-    debugPrint('[LlamaService] 引擎已释放');
+    AppLogger.info('LlamaService', '引擎已释放');
   }
 
   // ================================================================
@@ -150,7 +150,7 @@ class LlamaService {
 
   /// 底层引擎加载（平台感知）
   Future<LlamaEngine> _loadEngine(LlamaConfig config) async {
-    debugPrint('[LlamaService] 正在加载引擎: ${config.modelPath}');
+    AppLogger.info('LlamaService', '正在加载引擎: ${config.modelPath}');
 
     try {
       LlamaEngine engine;
@@ -186,15 +186,14 @@ class LlamaService {
         );
       }
 
-      debugPrint('[LlamaService] 引擎启动完成');
+      AppLogger.info('LlamaService', '引擎启动完成');
       if (engine.hasAccelerator) {
-        debugPrint('[LlamaService] 加速器: ${engine.primaryAcceleratorName}');
+        AppLogger.info('LlamaService', '加速器: ${engine.primaryAcceleratorName}');
       }
 
       return engine;
     } catch (e, stack) {
-      debugPrint('[LlamaService] 引擎加载失败: $e');
-      debugPrintStack(stackTrace: stack);
+      AppLogger.error('LlamaService', '引擎加载失败', e, stack);
       rethrow;
     }
   }

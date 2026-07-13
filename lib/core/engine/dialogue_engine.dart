@@ -25,7 +25,7 @@ abstract class DialogueEngine {
   /// 外部通过 await-for 消费：
   /// ```dart
   /// await for (final token in engine.generateResponse('用户输入')) {
-  ///   print(token);
+  ///   /* handle each token */
   /// }
   /// ```
   Stream<String> generateResponse(String userMessage);

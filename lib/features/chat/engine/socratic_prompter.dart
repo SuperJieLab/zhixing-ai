@@ -1,8 +1,7 @@
-import 'package:flutter/foundation.dart';
-
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
+import 'package:socratic_ai/core/logger.dart';
 
 // ================================================================
 // 追问阶段 — 梯度策略
@@ -103,7 +102,7 @@ class SocraticPrompter implements DialogueEngine {
       _chat!.addSystem(_socraticSystemPrompt);
       return true;
     } catch (e) {
-      debugPrint('[SocraticPrompter] 初始化失败: $e');
+      AppLogger.error('SocraticPrompter', '初始化失败', e);
       return false;
     }
   }
@@ -127,8 +126,9 @@ class SocraticPrompter implements DialogueEngine {
 
     // 上下文接近上限时日志警告（llama.cpp KV cache 自动截断早期消息）
     if (_estimatedTokens > 1800) {
-      debugPrint(
-        '[SocraticPrompter] ⚠️ 上下文接近上限: ~$_estimatedTokens / 2048 tokens',
+      AppLogger.warn(
+        'SocraticPrompter',
+        '上下文接近上限: ~$_estimatedTokens / 2048 tokens',
       );
     }
 
@@ -156,8 +156,7 @@ class SocraticPrompter implements DialogueEngine {
           }
         }
       } catch (e, stack) {
-        debugPrint('[SocraticPrompter] generate 异常: $e');
-        debugPrintStack(stackTrace: stack);
+        AppLogger.error('SocraticPrompter', 'generate 异常', e, stack);
         yield '[生成错误: $e]';
         return;
       }
@@ -165,15 +164,17 @@ class SocraticPrompter implements DialogueEngine {
       final fullReply = _stripThinkingTags(buffer.toString());
 
       if (fullReply.isEmpty && attempt < 2) {
-        debugPrint(
-          '[SocraticPrompter] 模型仅输出 think 内容，重试 (attempt=$attempt)',
+        AppLogger.info(
+          'SocraticPrompter',
+          '模型仅输出 think 内容，重试 (attempt=$attempt)',
         );
         continue;
       }
 
       if (attempt < 2 && _isDuplicateQuestion(fullReply)) {
-        debugPrint(
-          '[SocraticPrompter] 检测到重复问题，重试 (attempt=$attempt)',
+        AppLogger.info(
+          'SocraticPrompter',
+          '检测到重复问题，重试 (attempt=$attempt)',
         );
         continue;
       }

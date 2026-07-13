@@ -14,7 +14,7 @@ import 'package:socratic_ai/core/theme.dart';
 /// ```dart
 /// TopicCard(
 ///   topic: AppConstants.presetTopics[0],  // 传入一个话题数据
-///   onTap: (topic) => print('选了 ${topic.title}'),  // 点击回调
+///   onTap: (topic) { /* handle selection */ },  // 点击回调
 /// )
 /// ```
 ///

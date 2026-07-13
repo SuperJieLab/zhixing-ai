@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+
+import 'package:socratic_ai/core/logger.dart';
 
 /// 下载进度回调
 typedef DownloadProgress = void Function({
@@ -39,14 +40,14 @@ class ModelDownloadService {
     final file = File(savePath);
     final startByte = await file.exists() ? await file.length() : 0;
 
-    debugPrint('[ModelDownload] 开始下载: $url');
-    debugPrint('[ModelDownload] 保存路径: $savePath');
-    debugPrint('[ModelDownload] 断点续传起始: $startByte bytes');
+    AppLogger.info('ModelDownload', '开始下载: $url');
+    AppLogger.info('ModelDownload', '保存路径: $savePath');
+    AppLogger.info('ModelDownload', '断点续传起始: $startByte bytes');
 
     final headers = <String, dynamic>{};
     if (startByte > 0) {
       headers['Range'] = 'bytes=$startByte-';
-      debugPrint('[ModelDownload] Range 头: bytes=$startByte-');
+      AppLogger.info('ModelDownload', 'Range 头: bytes=$startByte-');
     }
 
     try {
@@ -66,13 +67,10 @@ class ModelDownloadService {
         },
       );
 
-      debugPrint('[ModelDownload] 完成, statusCode=${response.statusCode}');
+      AppLogger.info('ModelDownload', '完成, statusCode=${response.statusCode}');
       return response.statusCode == 200 || response.statusCode == 206;
     } on DioException catch (e) {
-      debugPrint('[ModelDownload] DioException type=${e.type}');
-      debugPrint('[ModelDownload] DioException message=${e.message}');
-      debugPrint('[ModelDownload] DioException error=${e.error}');
-      debugPrint('[ModelDownload] DioException url=${e.requestOptions.uri}');
+      AppLogger.error('ModelDownload', 'DioException type=${e.type}, message=${e.message}, error=${e.error}, url=${e.requestOptions.uri}');
       if (e.type == DioExceptionType.cancel) return false;
       rethrow;
     }

@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 
 /// 洞察总结服务
@@ -48,7 +48,7 @@ class InsightService {
   ) async {
     // 构建完整对话文本
     final conversationText = _buildConversationText(topic, conversation);
-    debugPrint('[InsightService] 对话长度: ${conversationText.length} 字');
+    AppLogger.info('InsightService', '对话长度: ${conversationText.length} 字');
 
     try {
       // 创建独立的 chat 实例
@@ -73,14 +73,13 @@ class InsightService {
         }
 
         final rawResponse = buffer.toString().trim();
-        debugPrint('[InsightService] 原始回复: $rawResponse');
+        AppLogger.info('InsightService', '原始回复: $rawResponse');
         return _parseResponse(rawResponse);
       } finally {
         chat.dispose();
       }
     } catch (e, stack) {
-      debugPrint('[InsightService] 洞察生成失败: $e');
-      debugPrintStack(stackTrace: stack);
+      AppLogger.error('InsightService', '洞察生成失败', e, stack);
       return const InsightResult(
         coreInsights: [],
         underlyingValues: [],
@@ -144,7 +143,7 @@ class InsightService {
     }
 
     // 兜底：将原始文本作为单条洞察展示
-    debugPrint('[InsightService] JSON 解析全部失败，使用原始文本兜底');
+    AppLogger.warn('InsightService', 'JSON 解析全部失败，使用原始文本兜底');
     return InsightResult(
       coreInsights: [raw],
       underlyingValues: const [],

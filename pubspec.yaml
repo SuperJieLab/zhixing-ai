@@ -1,8 +1,11 @@
 name: socratic_ai
-description: "苏格拉底式 AI 对话 - 一个通过追问帮你理清思路的 AI 对话 App。"
-publish_to: 'none'
-
+description: >-
+  苏格拉底式 AI 对话 — 端侧推理、隐私零上传。
+  通过 Qwen 2.5 1.5B 端侧 LLM 驱动的追问、洞察总结与思维图谱，
+  帮助用户理清思路、发现认知盲区。
 version: 1.0.0+1
+repository: https://github.com/SuperJieLab/socratic-ai
+publish_to: 'none'
 
 environment:
   sdk: ^3.12.2
