@@ -2,6 +2,7 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 
 // ================================================================
 // 追问阶段 — 梯度策略
@@ -24,7 +25,7 @@ enum _ProbeStage {
 
 /// 每个阶段的追问方向标记（注入到用户消息中，指导模型）
 const _stageHints = <_ProbeStage, String>{
-  _ProbeStage.exploration: '追问方向：【探索】帮用户展开这个话题，问一个开放性问题',
+  _ProbeStage.exploration: '追问方向：【探索】基于用户刚才的回答深入追问，问一个具体问题',
   _ProbeStage.deepening: '追问方向：【深入】追问具体细节或例子，比如"具体是指什么"',
   _ProbeStage.challenge: '追问方向：【挑战】挑战底层假设，比如"换个角度呢"',
   _ProbeStage.summary: '追问方向：【总结】引导回顾对话，问"最大的收获是什么"',
@@ -109,6 +110,19 @@ class SocraticPrompter implements DialogueEngine {
     _chat!.addAssistant(welcomeMessage);
     _estimatedTokens += LlamaService.estimateTokens(_socraticSystemPrompt);
     _estimatedTokens += LlamaService.estimateTokens(welcomeMessage);
+  }
+
+  /// 回放历史消息到引擎上下文（恢复对话时用）
+  void seedHistory(List<ChatMessage> messages) {
+    for (final msg in messages) {
+      if (msg.content.isEmpty) continue;
+      if (msg.role == MessageRole.user) {
+        _chat!.addUser(msg.content);
+      } else if (msg.role == MessageRole.ai) {
+        _chat!.addAssistant(msg.content);
+      }
+      _estimatedTokens += LlamaService.estimateTokens(msg.content);
+    }
   }
 
   @override
@@ -288,7 +302,7 @@ class SocraticPrompter implements DialogueEngine {
 
   bool _isDuplicateQuestion(String question) {
     for (final recent in _recentQuestions) {
-      if (_questionSimilarity(question, recent) > 0.6) return true;
+      if (_questionSimilarity(question, recent) > 0.8) return true;
     }
     return false;
   }

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/core/models/conversation.dart';
-import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
+import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/features/history/providers/history_provider.dart';
 import 'package:socratic_ai/features/history/widgets/conversation_card.dart';
 import 'package:socratic_ai/features/insights/insights_page.dart';
@@ -70,7 +69,33 @@ class _HistoryPageState extends State<HistoryPage> {
         final conv = provider.conversations[index];
         return ConversationCard(
           conversation: conv,
-          onTap: () => _openInsight(conv),
+          onTap: () {
+            if (conv.insight != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => InsightsPage(
+                    topic: conv.topic,
+                    messages: conv.messages,
+                    graph: conv.graph,
+                    conversation: conv,
+                    fromHistory: true,
+                  ),
+                ),
+              ).then((_) => provider.loadAll());
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChatPage(
+                    topic: conv.topic,
+                    resumeConversationId: conv.id,
+                    existingMessages: conv.messages,
+                  ),
+                ),
+              ).then((_) => provider.loadAll());
+            }
+          },
           onFavoriteToggle: () => provider.toggleFavorite(conv.id!, conv.isFavorite),
           onDelete: () => provider.deleteConversation(conv.id!),
         );
@@ -125,22 +150,4 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  void _openInsight(Conversation conv) {
-    if (conv.insight != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => InsightsPage(
-            topic: conv.topic,
-            messages: conv.messages,
-            graph: conv.graph,
-            conversation: conv,
-            fromHistory: true,
-          ),
-        ),
-      );
-    } else {
-      SnackBarThrottle.show(context, '该对话尚无洞察总结');
-    }
-  }
 }

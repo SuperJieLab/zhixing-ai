@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
@@ -10,12 +11,26 @@ import 'package:socratic_ai/features/insights/insights_page.dart';
 /// 对话页面
 ///
 /// 用户与 AI 进行苏格拉底式深度对话。
-/// 所有持久化和业务逻辑都由 [ChatProvider] 管理，
-/// ChatPage 只负责 UI 渲染和页面跳转。
+///
+/// ## 两种模式
+/// - 新对话：只传 [topic]，模型就绪后自动创建 DB 记录
+/// - 恢复对话：传 [topic] + [resumeConversationId] + [existingMessages]，
+///   不再创建新记录，在原会话上继续
 class ChatPage extends StatefulWidget {
   final String topic;
 
-  const ChatPage({super.key, required this.topic});
+  /// 恢复已有对话时的会话 ID
+  final int? resumeConversationId;
+
+  /// 恢复已有对话时的历史消息
+  final List<ChatMessage>? existingMessages;
+
+  const ChatPage({
+    super.key,
+    required this.topic,
+    this.resumeConversationId,
+    this.existingMessages,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -24,7 +39,6 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = -1;
-  bool _conversationStarted = false;
   bool _errorListenerSetup = false;
 
   /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
@@ -69,7 +83,11 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) {
-        final provider = ChatProvider(topic: widget.topic);
+        final provider = ChatProvider(
+          topic: widget.topic,
+          resumeConversationId: widget.resumeConversationId,
+          existingMessages: widget.existingMessages,
+        );
         provider.loadModel();
         return provider;
       },
@@ -110,14 +128,6 @@ class _ChatPageState extends State<ChatPage> {
             return _buildModelErrorView(chatProvider);
           }
 
-          // 模型就绪时创建持久化记录（仅一次）
-          if (chatProvider.isModelReady && !_conversationStarted) {
-            _conversationStarted = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              chatProvider.startConversation();
-            });
-          }
-
           // 自动滚动
           if (chatProvider.messages.length != _lastMessageCount) {
             _lastMessageCount = chatProvider.messages.length;
@@ -142,7 +152,9 @@ class _ChatPageState extends State<ChatPage> {
                 children: [
                   Text(widget.topic, style: const TextStyle(fontSize: 16)),
                   Text(
-                    '第 ${chatProvider.round} 轮',
+                    chatProvider.round > 1
+                        ? '第 ${chatProvider.round - 1} 轮'
+                        : '新对话',
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,

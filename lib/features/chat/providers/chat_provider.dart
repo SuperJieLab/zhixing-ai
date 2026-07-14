@@ -11,8 +11,11 @@ import '../engine/socratic_prompter.dart';
 ///
 /// 负责苏格拉底式对话的核心生命周期：
 /// - 加载 LLM 模型（loadModel）
-/// - 创建持久化记录（startConversation）
 /// - 接收用户输入 + 生成 AI 追问（sendMessage）
+///
+/// 持久化策略：
+/// - 新对话：首次 sendMessage() 时才创建 DB 记录（startConversation）
+/// - 恢复对话：构造函数直接使用已有 conversationId，不重新创建
 ///
 /// 不负责洞察生成——对话结束后由 InsightsPage/InsightProvider 接管。
 class ChatProvider extends ChangeNotifier {
@@ -40,6 +43,7 @@ class ChatProvider extends ChangeNotifier {
   bool _isThinking = false;
   String? _error;
   final List<ChatMessage> _messages = [];
+  bool _historyReplayed = true; // 新对话无需回放，resume 时设为 false
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   int get round => _round;
@@ -71,10 +75,22 @@ class ChatProvider extends ChangeNotifier {
   // 生命周期
   // ================================================================
 
-  ChatProvider({required String topic, ConversationService? conversationService})
-      : _topic = topic,
+  ChatProvider({
+    required String topic,
+    ConversationService? conversationService,
+    int? resumeConversationId,
+    List<ChatMessage>? existingMessages,
+  })  : _topic = topic,
+        _activeConversationId = resumeConversationId,
         _conversationService = conversationService ?? ConversationService() {
-    _addWelcomeMessage();
+    if (existingMessages != null && existingMessages.isNotEmpty) {
+      _messages.addAll(existingMessages);
+      // 计算已完成的轮次：统计已有的用户消息数
+      _round = existingMessages.where((m) => m.role == MessageRole.user).length + 1;
+      _historyReplayed = false; // resume：需要在首次 sendMessage 时回放历史
+    } else {
+      _addWelcomeMessage();
+    }
   }
 
   @override
@@ -125,6 +141,11 @@ class ChatProvider extends ChangeNotifier {
 
   /// 用户发送一条消息
   Future<void> sendMessage(String content) async {
+    // 首次发消息时才创建 DB 记录（用户没发言 = 不落库）
+    if (_activeConversationId == null) {
+      await startConversation();
+    }
+
     _messages.add(ChatMessage(
       role: MessageRole.user,
       content: content,
@@ -153,6 +174,11 @@ class ChatProvider extends ChangeNotifier {
       } else {
         if (_round == 1) {
           engine.seedContext(_messages.first.content);
+        } else if (!_historyReplayed && engine is SocraticPrompter) {
+          _historyReplayed = true;
+          // 回放已有消息到引擎上下文（排除刚加的用户消息 + 空 AI 占位）
+          final prior = _messages.sublist(0, _messages.length - 2);
+          engine.seedHistory(prior);
         }
 
         final buffer = StringBuffer();
