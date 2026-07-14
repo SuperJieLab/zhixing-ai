@@ -2,17 +2,40 @@ import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/mindmap/layout/force_directed.dart';
+import 'package:socratic_ai/features/mindmap/providers/mindmap_provider.dart';
 import 'package:socratic_ai/features/mindmap/widgets/graph_painter.dart';
 import 'package:socratic_ai/features/mindmap/widgets/node_detail_sheet.dart';
 
 /// 思维图谱页面
 ///
+/// 两种使用方式：
+/// - 传入 [graph]（预生成）→ 直接渲染
+/// - 传入 [messages] + [topic] → 页面内通过 MindMapProvider 生成
+///
 /// 交互：拖拽节点 / 双指缩放 / 单指平移 / 点击查看详情。
 class MindMapPage extends StatefulWidget {
-  final ConversationGraph graph;
+  /// 预生成的图谱（直接渲染模式）
+  final ConversationGraph? graph;
+
   final String topic;
 
-  const MindMapPage({super.key, required this.graph, required this.topic});
+  /// 对话消息（生成模式，graph 为 null 时必传）
+  final List<ChatMessage>? messages;
+
+  /// 会话 ID（生成模式，用于持久化）
+  final int? conversationId;
+
+  /// DB 缓存的图谱（优先于 LLM 生成）
+  final ConversationGraph? cachedGraph;
+
+  const MindMapPage({
+    super.key,
+    this.graph,
+    required this.topic,
+    this.messages,
+    this.conversationId,
+    this.cachedGraph,
+  });
 
   @override
   State<MindMapPage> createState() => _MindMapPageState();
@@ -27,17 +50,48 @@ class _MindMapPageState extends State<MindMapPage> {
   double _baseScale = 1.0;
 
   // ── 布局 ──
-  late final List<GraphNode> _nodes;
-  late final List<GraphEdge> _edges;
+  List<GraphNode> _nodes = [];
+  List<GraphEdge> _edges = [];
   bool _layoutDone = false;
 
   // ── 画布实际尺寸（LayoutBuilder 提供，与 paint / 手势统一） ──
   Size? _canvasSize;
 
+  // ── 生成状态 ──
+  final MindMapProvider _provider = MindMapProvider();
+  bool _isGenerating = false;
+
   @override
   void initState() {
     super.initState();
-    _nodes = widget.graph.nodes
+
+    final graph = widget.graph;
+    if (graph != null && graph.isNotEmpty) {
+      _initFromGraph(graph);
+    } else if (widget.messages != null && widget.messages!.isNotEmpty) {
+      _isGenerating = true;
+      _provider.generateGraph(
+        topic: widget.topic,
+        messages: widget.messages!,
+        conversationId: widget.conversationId,
+        cachedGraph: widget.cachedGraph,
+      ).then((_) {
+        if (!mounted) return;
+        final g = _provider.graph;
+        if (g != null && g.isNotEmpty) {
+          setState(() {
+            _isGenerating = false;
+            _initFromGraph(g);
+          });
+        } else {
+          setState(() => _isGenerating = false);
+        }
+      });
+    }
+  }
+
+  void _initFromGraph(ConversationGraph graph) {
+    _nodes = graph.nodes
         .map((n) => GraphNode(
               id: n.id,
               label: n.label,
@@ -45,7 +99,7 @@ class _MindMapPageState extends State<MindMapPage> {
               weight: n.weight,
             ))
         .toList();
-    _edges = widget.graph.edges;
+    _edges = graph.edges;
   }
 
   void _runLayout(Size size) {
@@ -65,18 +119,40 @@ class _MindMapPageState extends State<MindMapPage> {
         backgroundColor: AppTheme.background,
         title: Text(widget.topic),
       ),
-      body: _nodes.isEmpty
-          ? _buildEmptyState()
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                if (!_layoutDone) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _runLayout(constraints.biggest);
-                  });
-                }
-                return _buildGraph();
-              },
-            ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    // 正在生成
+    if (_isGenerating) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: AppTheme.primary),
+            SizedBox(height: 20),
+            Text('正在生成思维图谱...',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ],
+        ),
+      );
+    }
+
+    // 生成完成但无结果
+    if (_nodes.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!_layoutDone) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _runLayout(constraints.biggest);
+          });
+        }
+        return _buildGraph();
+      },
     );
   }
 
@@ -109,7 +185,6 @@ class _MindMapPageState extends State<MindMapPage> {
 
   // ── 手势实现 ──
 
-  /// 屏幕坐标 → canvas 像素坐标（适配中心锚点缩放）
   Offset _screenToCanvas(Offset screenPos, Size canvasSize) {
     final cx = canvasSize.width / 2;
     final cy = canvasSize.height / 2;
@@ -133,14 +208,11 @@ class _MindMapPageState extends State<MindMapPage> {
 
   void _onScaleUpdate(ScaleUpdateDetails details, Size canvasSize) {
     if (details.pointerCount >= 2 || _draggedNode == null) {
-      // 双指缩放 + 单指平移
       final oldScale = _scale;
       final newScale = (_baseScale * details.scale).clamp(0.3, 2.5);
 
-      // 累计平移
       Offset newOffset = _offset + details.focalPointDelta;
 
-      // 缩放时调整 offset，使双指中点保持不动
       if (newScale != oldScale) {
         final focal = details.localFocalPoint;
         final cx = canvasSize.width / 2;
@@ -157,7 +229,6 @@ class _MindMapPageState extends State<MindMapPage> {
         _offset = newOffset;
       });
     } else {
-      // 单指拖拽节点
       setState(() {
         final dx = details.focalPointDelta.dx / (_scale * canvasSize.width);
         final dy = details.focalPointDelta.dy / (_scale * canvasSize.height);
@@ -181,10 +252,6 @@ class _MindMapPageState extends State<MindMapPage> {
     }
   }
 
-  /// 在布局坐标系中检测命中了哪个节点
-  ///
-  /// [layoutPos] 已经是 canvas 像素坐标 `(local - focal - offset) / scale + focal`。
-  /// 倒序遍历：后绘制的节点（视觉上层）优先命中。
   GraphNode? _hitTestLayout(Offset layoutPos, Size canvasSize) {
     for (final node in _nodes.reversed) {
       if (node.x == null || node.y == null || node.radius == null) continue;

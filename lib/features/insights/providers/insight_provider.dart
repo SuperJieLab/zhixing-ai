@@ -1,29 +1,18 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+
 import 'package:socratic_ai/core/engine/conversation_service.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/features/insights/engine/insight_service.dart';
-import 'package:socratic_ai/features/mindmap/engine/mindmap_service.dart';
 
 /// 洞察页面状态管理
 ///
-/// 唯一职责：管理 InsightsPage 的完整生命周期：
-/// - 加载或生成洞察总结（generateInsights）
-/// - 查看思维图谱（openMindMap）
-/// - 洞察生成后自动持久化到 ConversationService
-///
-/// ## generateInsights 行为
-/// 优先级：conversation.insight（已有）> 通过 conversationId 查 DB > LLM 生成。
-/// ChatPage 传 conversationId，HistoryPage 传 conversation，
-/// 两个入口使用同一个 API。
-///
-/// ## 分层
-/// InsightProvider 是 page 和 engine 之间的接线层。
+/// 唯一职责：加载或生成 InsightResult。
+/// 优先级：conversation.insight > conversationId 查 DB > LLM 生成。
 class InsightProvider extends ChangeNotifier {
   final ConversationService _conversationService;
-  final MindMapService _mindMapService;
 
   bool _isLoading = false;
   String? _error;
@@ -35,9 +24,7 @@ class InsightProvider extends ChangeNotifier {
 
   InsightProvider({
     ConversationService? conversationService,
-    MindMapService? mindMapService,
-  })  : _conversationService = conversationService ?? ConversationService(),
-        _mindMapService = mindMapService ?? MindMapService();
+  }) : _conversationService = conversationService ?? ConversationService();
 
   /// 加载或生成洞察总结
   ///
@@ -98,24 +85,5 @@ class InsightProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
-  }
-
-  /// 打开思维图谱
-  ///
-  /// 参数透传给 [MindMapService.openMindMap]。
-  Future<void> openMindMap(
-    BuildContext context, {
-    required String topic,
-    required List<ChatMessage> messages,
-    int? conversationId,
-    ConversationGraph? cachedGraph,
-  }) {
-    return _mindMapService.openMindMap(
-      context,
-      topic: topic,
-      messages: messages,
-      conversationId: conversationId,
-      cachedGraph: cachedGraph,
-    );
   }
 }

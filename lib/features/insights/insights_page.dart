@@ -8,6 +8,7 @@ import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
 import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
 import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
 import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
+import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
@@ -60,7 +61,7 @@ class _InsightsPageState extends State<InsightsPage>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
 
-  /// 洞察页面状态（封装 InsightService + MindMapService）
+  /// 洞察页面状态（封装 InsightService）
   final InsightProvider _insightProvider = InsightProvider();
 
   /// provider 生成（或从 DB 加载）的洞察结果
@@ -367,12 +368,16 @@ class _InsightsPageState extends State<InsightsPage>
       return;
     }
 
-    _insightProvider.openMindMap(
+    Navigator.push(
       context,
-      topic: widget.topic,
-      messages: messages,
-      conversationId: widget.conversationId,
-      cachedGraph: widget.graph,
+      MaterialPageRoute(
+        builder: (_) => MindMapPage(
+          topic: widget.topic,
+          messages: messages,
+          conversationId: widget.conversationId,
+          cachedGraph: widget.graph,
+        ),
+      ),
     );
   }
 }
