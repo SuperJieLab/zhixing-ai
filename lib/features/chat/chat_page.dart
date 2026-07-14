@@ -41,48 +41,15 @@ class _ChatPageState extends State<ChatPage> {
     final chatProvider = context.read<ChatProvider>();
     final activeId = chatProvider.activeConversationId;
 
-    // 显示 loading 弹窗
     if (!context.mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const PopScope(
-        canPop: false,
-        child: Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(color: AppTheme.primary),
-                  SizedBox(height: 16),
-                  Text(
-                    '正在生成洞察总结...',
-                    style: TextStyle(color: AppTheme.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    // 生成洞察（ChatProvider 内部会完成持久化）
-    final insight = await chatProvider.endConversation();
-
-    // 关闭 loading，跳转
-    if (!context.mounted) return;
-    Navigator.pop(context);
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => InsightsPage(
-          insight: insight,
           topic: widget.topic,
           messages: chatProvider.messages,
           conversationId: activeId,
+          fromHistory: false,
         ),
       ),
     );

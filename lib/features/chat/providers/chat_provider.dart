@@ -5,22 +5,16 @@ import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
 import '../../../core/logger.dart';
 import '../../../core/models/chat_models.dart';
-import '../../insights/engine/insight_service.dart';
 import '../engine/socratic_prompter.dart';
 
 /// 对话状态管理
 ///
-/// 负责整个苏格拉底式对话的完整生命周期：
+/// 负责苏格拉底式对话的核心生命周期：
 /// - 加载 LLM 模型（loadModel）
 /// - 创建持久化记录（startConversation）
 /// - 接收用户输入 + 生成 AI 追问（sendMessage）
-/// - 结束对话并生成洞察总结（endConversation）
 ///
-/// ## 分层
-/// ChatPage 只通过 ChatProvider 交互，不直接接触任何 Service 层。
-///
-/// ## ChangeNotifier 模式
-/// 调用 notifyListeners() 通知所有监听者（Widget）刷新 UI。
+/// 不负责洞察生成——对话结束后由 InsightsPage/InsightProvider 接管。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
@@ -185,43 +179,6 @@ class ChatProvider extends ChangeNotifier {
       _isThinking = false;
       notifyListeners();
       _saveMessages();
-    }
-  }
-
-  /// 结束对话，生成洞察总结
-  ///
-  /// 通过 InsightService 调用 LLM 分析完整对话历史。
-  /// 引擎未就绪时返回空结果。
-  Future<InsightResult> endConversation() async {
-    final engine = _engine;
-    if (engine == null || engine is! SocraticPrompter) {
-      return const InsightResult(
-        coreInsights: [],
-        underlyingValues: [],
-        contradictionsFound: [],
-      );
-    }
-
-    try {
-      final service = InsightService(engine.engine);
-      final insight = await service.analyze(_topic, messages);
-
-      // 持久化洞察
-      if (_activeConversationId != null) {
-        await _conversationService.finishConversation(
-          _activeConversationId!,
-          insight.coreInsights.isNotEmpty ? insight : null,
-        );
-      }
-
-      return insight;
-    } catch (e) {
-      AppLogger.error('ChatProvider', '洞察生成失败', e);
-      return const InsightResult(
-        coreInsights: ['对话分析完成'],
-        underlyingValues: [],
-        contradictionsFound: [],
-      );
     }
   }
 

@@ -11,24 +11,33 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
 ///
-/// 用户点击「结束对话」后跳转到此页面。
 /// 展示 LLM 从完整对话中提取的结构化洞察：
 /// - 核心洞察卡片（带编号）
 /// - 价值观标签云
 /// - 认知矛盾高亮卡片
 /// - Stagger 入场动画
 /// - 「开始新对话」和「查看思维图谱」按钮
+///
+/// ## 两种模式
+///
+/// **从 ChatPage 进入**（fresh 模式）：
+/// insight 为 null，页面初始化时调用 InsightProvider.generateInsights()
+/// 显示 loading 直到生成完成。
+///
+/// **从历史列表进入**（history 模式）：
+/// insight 已预生成，直接展示，无 loading。
 class InsightsPage extends StatefulWidget {
-  final InsightResult insight;
+  /// 预生成的洞察结果（从历史进入时提供，从 ChatPage 进入时为 null）
+  final InsightResult? insight;
   final String topic;
 
   /// 对话思维图谱（预生成好的，如从历史读取；可为 null）
   final ConversationGraph? graph;
 
-  /// 对话消息列表（用于按需生成图谱；为 null 时按钮不可用）
+  /// 对话消息列表（用于按需生成洞察和图谱）
   final List<ChatMessage>? messages;
 
-  /// 所属会话的数据库 ID（用于图谱自动持久化）
+  /// 所属会话的数据库 ID
   final int? conversationId;
 
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
@@ -36,7 +45,7 @@ class InsightsPage extends StatefulWidget {
 
   const InsightsPage({
     super.key,
-    required this.insight,
+    this.insight,
     required this.topic,
     this.graph,
     this.messages,
@@ -53,8 +62,11 @@ class _InsightsPageState extends State<InsightsPage>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
 
-  /// 洞察页面状态（封装 MindMapService）
+  /// 洞察页面状态（封装 InsightService + MindMapService）
   final InsightProvider _insightProvider = InsightProvider();
+
+  /// 从外部传入的 insight（历史模式）或 provider 生成的 insight
+  InsightResult? _insight;
 
   @override
   void initState() {
@@ -67,18 +79,49 @@ class _InsightsPageState extends State<InsightsPage>
       parent: _animController,
       curve: Curves.easeOut,
     );
-    _animController.forward();
+
+    // 历史模式：直接使用预生成结果
+    if (widget.fromHistory || widget.insight != null) {
+      _insight = widget.insight;
+      _animController.forward();
+    } else {
+      // Fresh 模式：从对话生成洞察
+      _insightProvider.addListener(_onInsightReady);
+      _insightProvider.generateInsights(
+        topic: widget.topic,
+        messages: widget.messages ?? [],
+        conversationId: widget.conversationId,
+      );
+    }
+  }
+
+  void _onInsightReady() {
+    if (_insightProvider.insight != null && mounted) {
+      _insight = _insightProvider.insight;
+      _insightProvider.removeListener(_onInsightReady);
+      _animController.forward();
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   void dispose() {
+    _insightProvider.removeListener(_onInsightReady);
     _animController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final insight = widget.insight;
+    // 正在生成洞察 → 加载页
+    if (_insight == null) {
+      return Scaffold(
+        backgroundColor: AppTheme.background,
+        body: _buildLoadingState(),
+      );
+    }
+
+    final insight = _insight!;
     final isEmpty =
         insight.coreInsights.isEmpty && insight.contradictionsFound.isEmpty;
 
@@ -153,6 +196,35 @@ class _InsightsPageState extends State<InsightsPage>
         const SizedBox(height: 32),
         _buildActionButtons(),
       ],
+    );
+  }
+
+  // ================================================================
+  // 加载中状态（fresh 模式，等待 LLM 生成洞察）
+  // ================================================================
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(color: AppTheme.primary),
+          const SizedBox(height: 20),
+          Text(
+            '正在生成洞察总结...',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '「${widget.topic}」',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+          ),
+        ],
+      ),
     );
   }
 

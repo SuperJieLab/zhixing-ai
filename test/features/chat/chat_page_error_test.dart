@@ -54,14 +54,5 @@ void main() {
       expect(provider.messages.length, 3);
       expect(provider.error, isNull);
     });
-
-    test('endConversation 在无引擎时返回空洞察', () async {
-      final provider = ChatProvider(topic: '测试');
-      final insight = await provider.endConversation();
-
-      expect(insight.coreInsights, isEmpty);
-      expect(insight.underlyingValues, isEmpty);
-      expect(insight.contradictionsFound, isEmpty);
-    });
   });
 }
