@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/insights/providers/insight_provider.dart';
@@ -18,17 +19,11 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 /// - Stagger 入场动画
 /// - 「开始新对话」和「查看思维图谱」按钮
 ///
-/// ## 两种模式
-///
-/// **从 ChatPage 进入**（fresh 模式）：
-/// insight 为 null，页面初始化时调用 InsightProvider.generateInsights()
-/// 显示 loading 直到生成完成。
-///
-/// **从历史列表进入**（history 模式）：
-/// insight 已预生成，直接展示，无 loading。
+/// ## 行为
+/// 通过 InsightProvider.generateInsights() 加载或生成洞察：
+/// 先查 DB（conversationId），已有则直接用；无则调用 LLM 生成。
+/// ChatPage 和 HistoryPage 使用完全相同的 API。
 class InsightsPage extends StatefulWidget {
-  /// 预生成的洞察结果（从历史进入时提供，从 ChatPage 进入时为 null）
-  final InsightResult? insight;
   final String topic;
 
   /// 对话思维图谱（预生成好的，如从历史读取；可为 null）
@@ -37,19 +32,22 @@ class InsightsPage extends StatefulWidget {
   /// 对话消息列表（用于按需生成洞察和图谱）
   final List<ChatMessage>? messages;
 
-  /// 所属会话的数据库 ID
+  /// 所属会话数据库 ID（ChatPage 只传此值）
   final int? conversationId;
+
+  /// 会话对象（HistoryPage 传此值，可节省一次 DB 查询）
+  final Conversation? conversation;
 
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
 
   const InsightsPage({
     super.key,
-    this.insight,
     required this.topic,
     this.graph,
     this.messages,
     this.conversationId,
+    this.conversation,
     this.fromHistory = false,
   });
 
@@ -65,7 +63,7 @@ class _InsightsPageState extends State<InsightsPage>
   /// 洞察页面状态（封装 InsightService + MindMapService）
   final InsightProvider _insightProvider = InsightProvider();
 
-  /// 从外部传入的 insight（历史模式）或 provider 生成的 insight
+  /// provider 生成（或从 DB 加载）的洞察结果
   InsightResult? _insight;
 
   @override
@@ -80,19 +78,14 @@ class _InsightsPageState extends State<InsightsPage>
       curve: Curves.easeOut,
     );
 
-    // 历史模式：直接使用预生成结果
-    if (widget.fromHistory || widget.insight != null) {
-      _insight = widget.insight;
-      _animController.forward();
-    } else {
-      // Fresh 模式：从对话生成洞察
-      _insightProvider.addListener(_onInsightReady);
-      _insightProvider.generateInsights(
-        topic: widget.topic,
-        messages: widget.messages ?? [],
-        conversationId: widget.conversationId,
-      );
-    }
+    // 通过 provider 加载/生成洞察（先查 conversation.insight → DB → LLM）
+    _insightProvider.addListener(_onInsightReady);
+    _insightProvider.generateInsights(
+      topic: widget.topic,
+      messages: widget.messages ?? [],
+      conversationId: widget.conversationId,
+      conversation: widget.conversation,
+    );
   }
 
   void _onInsightReady() {

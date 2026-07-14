@@ -40,6 +40,11 @@ class ConversationService {
     return _repo.listAll();
   }
 
+  /// 按 id 加载单条会话
+  Future<Conversation?> loadConversation(int id) async {
+    return _repo.getById(id);
+  }
+
   /// 切换收藏状态
   Future<void> toggleFavorite(int id, bool currentValue) async {
     await _repo.toggleFavorite(id, currentValue);
