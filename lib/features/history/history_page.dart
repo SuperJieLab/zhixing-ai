@@ -89,8 +89,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 MaterialPageRoute(
                   builder: (_) => ChatPage(
                     topic: conv.topic,
-                    resumeConversationId: conv.id,
-                    existingMessages: conv.messages,
+                    conversation: conv,
                   ),
                 ),
               ).then((_) => provider.loadAll());

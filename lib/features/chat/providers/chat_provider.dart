@@ -5,19 +5,16 @@ import '../../../core/engine/dialogue_engine.dart';
 import '../../../core/engine/llama_service.dart';
 import '../../../core/logger.dart';
 import '../../../core/models/chat_models.dart';
+import '../../../core/models/conversation.dart';
 import '../engine/socratic_prompter.dart';
 
 /// 对话状态管理
 ///
-/// 负责苏格拉底式对话的核心生命周期：
-/// - 加载 LLM 模型（loadModel）
-/// - 接收用户输入 + 生成 AI 追问（sendMessage）
+/// ## 两种模式
+/// - 新对话：只传 [topic]，Provider 内部加欢迎语，首次发言时创建 DB 记录
+/// - 恢复：传 [conversation]，Provider 加载其消息 / ID / 轮次，引擎回放历史
 ///
-/// 持久化策略：
-/// - 新对话：首次 sendMessage() 时才创建 DB 记录（startConversation）
-/// - 恢复对话：构造函数直接使用已有 conversationId，不重新创建
-///
-/// 不负责洞察生成——对话结束后由 InsightsPage/InsightProvider 接管。
+/// 两种模式在 sendMessage 内部统一为：首次使用引擎时 seedHistory。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
@@ -39,20 +36,17 @@ class ChatProvider extends ChangeNotifier {
   // 对话状态
   // ================================================================
 
-  int _round = 1;
+  int _round;
   bool _isThinking = false;
   String? _error;
-  final List<ChatMessage> _messages = [];
-  bool _historyReplayed = true; // 新对话无需回放，resume 时设为 false
+  final List<ChatMessage> _messages;
+  bool _engineSeeded = false;
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   int get round => _round;
   bool get isThinking => _isThinking;
-
-  /// 推理错误信息（由 ChatPage 监听并弹出 SnackBar）
   String? get error => _error;
 
-  /// 清除推理错误状态
   void clearError() {
     _error = null;
   }
@@ -63,10 +57,8 @@ class ChatProvider extends ChangeNotifier {
 
   int? _activeConversationId;
 
-  /// 当前会话的数据库 ID（null 表示尚未创建）
   int? get activeConversationId => _activeConversationId;
 
-  /// 创建持久化记录
   Future<void> startConversation() async {
     _activeConversationId = await _conversationService.createConversation(_topic);
   }
@@ -77,21 +69,18 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider({
     required String topic,
+    Conversation? conversation,
     ConversationService? conversationService,
-    int? resumeConversationId,
-    List<ChatMessage>? existingMessages,
   })  : _topic = topic,
-        _activeConversationId = resumeConversationId,
-        _conversationService = conversationService ?? ConversationService() {
-    if (existingMessages != null && existingMessages.isNotEmpty) {
-      _messages.addAll(existingMessages);
-      // 计算已完成的轮次：统计已有的用户消息数
-      _round = existingMessages.where((m) => m.role == MessageRole.user).length + 1;
-      _historyReplayed = false; // resume：需要在首次 sendMessage 时回放历史
-    } else {
-      _addWelcomeMessage();
-    }
-  }
+        _messages = conversation?.messages ?? _buildWelcome(topic),
+        _round = conversation != null
+            ? conversation.messages
+                    .where((m) => m.role == MessageRole.user)
+                    .length +
+                1
+            : 1,
+        _activeConversationId = conversation?.id,
+        _conversationService = conversationService ?? ConversationService();
 
   @override
   void dispose() {
@@ -102,13 +91,32 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // ================================================================
+  // 欢迎语
+  // ================================================================
+
+  static List<ChatMessage> _buildWelcome(String topic) {
+    const openings = <String, String>{
+      '职业发展':
+          '你提到想聊聊职业方向——如果三年后的你回头看今天做的选择，你觉得他会在意什么？',
+      '两难决策':
+          '你面前有两个选择——在做决定之前，你想过这两个选择分别代表了什么样的自己吗？',
+      '自我探索':
+          '关于"我是谁"这个问题——你最近一次觉得自己不够了解自己，是什么时候？',
+      '工作难题':
+          '这个问题卡住了你——你觉得卡住的到底是事情本身，还是你看待事情的角度？',
+      '人际关系':
+          '这段关系让你在意的地方是什么——是对方的期待，还是你对自己在这段关系里的要求？',
+    };
+
+    final opening = openings[topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
+
+    return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
+  }
+
+  // ================================================================
   // 引擎初始化
   // ================================================================
 
-  /// 加载 LLM 模型（异步，通知 UI 加载状态）
-  ///
-  /// 加载成功后 _engine 就绪，sendMessage 使用 LLM 推理。
-  /// 加载失败后 _engine 保持 null，sendMessage 回退 Mock。
   Future<void> loadModel() async {
     _isModelLoading = true;
     notifyListeners();
@@ -127,9 +135,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// 重试加载模型
-  ///
-  /// 清除上一次错误状态后重新调用 [loadModel]。
   Future<void> retryLoadModel() async {
     _modelError = null;
     await loadModel();
@@ -139,9 +144,7 @@ class ChatProvider extends ChangeNotifier {
   // 对话
   // ================================================================
 
-  /// 用户发送一条消息
   Future<void> sendMessage(String content) async {
-    // 首次发消息时才创建 DB 记录（用户没发言 = 不落库）
     if (_activeConversationId == null) {
       await startConversation();
     }
@@ -172,13 +175,9 @@ class ChatProvider extends ChangeNotifier {
           round: _round,
         );
       } else {
-        if (_round == 1) {
-          engine.seedContext(_messages.first.content);
-        } else if (!_historyReplayed && engine is SocraticPrompter) {
-          _historyReplayed = true;
-          // 回放已有消息到引擎上下文（排除刚加的用户消息 + 空 AI 占位）
-          final prior = _messages.sublist(0, _messages.length - 2);
-          engine.seedHistory(prior);
+        if (!_engineSeeded && engine is SocraticPrompter) {
+          _engineSeeded = true;
+          engine.seedHistory(_messages.sublist(0, _messages.length - 2));
         }
 
         final buffer = StringBuffer();
@@ -215,29 +214,6 @@ class ChatProvider extends ChangeNotifier {
   void _saveMessages() {
     if (_activeConversationId == null) return;
     _conversationService.saveMessages(_activeConversationId!, _messages);
-  }
-
-  void _addWelcomeMessage() {
-    const openings = <String, String>{
-      '职业发展':
-          '你提到想聊聊职业方向——如果三年后的你回头看今天做的选择，你觉得他会在意什么？',
-      '两难决策':
-          '你面前有两个选择——在做决定之前，你想过这两个选择分别代表了什么样的自己吗？',
-      '自我探索':
-          '关于"我是谁"这个问题——你最近一次觉得自己不够了解自己，是什么时候？',
-      '工作难题':
-          '这个问题卡住了你——你觉得卡住的到底是事情本身，还是你看待事情的角度？',
-      '人际关系':
-          '这段关系让你在意的地方是什么——是对方的期待，还是你对自己在这段关系里的要求？',
-    };
-
-    final opening = openings[_topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
-
-    _messages.add(ChatMessage(
-      role: MessageRole.ai,
-      content: opening,
-      round: 0,
-    ));
   }
 
   String _generateMockResponse() {

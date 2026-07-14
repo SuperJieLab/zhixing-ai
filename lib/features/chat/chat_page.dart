@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
@@ -10,27 +10,14 @@ import 'package:socratic_ai/features/insights/insights_page.dart';
 
 /// 对话页面
 ///
-/// 用户与 AI 进行苏格拉底式深度对话。
-///
-/// ## 两种模式
-/// - 新对话：只传 [topic]，模型就绪后自动创建 DB 记录
-/// - 恢复对话：传 [topic] + [resumeConversationId] + [existingMessages]，
-///   不再创建新记录，在原会话上继续
+/// 两种模式通过 [conversation] 参数区分：
+/// - null → 新对话，Provider 内部加欢迎语，首次发言时创建 DB 记录
+/// - 有值 → 恢复已有对话，Provider 加载消息/ID/轮次
 class ChatPage extends StatefulWidget {
   final String topic;
+  final Conversation? conversation;
 
-  /// 恢复已有对话时的会话 ID
-  final int? resumeConversationId;
-
-  /// 恢复已有对话时的历史消息
-  final List<ChatMessage>? existingMessages;
-
-  const ChatPage({
-    super.key,
-    required this.topic,
-    this.resumeConversationId,
-    this.existingMessages,
-  });
+  const ChatPage({super.key, required this.topic, this.conversation});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -85,8 +72,7 @@ class _ChatPageState extends State<ChatPage> {
       create: (_) {
         final provider = ChatProvider(
           topic: widget.topic,
-          resumeConversationId: widget.resumeConversationId,
-          existingMessages: widget.existingMessages,
+          conversation: widget.conversation,
         );
         provider.loadModel();
         return provider;

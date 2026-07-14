@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatPage 的 Widget 测试
 ///
@@ -19,12 +17,7 @@ void main() {
   ///
   /// 封装成函数避免每次写重复的 Provider 包裹代码。
   Widget buildTestWidget({String topic = '职业发展'}) {
-    return ChangeNotifierProvider(
-      create: (_) => ChatProvider(topic: topic),
-      child: MaterialApp(
-        home: ChatPage(topic: topic),
-      ),
-    );
+    return MaterialApp(home: ChatPage(topic: topic));
   }
 
   // ============================================================
