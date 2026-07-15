@@ -149,6 +149,13 @@ class ChatProvider extends ChangeNotifier {
       await startConversation();
     }
 
+    // Seed the engine with current history before adding new messages.
+    // At this point _messages contains only what the engine hasn't seen yet.
+    if (!_engineSeeded && _engine is SocraticPrompter) {
+      _engineSeeded = true;
+      (_engine as SocraticPrompter).seedHistory(_messages);
+    }
+
     _messages.add(ChatMessage(
       role: MessageRole.user,
       content: content,
@@ -175,11 +182,6 @@ class ChatProvider extends ChangeNotifier {
           round: _round,
         );
       } else {
-        if (!_engineSeeded && engine is SocraticPrompter) {
-          _engineSeeded = true;
-          engine.seedHistory(_messages.sublist(0, _messages.length - 2));
-        }
-
         final buffer = StringBuffer();
         await for (final token in engine.generateResponse(content)) {
           buffer.write(token);
