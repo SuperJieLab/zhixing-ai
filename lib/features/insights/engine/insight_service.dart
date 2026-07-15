@@ -4,6 +4,7 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/think_tag_stripper.dart';
 
 /// 洞察总结服务
 ///
@@ -109,16 +110,19 @@ class InsightService {
 
   /// 解析 LLM 输出的 JSON（三层回退）
   InsightResult _parseResponse(String raw) {
+    // 层 0：剥离 think/思考 标签
+    final cleaned = stripThinkTags(raw);
+
     // 层 1：直接 JSON 解析
     try {
-      return _jsonToResult(jsonDecode(raw.trim()) as Map<String, dynamic>);
+      return _jsonToResult(jsonDecode(cleaned) as Map<String, dynamic>);
     } catch (_) {
       // 继续尝试
     }
 
     // 层 2：提取 markdown 代码块
     final codeBlock = RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```');
-    final codeMatch = codeBlock.firstMatch(raw);
+    final codeMatch = codeBlock.firstMatch(cleaned);
     if (codeMatch != null) {
       try {
         return _jsonToResult(
@@ -131,7 +135,7 @@ class InsightService {
 
     // 层 3：提取最外层 JSON 对象
     final jsonObj = RegExp(r'\{[\s\S]*\}');
-    final jsonMatch = jsonObj.firstMatch(raw);
+    final jsonMatch = jsonObj.firstMatch(cleaned);
     if (jsonMatch != null) {
       try {
         return _jsonToResult(
@@ -145,7 +149,7 @@ class InsightService {
     // 兜底：将原始文本作为单条洞察展示
     AppLogger.warn('InsightService', 'JSON 解析全部失败，使用原始文本兜底');
     return InsightResult(
-      coreInsights: [raw],
+      coreInsights: [cleaned],
       underlyingValues: const [],
       contradictionsFound: const [],
       nextTopicSuggestion: null,

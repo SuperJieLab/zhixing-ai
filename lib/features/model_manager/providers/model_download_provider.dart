@@ -40,9 +40,24 @@ class ModelDownloadProvider extends ChangeNotifier {
   final ModelDownloadService _service;
 
   ModelDownloadProvider({ModelDownloadService? service})
-      : _service = service ?? ModelDownloadService();
+      : _service = service ?? ModelDownloadService() {
+    _initStates();
+  }
 
   final Map<String, ModelDownloadState> _states = {};
+
+  /// 从 ModelManager 同步已下载模型的状态，避免已下载的模型显示"下载"按钮
+  void _initStates() {
+    final manager = ModelManager.instance;
+    for (final model in AvailableModel.available) {
+      if (manager.isDownloaded(model.id)) {
+        _states[model.id] = const ModelDownloadState(
+          status: DownloadStatus.completed,
+          progress: 1.0,
+        );
+      }
+    }
+  }
 
   Timer? _speedTimer;
   int _lastReceived = 0;

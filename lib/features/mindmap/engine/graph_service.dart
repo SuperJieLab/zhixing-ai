@@ -4,6 +4,7 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/think_tag_stripper.dart';
 
 /// 思维图谱生成服务
 ///
@@ -14,9 +15,7 @@ class GraphService {
 
   GraphService(this._engine);
 
-  /// 匹配 Qwen 模型的 `&lt;think&gt;...&lt;/think&gt;` 推理标签
-  static final _thinkTagPattern =
-      RegExp(r'<think>[\s\S]*?</think>', multiLine: true);
+  /// 匹配 Qwen 模型的 `&lt;think&gt;...&lt;/think&gt;` 推理标签（已替换为共享工具函数）
 
   // ================================================================
   // 系统提示词
@@ -73,7 +72,7 @@ class GraphService {
             topP: 0.8,
             repeatPenalty: 1.1,
           ),
-          maxTokens: 3072,
+          maxTokens: 4096,
         )) {
           if (event is TokenEvent) {
             buffer.write(event.text);
@@ -108,9 +107,8 @@ class GraphService {
 
   /// 三层回退 JSON 解析
   ConversationGraph _parseResponse(String raw) {
-    // 层 0：剥离 Qwen 模型的 <think> 推理内容
-    String cleaned = raw.replaceAll(_thinkTagPattern, '').trim();
-    if (cleaned.isEmpty) cleaned = raw.trim();
+    // 层 0：剥离 think/思考 标签
+    final cleaned = stripThinkTags(raw);
 
     // 层 1：直接 JSON 解析
     try {
@@ -141,6 +139,20 @@ class GraphService {
       try {
         return ConversationGraph.fromJson(
           jsonDecode(jsonMatch.group(0)!) as Map<String, dynamic>,
+        );
+      } catch (_) {
+        // 继续尝试
+      }
+    }
+
+    // 层 3.5：JSON 被截断（缺少结尾 }）——尝试补全
+    final truncatedJson = RegExp(r'\{[\s\S]*');
+    final truncatedMatch = truncatedJson.firstMatch(cleaned);
+    if (truncatedMatch != null) {
+      try {
+        final repaired = '${truncatedMatch.group(0)!}}';
+        return ConversationGraph.fromJson(
+          jsonDecode(repaired) as Map<String, dynamic>,
         );
       } catch (_) {
         // 继续尝试

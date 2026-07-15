@@ -47,5 +47,14 @@ class AvailableModel {
       fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
       hfRepo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
     ),
+    AvailableModel(
+      id: 'bonsai-27b-q1_0',
+      name: 'Bonsai 27B (1-bit)',
+      description: '实验性：需新版 llama.cpp，可能不兼容',
+      quant: 'Q1_0',
+      sizeBytes: 3803452480,
+      fileName: 'Bonsai-27B-Q1_0.gguf',
+      hfRepo: 'prism-ml/Bonsai-27B-gguf',
+    ),
   ];
 }

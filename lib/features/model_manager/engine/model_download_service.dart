@@ -71,6 +71,14 @@ class ModelDownloadService {
     } on DioException catch (e) {
       AppLogger.error('ModelDownload', 'DioException type=${e.type}, message=${e.message}, error=${e.error}, url=${e.requestOptions.uri}');
       if (e.type == DioExceptionType.cancel) return false;
+
+      // 416 Range Not Satisfiable: file is already fully downloaded,
+      // just mark as complete.
+      if (e.response?.statusCode == 416) {
+        AppLogger.info('ModelDownload', '416: 文件已完整下载，跳过');
+        return true;
+      }
+
       rethrow;
     }
   }

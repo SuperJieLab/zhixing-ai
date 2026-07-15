@@ -1,8 +1,10 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
+import 'package:socratic_ai/core/constants.dart';
 import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/think_tag_stripper.dart';
 
 // ================================================================
 // 追问阶段 — 梯度策略
@@ -80,9 +82,13 @@ class SocraticPrompter implements DialogueEngine {
   final List<String> _recentQuestions = [];
 
   /// 累计 token 估算（用于上下文监控）
-  /// llama.cpp 的 KV cache 在超过 nCtx=2048 时自动截断，
+  /// llama.cpp 的 KV cache 在超过 nCtx 时自动截断，
   /// 此计数器仅用于日志警告。
   int _estimatedTokens = 0;
+
+  /// 上下文接近上限的警告阈值（约 85% nCtx）
+  static int get _contextWarnThreshold =>
+      (AppConstants.modelContextSize * 0.85).round();
 
   SocraticPrompter(this._engine);
 
@@ -136,10 +142,10 @@ class SocraticPrompter implements DialogueEngine {
     _estimatedTokens += LlamaService.estimateTokens(formattedMessage);
 
     // 上下文接近上限时日志警告（llama.cpp KV cache 自动截断早期消息）
-    if (_estimatedTokens > 1800) {
+    if (_estimatedTokens > _contextWarnThreshold) {
       AppLogger.warn(
         'SocraticPrompter',
-        '上下文接近上限: ~$_estimatedTokens / 2048 tokens',
+        '上下文接近上限: ~$_estimatedTokens / ${AppConstants.modelContextSize} tokens',
       );
     }
 
@@ -172,7 +178,7 @@ class SocraticPrompter implements DialogueEngine {
         return;
       }
 
-      final fullReply = _stripThinkingTags(buffer.toString());
+      final fullReply = stripThinkTags(buffer.toString());
 
       if (fullReply.isEmpty && attempt < 2) {
         AppLogger.info(
@@ -243,36 +249,6 @@ class SocraticPrompter implements DialogueEngine {
     if (round <= 3) return _ProbeStage.deepening;
     if (round <= 6) return _ProbeStage.challenge;
     return _ProbeStage.summary;
-  }
-
-  // ================================================================
-  // Think 标签剥离
-  // ================================================================
-
-  /// 去除 Qwen3.5 的 think 标签及推理内容，只保留最终回复。
-  String _stripThinkingTags(String text) {
-    final trimmed = text.trim();
-
-    final closeIdx1 = trimmed.indexOf('</think>');
-    final closeIdx2 = trimmed.indexOf('</思考>');
-    final closeIdx = _minIdx(closeIdx1, closeIdx2);
-    if (closeIdx != -1) {
-      final tagLen = closeIdx == closeIdx1 ? 8 : 6;
-      final after = trimmed.substring(closeIdx + tagLen).trim();
-      if (after.isNotEmpty) return after;
-    }
-
-    if (trimmed.startsWith('<think>') || trimmed.startsWith('<思考>')) {
-      return '';
-    }
-
-    return trimmed;
-  }
-
-  static int _minIdx(int a, int b) {
-    if (a == -1) return b;
-    if (b == -1) return a;
-    return a < b ? a : b;
   }
 
   // ================================================================

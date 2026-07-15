@@ -53,13 +53,14 @@ class _ModelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 同时监听全局就绪状态和页面内下载状态
     final downloadProvider = context.watch<ModelDownloadProvider>();
     final downloadState = downloadProvider.stateOf(model.id);
-    final isGloballyReady = context.watch<ModelManager>().activeModelId == model.id;
+    final manager = context.watch<ModelManager>();
+    final isActive = manager.activeModelId == model.id;
+    final isDownloaded = manager.isDownloaded(model.id);
 
     // 优先显示全局就绪状态；其次看下载状态
-    final state = isGloballyReady
+    final state = (isActive || isDownloaded)
         ? const ModelDownloadState(status: DownloadStatus.completed, progress: 1.0)
         : downloadState;
 
@@ -102,7 +103,7 @@ class _ModelCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                _buildAction(context, downloadProvider, state),
+                _buildAction(context, downloadProvider, state, isActive, isDownloaded),
               ],
             ),
 
@@ -175,39 +176,59 @@ class _ModelCard extends StatelessWidget {
     BuildContext context,
     ModelDownloadProvider provider,
     ModelDownloadState state,
+    bool isActive,
+    bool isDownloaded,
   ) {
-    switch (state.status) {
-      case DownloadStatus.idle:
-      case DownloadStatus.cancelled:
-      case DownloadStatus.failed:
-        return OutlinedButton.icon(
-          onPressed: () => provider.startDownload(model),
-          icon: const Icon(Icons.download, size: 18),
-          label: const Text('下载'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppTheme.primary,
-            side: const BorderSide(color: AppTheme.primary),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+    final manager = context.read<ModelManager>();
 
-      case DownloadStatus.downloading:
-        return TextButton(
-          onPressed: () => provider.cancelDownload(model.id),
-          child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
-        );
-
-      case DownloadStatus.completed:
-        return const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle, color: AppTheme.primary, size: 22),
-            SizedBox(width: 4),
-            Text('已就绪', style: TextStyle(color: AppTheme.primary, fontSize: 13)),
-          ],
-        );
+    // 正在下载
+    if (state.status == DownloadStatus.downloading) {
+      return TextButton(
+        onPressed: () => provider.cancelDownload(model.id),
+        child: const Text('取消', style: TextStyle(color: AppTheme.textSecondary)),
+      );
     }
+
+    // 已下载但非当前活跃 → 显示"切换使用"
+    if (isDownloaded && !isActive) {
+      return OutlinedButton.icon(
+        onPressed: () => manager.switchToModel(model.id),
+        icon: const Icon(Icons.swap_horiz, size: 18),
+        label: const Text('使用'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.primary,
+          side: const BorderSide(color: AppTheme.primary),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+
+    // 当前活跃模型
+    if (isActive) {
+      return const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, color: AppTheme.primary, size: 22),
+          SizedBox(width: 4),
+          Text('已就绪', style: TextStyle(color: AppTheme.primary, fontSize: 13)),
+        ],
+      );
+    }
+
+    // 未下载
+    return OutlinedButton.icon(
+      onPressed: () => provider.startDownload(model),
+      icon: const Icon(Icons.download, size: 18),
+      label: const Text('下载'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppTheme.primary,
+        side: const BorderSide(color: AppTheme.primary),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
   }
 }
