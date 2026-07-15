@@ -70,9 +70,6 @@ class _HistoryPageState extends State<HistoryPage> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => InsightsPage(
-                    topic: conv.topic,
-                    messages: conv.messages,
-                    graph: conv.graph,
                     conversation: conv,
                     fromHistory: true,
                   ),

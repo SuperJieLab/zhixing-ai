@@ -13,42 +13,17 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
 ///
-/// 展示 LLM 从完整对话中提取的结构化洞察：
-/// - 核心洞察卡片（带编号）
-/// - 价值观标签云
-/// - 认知矛盾高亮卡片
-/// - Stagger 入场动画
-/// - 「开始新对话」和「查看思维图谱」按钮
-///
-/// ## 行为
-/// 通过 InsightProvider.generateInsights() 加载或生成洞察：
-/// 先查 DB（conversationId），已有则直接用；无则调用 LLM 生成。
-/// ChatPage 和 HistoryPage 使用完全相同的 API。
+/// 展示 LLM 从完整对话中提取的结构化洞察。
+/// 只依赖 [conversation]，内部通过 InsightProvider 按需获取/生成洞察。
 class InsightsPage extends StatefulWidget {
-  final String topic;
-
-  /// 对话思维图谱（预生成好的，如从历史读取；可为 null）
-  final ConversationGraph? graph;
-
-  /// 对话消息列表（用于按需生成洞察和图谱）
-  final List<ChatMessage>? messages;
-
-  /// 所属会话数据库 ID（ChatPage 只传此值）
-  final int? conversationId;
-
-  /// 会话对象（HistoryPage 传此值，可节省一次 DB 查询）
-  final Conversation? conversation;
+  final Conversation conversation;
 
   /// 是否从历史列表进入（影响返回行为和 AppBar 样式）
   final bool fromHistory;
 
   const InsightsPage({
     super.key,
-    required this.topic,
-    this.graph,
-    this.messages,
-    this.conversationId,
-    this.conversation,
+    required this.conversation,
     this.fromHistory = false,
   });
 
@@ -81,12 +56,7 @@ class _InsightsPageState extends State<InsightsPage>
 
     // 通过 provider 加载/生成洞察（先查 conversation.insight → DB → LLM）
     _insightProvider.addListener(_onInsightReady);
-    _insightProvider.generateInsights(
-      topic: widget.topic,
-      messages: widget.messages ?? [],
-      conversationId: widget.conversationId,
-      conversation: widget.conversation,
-    );
+    _insightProvider.generateInsights(conversation: widget.conversation);
   }
 
   void _onInsightReady() {
@@ -212,7 +182,7 @@ class _InsightsPageState extends State<InsightsPage>
           ),
           const SizedBox(height: 8),
           Text(
-            '「${widget.topic}」',
+            '「${widget.conversation.topic}」',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.textSecondary,
                 ),
@@ -272,7 +242,7 @@ class _InsightsPageState extends State<InsightsPage>
                 ?.copyWith(fontSize: 36)),
         const SizedBox(height: 12),
         Text(
-          '「${widget.topic}」的对话洞察',
+          '「${widget.conversation.topic}」的对话洞察',
           style: Theme.of(context).textTheme.headlineMedium,
           textAlign: TextAlign.center,
         ),
@@ -325,7 +295,7 @@ class _InsightsPageState extends State<InsightsPage>
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: (widget.messages != null && widget.messages!.isNotEmpty)
+            onPressed: widget.conversation.messages.isNotEmpty
                 ? () => _openMindMap(context)
                 : null,
             style: OutlinedButton.styleFrom(
@@ -362,8 +332,8 @@ class _InsightsPageState extends State<InsightsPage>
   }
 
   void _openMindMap(BuildContext context) {
-    final messages = widget.messages;
-    if (messages == null || messages.isEmpty) {
+    final messages = widget.conversation.messages;
+    if (messages.isEmpty) {
       SnackBarThrottle.show(context, '暂无对话数据');
       return;
     }
@@ -372,10 +342,7 @@ class _InsightsPageState extends State<InsightsPage>
       context,
       MaterialPageRoute(
         builder: (_) => MindMapPage(
-          topic: widget.topic,
-          messages: messages,
-          conversationId: widget.conversationId,
-          cachedGraph: widget.graph,
+          conversation: widget.conversation,
         ),
       ),
     );

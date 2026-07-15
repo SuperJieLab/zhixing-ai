@@ -28,25 +28,20 @@ class InsightProvider extends ChangeNotifier {
 
   /// 加载或生成洞察总结
   ///
-  /// 优先级：conversation.insight > 通过 conversationId 查 DB > LLM 生成。
-  /// ChatPage 传 conversationId，HistoryPage 传 conversation。
+  /// 优先级：conversation.insight > DB 查询 > LLM 生成。
   Future<void> generateInsights({
-    required String topic,
-    required List<ChatMessage> messages,
-    int? conversationId,
-    Conversation? conversation,
+    required Conversation conversation,
   }) async {
-    // 1) 传入的 conversation 已有洞察 → 直接使用
-    if (conversation?.insight != null) {
-      _insight = conversation!.insight;
+    // 1) conversation 已有洞察 → 直接使用
+    if (conversation.insight != null) {
+      _insight = conversation.insight;
       notifyListeners();
       return;
     }
 
-    // 2) 通过 conversationId 查 DB（路径 1 未命中时，例如 ChatPage）
-    final lookupId = conversationId ?? conversation?.id;
-    if (lookupId != null) {
-      final conv = await _conversationService.loadConversation(lookupId);
+    // 2) 通过 conversationId 查 DB
+    if (conversation.id != null) {
+      final conv = await _conversationService.loadConversation(conversation.id!);
       if (conv?.insight != null) {
         _insight = conv!.insight;
         notifyListeners();
@@ -62,14 +57,14 @@ class InsightProvider extends ChangeNotifier {
     try {
       final engine = await LlamaService.instance.ensureReady();
       final service = InsightService(engine);
-      final result = await service.analyze(topic, messages);
+      final result = await service.analyze(conversation.topic, conversation.messages);
 
       _insight = result;
 
       // 持久化
-      if (lookupId != null) {
+      if (conversation.id != null) {
         await _conversationService.finishConversation(
-          lookupId,
+          conversation.id!,
           result.coreInsights.isNotEmpty ? result : null,
         );
       }

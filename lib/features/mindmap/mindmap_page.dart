@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/mindmap/layout/force_directed.dart';
 import 'package:socratic_ai/features/mindmap/providers/mindmap_provider.dart';
@@ -8,33 +9,18 @@ import 'package:socratic_ai/features/mindmap/widgets/node_detail_sheet.dart';
 
 /// 思维图谱页面
 ///
-/// 两种使用方式：
-/// - 传入 [graph]（预生成）→ 直接渲染
-/// - 传入 [messages] + [topic] → 页面内通过 MindMapProvider 生成
-///
-/// 交互：拖拽节点 / 双指缩放 / 单指平移 / 点击查看详情。
+/// 只依赖 [conversation]，内部通过 MindMapProvider 按需加载/生成图谱。
+/// 可选 [graph] 用于直接渲染（跳过生成）。
 class MindMapPage extends StatefulWidget {
-  /// 预生成的图谱（直接渲染模式）
+  final Conversation conversation;
+
+  /// 预生成的图谱（直接渲染模式，跳过 LLM 生成）
   final ConversationGraph? graph;
-
-  final String topic;
-
-  /// 对话消息（生成模式，graph 为 null 时必传）
-  final List<ChatMessage>? messages;
-
-  /// 会话 ID（生成模式，用于持久化）
-  final int? conversationId;
-
-  /// DB 缓存的图谱（优先于 LLM 生成）
-  final ConversationGraph? cachedGraph;
 
   const MindMapPage({
     super.key,
+    required this.conversation,
     this.graph,
-    required this.topic,
-    this.messages,
-    this.conversationId,
-    this.cachedGraph,
   });
 
   @override
@@ -68,14 +54,9 @@ class _MindMapPageState extends State<MindMapPage> {
     final graph = widget.graph;
     if (graph != null && graph.isNotEmpty) {
       _initFromGraph(graph);
-    } else if (widget.messages != null && widget.messages!.isNotEmpty) {
+    } else if (widget.conversation.messages.isNotEmpty) {
       _isGenerating = true;
-      _provider.generateGraph(
-        topic: widget.topic,
-        messages: widget.messages!,
-        conversationId: widget.conversationId,
-        cachedGraph: widget.cachedGraph,
-      ).then((_) {
+      _provider.generateGraph(conversation: widget.conversation).then((_) {
         if (!mounted) return;
         final g = _provider.graph;
         if (g != null && g.isNotEmpty) {
@@ -117,7 +98,7 @@ class _MindMapPageState extends State<MindMapPage> {
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         backgroundColor: AppTheme.background,
-        title: Text(widget.topic),
+        title: Text(widget.conversation.topic),
       ),
       body: _buildBody(),
     );

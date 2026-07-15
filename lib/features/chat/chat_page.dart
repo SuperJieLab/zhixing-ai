@@ -43,13 +43,23 @@ class _ChatPageState extends State<ChatPage> {
     final activeId = chatProvider.activeConversationId;
 
     if (!context.mounted) return;
+
+    // 构造 conversation 对象：新建时用 widget.topic+最新消息，恢复时更新消息
+    final conversation = (widget.conversation != null)
+        ? widget.conversation!.copyWith(messages: chatProvider.messages)
+        : Conversation(
+            id: activeId,
+            topic: widget.topic,
+            messages: chatProvider.messages,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => InsightsPage(
-          topic: widget.topic,
-          messages: chatProvider.messages,
-          conversationId: activeId,
+          conversation: conversation,
           fromHistory: false,
         ),
       ),
