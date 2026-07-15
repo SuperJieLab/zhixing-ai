@@ -38,7 +38,7 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  Future<void> _endConversation(BuildContext context) async {
+  void _endConversation(BuildContext context) {
     final chatProvider = context.read<ChatProvider>();
     final activeId = chatProvider.activeConversationId;
 

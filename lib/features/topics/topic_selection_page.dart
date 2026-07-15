@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/constants.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
@@ -160,9 +159,6 @@ class TopicSelectionPage extends StatelessWidget {
                           _showModelRequiredSnackBar(context);
                           return;
                         }
-                        // 告诉 TopicProvider：用户选了这个话题
-                        context.read<TopicProvider>().selectTopic(t.title);
-
                         // 跳转到对话页面
                         Navigator.push(
                           context,
@@ -196,10 +192,7 @@ class TopicSelectionPage extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: TextField(
                       // onChanged：每次输入内容变化时触发
-                      onChanged: (value) {
-                        // 把用户输入同步到 TopicProvider
-                        context.read<TopicProvider>().setCustomTopic(value);
-                      },
+                      onChanged: (_) {},
 
                       // onSubmitted：用户按回车键时触发
                       onSubmitted: (value) {

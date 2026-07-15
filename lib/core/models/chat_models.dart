@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 /// 对话消息角色
 ///
 /// 替代原先的魔法字符串 'ai' / 'user'，
@@ -109,6 +111,60 @@ class GraphNode {
         'type': type,
         'weight': weight,
       };
+
+  /// 节点类型 → 描边颜色
+  static Color strokeColor(String type) {
+    switch (type) {
+      case 'topic':
+        return const Color(0xFF5B6D5B);
+      case 'insight':
+        return const Color(0xFF5B8D8D);
+      case 'value':
+        return const Color(0xFF8B7355);
+      case 'action':
+        return const Color(0xFFD4A574);
+      case 'contradiction':
+        return const Color(0xFFD4735B);
+      default:
+        return const Color(0xFF5B6D5B);
+    }
+  }
+
+  /// 节点类型 → 填充颜色
+  static Color fillColor(String type) {
+    switch (type) {
+      case 'topic':
+        return const Color(0xFFE8EFE8);
+      case 'insight':
+        return const Color(0xFFE0EDED);
+      case 'value':
+        return const Color(0xFFEDE4DA);
+      case 'action':
+        return const Color(0xFFFAEDDE);
+      case 'contradiction':
+        return const Color(0xFFFAE6E0);
+      default:
+        return const Color(0xFFE8EFE8);
+    }
+  }
+
+  /// 节点类型 → 中文标签
+  static String typeLabel(String type) {
+    switch (type) {
+      case 'topic':
+        return '话题';
+      case 'insight':
+        return '洞察';
+      case 'value':
+        return '价值观';
+      case 'action':
+        return '行动';
+      case 'contradiction':
+        return '矛盾';
+      default:
+        return '';
+    }
+  }
 }
 
 /// 图谱连线 — 两个节点之间的关系

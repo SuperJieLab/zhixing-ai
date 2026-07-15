@@ -117,8 +117,12 @@ class ModelManager extends ChangeNotifier {
 
   void _savePreference(String modelId) {
     final prefs = {'activeModelId': modelId};
-    _prefsFilePath().then((path) {
-      File(path).writeAsString(jsonEncode(prefs));
+    _prefsFilePath().then((path) async {
+      try {
+        await File(path).writeAsString(jsonEncode(prefs));
+      } catch (_) {
+        // 偏好写入失败不影响核心功能，下次启动回退到第一个可用模型
+      }
     });
   }
 }

@@ -126,37 +126,7 @@ class NodeDetailSheet extends StatelessWidget {
     );
   }
 
-  Color _typeColor(String type) {
-    switch (type) {
-      case 'topic':
-        return AppTheme.primary;
-      case 'insight':
-        return const Color(0xFF5B8D8D);
-      case 'value':
-        return AppTheme.secondary;
-      case 'action':
-        return AppTheme.accent;
-      case 'contradiction':
-        return const Color(0xFFD4735B);
-      default:
-        return AppTheme.primary;
-    }
-  }
+  Color _typeColor(String type) => GraphNode.strokeColor(type);
 
-  String _typeLabel(String type) {
-    switch (type) {
-      case 'topic':
-        return '话题';
-      case 'insight':
-        return '洞察';
-      case 'value':
-        return '价值观';
-      case 'action':
-        return '行动';
-      case 'contradiction':
-        return '矛盾';
-      default:
-        return '';
-    }
-  }
+  String _typeLabel(String type) => GraphNode.typeLabel(type);
 }

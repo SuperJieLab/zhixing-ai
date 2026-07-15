@@ -25,59 +25,12 @@ class GraphPainter extends CustomPainter {
   });
 
   // ================================================================
-  // 节点颜色映射
+  // 节点颜色映射（委托给 GraphNode 静态方法）
   // ================================================================
 
-  static Color _nodeColor(String type) {
-    switch (type) {
-      case 'topic':
-        return AppTheme.primary;
-      case 'insight':
-        return const Color(0xFF5B8D8D);
-      case 'value':
-        return AppTheme.secondary;
-      case 'action':
-        return AppTheme.accent;
-      case 'contradiction':
-        return const Color(0xFFD4735B);
-      default:
-        return AppTheme.primary;
-    }
-  }
-
-  static Color _nodeFillColor(String type) {
-    switch (type) {
-      case 'topic':
-        return const Color(0xFFE8EFE8);
-      case 'insight':
-        return const Color(0xFFE0EDED);
-      case 'value':
-        return const Color(0xFFEDE4DA);
-      case 'action':
-        return const Color(0xFFFAEDDE);
-      case 'contradiction':
-        return const Color(0xFFFAE6E0);
-      default:
-        return const Color(0xFFE8EFE8);
-    }
-  }
-
-  static String _typeLabel(String type) {
-    switch (type) {
-      case 'topic':
-        return '话题';
-      case 'insight':
-        return '洞察';
-      case 'value':
-        return '价值观';
-      case 'action':
-        return '行动';
-      case 'contradiction':
-        return '矛盾';
-      default:
-        return '';
-    }
-  }
+  static Color _nodeColor(String type) => GraphNode.strokeColor(type);
+  static Color _nodeFillColor(String type) => GraphNode.fillColor(type);
+  static String _typeLabel(String type) => GraphNode.typeLabel(type);
 
   // ================================================================
   // 绘制

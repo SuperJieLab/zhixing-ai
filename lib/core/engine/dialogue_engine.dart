@@ -1,3 +1,5 @@
+import 'package:socratic_ai/core/models/chat_models.dart';
+
 /// 对话引擎抽象接口
 ///
 /// ChatProvider 只依赖此接口，不直接依赖具体的 LLM 实现。
@@ -14,11 +16,10 @@ abstract class DialogueEngine {
   /// 返回 true 表示初始化成功。
   Future<bool> initialize();
 
-  /// 注入对话开场白上下文
+  /// 注入历史消息到引擎上下文（恢复对话或初始化时用）
   ///
   /// 必须在首次 [generateResponse] 之前调用。
-  /// 告知模型本轮对话的话题和开场白。
-  void seedContext(String welcomeMessage);
+  void seedHistory(List<ChatMessage> messages);
 
   /// 根据用户输入生成 AI 追问（流式返回每个字符）
   ///
@@ -29,9 +30,6 @@ abstract class DialogueEngine {
   /// }
   /// ```
   Stream<String> generateResponse(String userMessage);
-
-  /// 重置对话上下文（清空消息历史，准备新一轮对话）
-  void reset();
 
   /// 释放引擎占用的所有资源
   void dispose();

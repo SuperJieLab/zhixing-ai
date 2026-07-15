@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:socratic_ai/core/chat_utils.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
@@ -48,7 +49,7 @@ class InsightService {
     List<ChatMessage> conversation,
   ) async {
     // 构建完整对话文本
-    final conversationText = _buildConversationText(topic, conversation);
+    final conversationText = buildConversationText(topic, conversation);
     AppLogger.info('InsightService', '对话长度: ${conversationText.length} 字');
 
     try {
@@ -93,20 +94,6 @@ class InsightService {
   // ================================================================
   // 私有
   // ================================================================
-
-  /// 将对话历史格式化为纯文本
-  String _buildConversationText(
-    String topic,
-    List<ChatMessage> conversation,
-  ) {
-    final buffer = StringBuffer();
-    buffer.writeln('话题：$topic\n');
-    for (final msg in conversation) {
-      final role = msg.role == MessageRole.ai ? 'AI' : '用户';
-      buffer.writeln('$role：${msg.content}');
-    }
-    return buffer.toString();
-  }
 
   /// 解析 LLM 输出的 JSON（三层回退）
   InsightResult _parseResponse(String raw) {

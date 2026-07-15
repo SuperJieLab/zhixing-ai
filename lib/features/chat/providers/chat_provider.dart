@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/engine/conversation_service.dart';
-import '../../../core/engine/dialogue_engine.dart';
-import '../../../core/engine/llama_service.dart';
-import '../../../core/logger.dart';
-import '../../../core/models/chat_models.dart';
-import '../../../core/models/conversation.dart';
-import '../engine/socratic_prompter.dart';
+import 'package:socratic_ai/core/engine/conversation_service.dart';
+import 'package:socratic_ai/core/engine/dialogue_engine.dart';
+import 'package:socratic_ai/core/engine/llama_service.dart';
+import 'package:socratic_ai/core/logger.dart';
+import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/conversation.dart';
+import 'package:socratic_ai/features/chat/engine/socratic_prompter.dart';
 
 /// 对话状态管理
 ///
@@ -48,7 +48,9 @@ class ChatProvider extends ChangeNotifier {
   String? get error => _error;
 
   void clearError() {
+    if (_error == null) return;
     _error = null;
+    notifyListeners();
   }
 
   // ================================================================
@@ -84,9 +86,7 @@ class ChatProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    if (_engine is SocraticPrompter) {
-      (_engine as SocraticPrompter).dispose();
-    }
+    _engine?.dispose();
     super.dispose();
   }
 
@@ -151,9 +151,9 @@ class ChatProvider extends ChangeNotifier {
 
     // Seed the engine with current history before adding new messages.
     // At this point _messages contains only what the engine hasn't seen yet.
-    if (!_engineSeeded && _engine is SocraticPrompter) {
+    if (!_engineSeeded && _engine != null) {
       _engineSeeded = true;
-      (_engine as SocraticPrompter).seedHistory(_messages);
+      _engine!.seedHistory(_messages);
     }
 
     _messages.add(ChatMessage(

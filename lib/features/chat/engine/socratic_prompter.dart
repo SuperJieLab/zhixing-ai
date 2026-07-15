@@ -112,13 +112,7 @@ class SocraticPrompter implements DialogueEngine {
   }
 
   @override
-  void seedContext(String welcomeMessage) {
-    _chat!.addAssistant(welcomeMessage);
-    _estimatedTokens += LlamaService.estimateTokens(_socraticSystemPrompt);
-    _estimatedTokens += LlamaService.estimateTokens(welcomeMessage);
-  }
-
-  /// 回放历史消息到引擎上下文（恢复对话时用）
+  @override
   void seedHistory(List<ChatMessage> messages) {
     for (final msg in messages) {
       if (msg.content.isEmpty) continue;
@@ -213,15 +207,6 @@ class SocraticPrompter implements DialogueEngine {
         }
       }
     }
-  }
-
-  @override
-  void reset() {
-    _chat?.clearHistory();
-    _chat?.addSystem(_socraticSystemPrompt);
-    _roundIndex = 0;
-    _recentQuestions.clear();
-    _estimatedTokens = LlamaService.estimateTokens(_socraticSystemPrompt);
   }
 
   @override

@@ -3,13 +3,12 @@ import 'package:provider/provider.dart';
 import 'package:socratic_ai/app.dart';
 import 'package:socratic_ai/core/repository/conversation_repository.dart';
 import 'package:socratic_ai/core/engine/model_manager.dart';
-import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 
 /// 应用入口
 ///
 /// main() 中完成：
 /// 1. 初始化 sqflite（ConversationRepository）
-/// 2. 注入全局 Provider（TopicProvider + ModelManager）
+/// 2. 注入全局 Provider（ModelManager）
 /// 3. 启动 App（runApp）
 ///
 /// ModelManager 是单例 ChangeNotifier，使用 .value 注入。
@@ -26,7 +25,6 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => TopicProvider()),
         ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
       ],
       child: const SocraticApp(),

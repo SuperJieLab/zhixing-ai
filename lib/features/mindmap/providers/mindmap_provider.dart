@@ -1,6 +1,6 @@
+import 'package:socratic_ai/core/engine/conversation_service.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
-import 'package:socratic_ai/core/repository/conversation_repository.dart';
 import 'package:socratic_ai/features/mindmap/engine/graph_service.dart';
 
 /// 思维图谱状态管理
@@ -9,7 +9,7 @@ import 'package:socratic_ai/features/mindmap/engine/graph_service.dart';
 /// 优先级：provider 内存缓存 > 外部 cachedGraph > LLM 生成。
 /// 生成完成后自动持久化到 DB。
 class MindMapProvider {
-  final ConversationRepository _repo = ConversationRepository();
+  final ConversationService _conversationService = ConversationService();
 
   bool _isLoading = false;
   String? _error;
@@ -46,7 +46,7 @@ class MindMapProvider {
 
       // 持久化
       if (conversationId != null && _graph != null) {
-        await _repo.saveGraph(conversationId, _graph!);
+        await _conversationService.saveGraph(conversationId, _graph!);
       }
     } catch (e) {
       _error = e.toString();

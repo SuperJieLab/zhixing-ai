@@ -282,6 +282,7 @@ class _MindMapPageState extends State<MindMapPage> {
   // ================================================================
 
   Widget _buildEmptyState() {
+    final error = _provider.error;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -292,9 +293,9 @@ class _MindMapPageState extends State<MindMapPage> {
           const Text('无法生成思维图谱',
               style: TextStyle(fontSize: 16, color: AppTheme.textPrimary)),
           const SizedBox(height: 8),
-          const Text(
-            '请确保模型已加载并重试',
-            style: TextStyle(color: AppTheme.textSecondary),
+          Text(
+            error ?? '请确保模型已加载并重试',
+            style: const TextStyle(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 24),
           OutlinedButton(
