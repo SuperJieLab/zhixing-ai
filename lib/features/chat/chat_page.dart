@@ -45,15 +45,23 @@ class _ChatPageState extends State<ChatPage> {
     if (!context.mounted) return;
 
     // 构造 conversation 对象：新建时用 widget.topic+最新消息，恢复时更新消息
-    final conversation = (widget.conversation != null)
-        ? widget.conversation!.copyWith(messages: chatProvider.messages)
-        : Conversation(
-            id: activeId,
-            topic: widget.topic,
-            messages: chatProvider.messages,
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          );
+    Conversation conversation;
+    if (widget.conversation != null) {
+      // 复用缓存的 Conversation 实例，原位更新 messages
+      conversation = widget.conversation!;
+      conversation.messages = chatProvider.messages;
+    } else {
+      conversation = Conversation(
+        id: activeId,
+        topic: widget.topic,
+        messages: chatProvider.messages,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+    }
+
+    // 注册到 Identity Map 缓存，后续 MindMapProvider 等的 mutation 会同步更新此实例
+    chatProvider.conversationService.cacheConversation(conversation);
 
     Navigator.pushReplacement(
       context,

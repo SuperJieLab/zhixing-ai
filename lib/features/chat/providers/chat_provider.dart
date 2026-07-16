@@ -60,6 +60,7 @@ class ChatProvider extends ChangeNotifier {
   int? _activeConversationId;
 
   int? get activeConversationId => _activeConversationId;
+  ConversationService get conversationService => _conversationService;
 
   Future<void> startConversation() async {
     _activeConversationId = await _conversationService.createConversation(_topic);

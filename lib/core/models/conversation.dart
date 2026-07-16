@@ -1,23 +1,25 @@
 import 'dart:convert';
 
 import 'chat_models.dart';
+import 'package:socratic_ai/core/logger.dart';
 
 /// 一次对话会话的持久化模型
 ///
 /// 对应 sqflite 中的 conversations 表。
-/// messages 和 insight 以 JSON 列存储。
+/// status / messages / insight / graph 可通过 ConversationService
+/// 的 mutation 方法就地更新（同时刷新 DB），其余字段 immutable。
 class Conversation {
-  final int? id; // null 表示未入库
-  final String topic; // 话题标题
-  final String status; // 'active' / 'completed'
+  final int? id;
+  final String topic;
+  String status;
   final bool isFavorite;
-  final List<ChatMessage> messages;
-  final InsightResult? insight;
-  final ConversationGraph? graph;
+  List<ChatMessage> messages;
+  InsightResult? insight;
+  ConversationGraph? graph;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  const Conversation({
+  Conversation({
     this.id,
     required this.topic,
     this.status = 'active',
@@ -155,8 +157,11 @@ class Conversation {
     if (json == null || json.isEmpty) return null;
     try {
       final map = jsonDecode(json) as Map<String, dynamic>;
-      return ConversationGraph.fromJson(map);
-    } catch (_) {
+      final graph = ConversationGraph.fromJson(map);
+      AppLogger.info('Conversation', '从 DB 加载图谱: ${graph.nodes.length} 节点, ${graph.edges.length} 边');
+      return graph;
+    } catch (e) {
+      AppLogger.warn('Conversation', '图谱解析失败: $e');
       return null;
     }
   }
