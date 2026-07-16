@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:socratic_ai/core/engine/model_manager.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
 import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 
 /// TopicSelectionPage 输入验证测试
@@ -12,15 +12,12 @@ import 'package:socratic_ai/features/topics/topic_selection_page.dart';
 /// 1. 空内容/纯空格提交 → 显示 SnackBar 提示
 /// 2. 有效话题提交 → 导航到 ChatPage
 void main() {
-  /// 构建带有 TopicProvider 的测试 Widget
-  ///
-  /// ChatPage 内部直接使用 ConversationService（不再依赖 Provider 注入），
-  /// 因此测试中不需要提供 ConversationProvider。
+  /// 构建测试 Widget
   Widget buildTestApp() {
     return MaterialApp(
       theme: AppTheme.lightTheme,
-      home: ChangeNotifierProvider(
-        create: (_) => TopicProvider(),
+      home: ChangeNotifierProvider<ModelManager>.value(
+        value: ModelManager.instance,
         child: const TopicSelectionPage(),
       ),
     );

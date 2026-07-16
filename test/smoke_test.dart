@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/app.dart';
-import 'package:socratic_ai/features/topics/providers/topic_provider.dart';
+import 'package:socratic_ai/core/engine/model_manager.dart';
 
 /// 端到端冒烟测试
 ///
@@ -21,7 +21,7 @@ void main() {
   Widget buildTestApp() {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => TopicProvider()),
+        ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
       ],
       child: const SocraticApp(),
     );
