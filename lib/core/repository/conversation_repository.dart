@@ -12,12 +12,15 @@ import 'package:socratic_ai/core/models/conversation.dart';
 class ConversationRepository {
   static Database? _db;
 
+  /// 暴露数据库实例（供 DashboardRepository 等使用）
+  static Database? get database => _db;
+
   /// 初始化数据库（应在 main() 中调用一次）
   static Future<void> initialize() async {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'socratic.db'),
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE conversations (
@@ -38,6 +41,47 @@ class ConversationRepository {
           await db.execute(
             'ALTER TABLE conversations ADD COLUMN graph_json TEXT',
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE goals (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT NOT NULL,
+              category TEXT NOT NULL DEFAULT 'other',
+              status TEXT NOT NULL DEFAULT 'active',
+              priority INTEGER DEFAULT 3,
+              source_conv_ids TEXT NOT NULL DEFAULT '[]',
+              deadline TEXT,
+              notes TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE strategies (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              goal_id INTEGER NOT NULL,
+              description TEXT NOT NULL,
+              type TEXT NOT NULL DEFAULT 'selfAction',
+              next_step TEXT,
+              completed INTEGER NOT NULL DEFAULT 0,
+              next_reminder TEXT,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (goal_id) REFERENCES goals(id)
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE cross_patterns (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              label TEXT NOT NULL,
+              description TEXT,
+              source_conv_ids TEXT NOT NULL DEFAULT '[]',
+              frequency INTEGER NOT NULL DEFAULT 1,
+              detected_at TEXT NOT NULL
+            )
+          ''');
         }
       },
     );

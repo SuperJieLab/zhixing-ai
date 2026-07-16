@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/constants.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
+import 'package:socratic_ai/features/_deprecated/topics/widgets/topic_card.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/core/engine/model_manager.dart';

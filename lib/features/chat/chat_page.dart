@@ -6,7 +6,7 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_input.dart';
-import 'package:socratic_ai/features/insights/insights_page.dart';
+import 'package:socratic_ai/features/_deprecated/insights/insights_page.dart';
 
 /// 对话页面
 ///

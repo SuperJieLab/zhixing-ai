@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/mindmap/layout/force_directed.dart';
-import 'package:socratic_ai/features/mindmap/providers/mindmap_provider.dart';
-import 'package:socratic_ai/features/mindmap/widgets/graph_painter.dart';
-import 'package:socratic_ai/features/mindmap/widgets/node_detail_sheet.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/layout/force_directed.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/providers/mindmap_provider.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/widgets/graph_painter.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/widgets/node_detail_sheet.dart';
 
 /// 思维图谱页面
 ///

@@ -4,7 +4,7 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/features/history/providers/history_provider.dart';
 import 'package:socratic_ai/features/history/widgets/conversation_card.dart';
-import 'package:socratic_ai/features/insights/insights_page.dart';
+import 'package:socratic_ai/features/_deprecated/insights/insights_page.dart';
 
 /// 历史对话列表页
 ///

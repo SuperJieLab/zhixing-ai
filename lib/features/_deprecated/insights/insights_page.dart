@@ -3,13 +3,13 @@ import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/snackbar_throttle.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/insights/providers/insight_provider.dart';
-import 'package:socratic_ai/features/insights/widgets/contradiction_card.dart';
-import 'package:socratic_ai/features/insights/widgets/insight_card.dart';
-import 'package:socratic_ai/features/insights/widgets/staggered_item.dart';
-import 'package:socratic_ai/features/insights/widgets/value_tags.dart';
-import 'package:socratic_ai/features/mindmap/mindmap_page.dart';
-import 'package:socratic_ai/features/topics/topic_selection_page.dart';
+import 'package:socratic_ai/features/_deprecated/insights/providers/insight_provider.dart';
+import 'package:socratic_ai/features/_deprecated/insights/widgets/contradiction_card.dart';
+import 'package:socratic_ai/features/_deprecated/insights/widgets/insight_card.dart';
+import 'package:socratic_ai/features/_deprecated/insights/widgets/staggered_item.dart';
+import 'package:socratic_ai/features/_deprecated/insights/widgets/value_tags.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/mindmap_page.dart';
+import 'package:socratic_ai/features/_deprecated/topics/topic_selection_page.dart';
 
 /// 洞察总结页面
 ///

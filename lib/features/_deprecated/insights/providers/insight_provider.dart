@@ -5,7 +5,7 @@ import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
-import 'package:socratic_ai/features/insights/engine/insight_service.dart';
+import 'package:socratic_ai/features/_deprecated/insights/engine/insight_service.dart';
 
 /// 洞察页面状态管理
 ///

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/topics/topic_selection_page.dart';
+import 'package:socratic_ai/features/_deprecated/topics/topic_selection_page.dart';
 
 /// Socratic AI 根组件
 ///
