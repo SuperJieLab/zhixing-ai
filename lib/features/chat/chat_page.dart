@@ -31,6 +31,8 @@ class _ChatPageState extends State<ChatPage> {
   /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
   ChatProvider? _listenedProvider;
 
+  String get _displayTopic => widget.topic.isNotEmpty ? widget.topic : '军师对话';
+
   @override
   void dispose() {
     _listenedProvider?.removeListener(_onChatError);
@@ -106,7 +108,7 @@ class _ChatPageState extends State<ChatPage> {
             return Scaffold(
               appBar: AppBar(
                 backgroundColor: AppTheme.background,
-                title: Text(widget.topic),
+                title: Text(_displayTopic),
               ),
               body: const Center(
                 child: Column(
@@ -151,7 +153,7 @@ class _ChatPageState extends State<ChatPage> {
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(widget.topic, style: const TextStyle(fontSize: 16)),
+                  Text(_displayTopic, style: const TextStyle(fontSize: 16)),
                   Text(
                     chatProvider.round > 1
                         ? '第 ${chatProvider.round - 1} 轮'
@@ -223,7 +225,7 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: AppTheme.background,
-        title: Text(widget.topic),
+        title: Text(_displayTopic),
       ),
       body: Center(
         child: Padding(

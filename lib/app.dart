@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/_deprecated/topics/topic_selection_page.dart';
+import 'package:socratic_ai/features/dashboard/dashboard_page.dart';
 
 /// Socratic AI 根组件
 ///
@@ -33,8 +33,8 @@ class SocraticApp extends StatelessWidget {
       // 各个页面可以通过 Theme.of(context) 访问
       theme: AppTheme.lightTheme,
 
-      // 首页：话题选择页
-      home: const TopicSelectionPage(),
+      // 首页：大局观面板
+      home: const DashboardPage(),
     );
   }
 }
