@@ -6,7 +6,7 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:socratic_ai/features/chat/widgets/chat_input.dart';
-import 'package:socratic_ai/features/_deprecated/insights/insights_page.dart';
+import 'package:socratic_ai/features/strategy_brief/strategy_brief_page.dart';
 
 /// 对话页面
 ///
@@ -66,10 +66,7 @@ class _ChatPageState extends State<ChatPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => InsightsPage(
-          conversation: conversation,
-          fromHistory: false,
-        ),
+        builder: (_) => StrategyBriefPage(conversation: conversation),
       ),
     );
   }

@@ -6,7 +6,7 @@ import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
-import 'package:socratic_ai/features/chat/engine/socratic_prompter.dart';
+import 'package:socratic_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
 ///
@@ -96,20 +96,9 @@ class ChatProvider extends ChangeNotifier {
   // ================================================================
 
   static List<ChatMessage> _buildWelcome(String topic) {
-    const openings = <String, String>{
-      '职业发展':
-          '你提到想聊聊职业方向——如果三年后的你回头看今天做的选择，你觉得他会在意什么？',
-      '两难决策':
-          '你面前有两个选择——在做决定之前，你想过这两个选择分别代表了什么样的自己吗？',
-      '自我探索':
-          '关于"我是谁"这个问题——你最近一次觉得自己不够了解自己，是什么时候？',
-      '工作难题':
-          '这个问题卡住了你——你觉得卡住的到底是事情本身，还是你看待事情的角度？',
-      '人际关系':
-          '这段关系让你在意的地方是什么——是对方的期待，还是你对自己在这段关系里的要求？',
-    };
-
-    final opening = openings[topic] ?? '你想和我聊聊什么话题？让我们从头开始。';
+    final opening = topic.isNotEmpty
+        ? '主公提到想聊聊$topic——请详细说说你的想法，我来帮你分析。'
+        : '主公请讲，军师在此。有任何困惑或打算，尽管说来——我帮你看清局势，给出策略。';
 
     return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
   }
@@ -124,7 +113,7 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       final llmEngine = await LlamaService.instance.ensureReady();
-      final engine = SocraticPrompter(llmEngine);
+      final engine = StrategistPrompter(llmEngine);
       await engine.initialize();
       _engine = engine;
     } catch (e) {
