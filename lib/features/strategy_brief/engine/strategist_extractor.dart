@@ -118,7 +118,12 @@ cross_patterns 格式：
       final raw = buffer.toString().trim();
       final json = stripThinkTags(raw);
       AppLogger.info('StrategistExtractor',
-          '原始回复: ${json.substring(0, math.min(json.length, 200))}');
+          '原始回复: ${json.isEmpty ? '(空)' : json.substring(0, math.min(json.length, 200))}');
+
+      if (json.isEmpty) {
+        AppLogger.info('StrategistExtractor', 'LLM 返回空内容（可能仅含 think 标签）');
+        return null;
+      }
 
       final parsed = jsonDecode(json) as Map<String, dynamic>;
       if (parsed['relevant'] != true) {
