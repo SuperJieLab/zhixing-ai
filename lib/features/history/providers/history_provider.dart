@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:socratic_ai/core/engine/conversation_service.dart';
-import 'package:socratic_ai/core/logger.dart';
-import 'package:socratic_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/engine/conversation_service.dart';
+import 'package:zhixing_ai/core/logger.dart';
+import 'package:zhixing_ai/core/models/conversation.dart';
 
 /// History 页面状态管理
 ///

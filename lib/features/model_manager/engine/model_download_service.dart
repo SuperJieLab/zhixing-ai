@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
-import 'package:socratic_ai/core/logger.dart';
+import 'package:zhixing_ai/core/logger.dart';
 
 /// 下载进度回调
 typedef DownloadProgress = void Function({

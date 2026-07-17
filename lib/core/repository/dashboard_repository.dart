@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/repository/conversation_repository.dart';
 
 /// 首页数据仓库（sqflite）
 ///

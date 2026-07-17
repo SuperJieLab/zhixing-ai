@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import 'package:socratic_ai/core/model_manager.dart';
-import 'package:socratic_ai/core/models/available_model.dart';
-import 'package:socratic_ai/features/model_manager/engine/model_download_service.dart';
+import 'package:zhixing_ai/core/model_manager.dart';
+import 'package:zhixing_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/features/model_manager/engine/model_download_service.dart';
 
 enum DownloadStatus { idle, downloading, completed, failed, cancelled }
 

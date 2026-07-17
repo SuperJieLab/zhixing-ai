@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/theme.dart';
+import 'package:zhixing_ai/core/theme.dart';
 
 class DashboardHeader extends StatelessWidget {
   final int activeGoalCount;

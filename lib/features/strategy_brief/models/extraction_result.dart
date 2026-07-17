@@ -1,4 +1,4 @@
-import 'package:socratic_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
 
 /// LLM 提取结果的数据模型
 ///

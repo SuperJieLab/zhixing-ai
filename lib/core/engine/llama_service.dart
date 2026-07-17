@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
-import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/logger.dart';
+import 'package:zhixing_ai/core/constants.dart';
+import 'package:zhixing_ai/core/logger.dart';
 
 /// 模型加载配置（值对象，决定缓存命中）
 class LlamaConfig {

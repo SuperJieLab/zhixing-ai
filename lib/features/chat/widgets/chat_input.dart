@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/theme.dart';
+import 'package:zhixing_ai/core/theme.dart';
 
 /// 对话页底部输入栏
 ///

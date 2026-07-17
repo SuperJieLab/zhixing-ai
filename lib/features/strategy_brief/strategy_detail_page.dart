@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/theme.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/theme.dart';
 
 class StrategyDetailPage extends StatelessWidget {
   final Goal goal;

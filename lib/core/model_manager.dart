@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/core/constants.dart';
+import 'package:zhixing_ai/core/models/available_model.dart';
 
 /// 模型就绪状态管理（core 层）
 ///

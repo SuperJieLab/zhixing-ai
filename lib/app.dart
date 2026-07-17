@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/route_observer.dart';
-import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/dashboard/dashboard_page.dart';
+import 'package:zhixing_ai/core/route_observer.dart';
+import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 
-/// Socratic AI 根组件
-class SocraticApp extends StatelessWidget {
-  const SocraticApp({super.key});
+/// 知行AI 根组件
+class ZhixingApp extends StatelessWidget {
+  const ZhixingApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // 应用标题（显示在 Android 任务切换器中）
-      title: 'Socratic AI',
+      title: '知行AI',
 
       // 关闭右上角的 "DEBUG" 横幅
       debugShowCheckedModeBanner: false,

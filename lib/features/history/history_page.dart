@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/history/providers/history_provider.dart';
-import 'package:socratic_ai/features/history/widgets/conversation_card.dart';
-import 'package:socratic_ai/features/strategy_brief/strategy_brief_page.dart';
+import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/features/chat/chat_page.dart';
+import 'package:zhixing_ai/features/history/providers/history_provider.dart';
+import 'package:zhixing_ai/features/history/widgets/conversation_card.dart';
+import 'package:zhixing_ai/features/strategy_brief/strategy_brief_page.dart';
 
 /// 历史对话列表页
 ///

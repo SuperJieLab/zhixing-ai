@@ -1,10 +1,9 @@
-name: socratic_ai
+name: zhixing_ai
 description: >-
-  苏格拉底式 AI 对话 — 端侧推理、隐私零上传。
-  通过 Qwen 2.5 1.5B 端侧 LLM 驱动的追问、洞察总结与思维图谱，
-  帮助用户理清思路、发现认知盲区。
+  知行AI — 端侧 AI 军师，帮你明确目标、拆解策略。
+  基于 OKR 框架，通过对话提取人生目标，制定可执行路径。
 version: 1.0.0+1
-repository: https://github.com/SuperJieLab/socratic-ai
+repository: https://github.com/SuperJieLab/zhixing-ai
 publish_to: 'none'
 
 environment:

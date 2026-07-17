@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/models/chat_models.dart';
-import 'package:socratic_ai/core/theme.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/theme.dart';
 
 /// 聊天气泡组件
 ///

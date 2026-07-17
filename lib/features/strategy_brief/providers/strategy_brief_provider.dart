@@ -1,12 +1,12 @@
 import 'dart:convert';
-import 'package:socratic_ai/core/engine/conversation_service.dart';
-import 'package:socratic_ai/core/engine/llama_service.dart';
-import 'package:socratic_ai/core/logger.dart';
-import 'package:socratic_ai/core/models/conversation.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/repository/dashboard_repository.dart';
-import 'package:socratic_ai/features/strategy_brief/engine/strategist_extractor.dart';
-import 'package:socratic_ai/features/strategy_brief/models/extraction_result.dart';
+import 'package:zhixing_ai/core/engine/conversation_service.dart';
+import 'package:zhixing_ai/core/engine/llama_service.dart';
+import 'package:zhixing_ai/core/logger.dart';
+import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/features/strategy_brief/engine/strategist_extractor.dart';
+import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
 
 /// 对话提取 & 确认状态管理
 ///

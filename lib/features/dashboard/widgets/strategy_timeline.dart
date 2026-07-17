@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/dashboard/widgets/goal_card.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/features/dashboard/widgets/goal_card.dart';
 
 class StrategyTimeline extends StatelessWidget {
   final List<Strategy> strategies;

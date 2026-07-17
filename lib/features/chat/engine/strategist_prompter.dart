@@ -1,10 +1,10 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
-import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/engine/llama_service.dart';
-import 'package:socratic_ai/core/logger.dart';
-import 'package:socratic_ai/core/models/chat_models.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/think_tag_stripper.dart';
+import 'package:zhixing_ai/core/constants.dart';
+import 'package:zhixing_ai/core/engine/llama_service.dart';
+import 'package:zhixing_ai/core/logger.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/think_tag_stripper.dart';
 
 /// 军师对话引擎
 ///

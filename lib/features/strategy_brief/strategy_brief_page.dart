@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/models/conversation.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/features/strategy_brief/providers/strategy_brief_provider.dart';
-import 'package:socratic_ai/features/strategy_brief/strategy_detail_page.dart';
+import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/features/strategy_brief/providers/strategy_brief_provider.dart';
+import 'package:zhixing_ai/features/strategy_brief/strategy_detail_page.dart';
 
 class StrategyBriefPage extends StatefulWidget {
   final Conversation conversation;

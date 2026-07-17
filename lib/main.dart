@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/app.dart';
-import 'package:socratic_ai/core/repository/conversation_repository.dart';
-import 'package:socratic_ai/core/model_manager.dart';
+import 'package:zhixing_ai/app.dart';
+import 'package:zhixing_ai/core/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/model_manager.dart';
 
 /// 应用入口
 ///
@@ -27,7 +27,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
       ],
-      child: const SocraticApp(),
+      child: const ZhixingApp(),
     ),
   );
 }

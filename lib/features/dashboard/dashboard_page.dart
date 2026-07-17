@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:socratic_ai/core/route_observer.dart';
-import 'package:socratic_ai/core/theme.dart';
-import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/dashboard/providers/dashboard_provider.dart';
-import 'package:socratic_ai/features/dashboard/widgets/dashboard_header.dart';
-import 'package:socratic_ai/features/dashboard/widgets/goal_card.dart';
-import 'package:socratic_ai/features/dashboard/widgets/cross_pattern_card.dart';
-import 'package:socratic_ai/features/dashboard/widgets/strategy_timeline.dart';
-import 'package:socratic_ai/features/dashboard/goal_detail_page.dart';
-import 'package:socratic_ai/features/history/history_page.dart';
-import 'package:socratic_ai/features/model_manager/model_manage_page.dart';
+import 'package:zhixing_ai/core/route_observer.dart';
+import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/features/chat/chat_page.dart';
+import 'package:zhixing_ai/features/dashboard/providers/dashboard_provider.dart';
+import 'package:zhixing_ai/features/dashboard/widgets/dashboard_header.dart';
+import 'package:zhixing_ai/features/dashboard/widgets/goal_card.dart';
+import 'package:zhixing_ai/features/dashboard/widgets/cross_pattern_card.dart';
+import 'package:zhixing_ai/features/dashboard/widgets/strategy_timeline.dart';
+import 'package:zhixing_ai/features/dashboard/goal_detail_page.dart';
+import 'package:zhixing_ai/features/history/history_page.dart';
+import 'package:zhixing_ai/features/model_manager/model_manage_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
