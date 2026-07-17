@@ -10,6 +10,12 @@ import 'package:socratic_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
 ///
+/// 管理一次军师对话的完整生命周期：
+///   1. 加载模型 → [loadModel] 初始化 [StrategistPrompter] 并注入已有目标
+///   2. 对话交互 → [sendMessage] 驱动 LLM 流式生成回复
+///   3. 持久化 → 每轮保存 messages 到 DB，通过 [ConversationService]
+///   4. 结束 → ChatPage 调用 _endConversation，跳转 Brief 页
+///
 /// ## 两种模式
 /// - 新对话：只传 [topic]，Provider 内部加欢迎语，首次发言时创建 DB 记录
 /// - 恢复：传 [conversation]，Provider 加载其消息 / ID / 轮次，引擎回放历史

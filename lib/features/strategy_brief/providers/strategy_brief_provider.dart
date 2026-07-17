@@ -8,6 +8,17 @@ import 'package:socratic_ai/core/repository/dashboard_repository.dart';
 import 'package:socratic_ai/features/strategy_brief/engine/strategist_extractor.dart';
 import 'package:socratic_ai/features/strategy_brief/models/extraction_result.dart';
 
+/// 对话提取 & 确认状态管理
+///
+/// 管理 StrategyBriefPage 的完整流程：
+///   1. [extract] → 加载缓存 或 调 LLM 提取目标/策略/洞察
+///   2. 提取结果自动保存到 conversation.extractionJson（防重复提取）
+///   3. 用户确认/忽略 → 写入 DB（goal/strategy）或缓存状态（_c_ng 等标记）
+///   4. 确认状态持久化到 extraction_json，再次进入时自动恢复
+///
+/// 数据流：Extractor → extraction_json 缓存 → 用户确认 → Dashboard DB
+/// 分层：依赖 engine + repository + models，不感知 page/widget 层。
+
 enum BriefStatus {
   loading,
   extracting,
@@ -72,6 +83,16 @@ class StrategyBriefProvider {
       try {
         final json =
             jsonDecode(_conversation.extractionJson!) as Map<String, dynamic>;
+
+        if (json['extracted'] == false) {
+          _state = StrategyBriefState(
+            status: BriefStatus.noContent,
+            existingGoals: await _dashboardRepo.getAllGoals(),
+          );
+          _notify();
+          return;
+        }
+
         final result = ExtractionResult.fromJson(json);
         final existingGoals = await _dashboardRepo.getAllGoals();
 
@@ -175,11 +196,10 @@ class StrategyBriefProvider {
   Future<void> _saveExtractionAndComplete(ExtractionResult? result) async {
     if (_conversation.id == null) return;
 
-    if (result != null) {
-      final json = jsonEncode(result.toJson());
-      _conversation.extractionJson = json;
-      await _convService.updateExtractionJson(_conversation.id!, json);
-    }
+    final data = result?.toJson() ?? {'extracted': false};
+    final json = jsonEncode(data);
+    _conversation.extractionJson = json;
+    await _convService.updateExtractionJson(_conversation.id!, json);
 
     _conversation.status = 'completed';
     await _convService.finishConversation(_conversation.id!);

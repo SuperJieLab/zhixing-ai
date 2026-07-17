@@ -1,5 +1,15 @@
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 
+/// LLM 提取结果的数据模型
+///
+/// [ExtractionResult] 是一次对话提取的完整产物：
+///   - newGoals：新发现的目标（proposed 状态，待确认）
+///   - goalUpdates：已有目标的状态变更建议
+///   - strategies：每个目标的执行步骤
+///   - crossPatterns：跨对话自我认知模式
+///
+/// 支持 JSON 序列化（用于 extraction_json 缓存）和 DB 写入。
+
 class GoalUpdate {
   final String goalTitle;
   final GoalStatus? newStatus;

@@ -6,6 +6,17 @@ import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
 
+/// 军师对话引擎
+///
+/// 组合 [LlamaEngine] 提供完整对话能力：
+///   - 模式 C（追问→建议→合并检测）：先理解需求，再给解法，检测与已有目标重叠
+///   - 流式输出：逐 token yield，think 标签自动剥离（显示层不可见）
+///   - 上下文管理：超 75% 窗口自动截断，保留最近 6 轮
+///   - 去重检测：相似问题提示 LLM 换角度回答
+///
+/// 依赖：LlamaEngine（模型推理能力）+ AppConstants（上下文配置）
+/// 消费方：ChatProvider（唯一），不跨 feature 共享。
+
 class StrategistPrompter {
   final LlamaEngine _engine;
   EngineChat? _chat;

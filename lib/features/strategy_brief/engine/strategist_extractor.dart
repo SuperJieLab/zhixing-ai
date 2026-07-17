@@ -13,6 +13,19 @@ import 'package:socratic_ai/features/strategy_brief/engine/chat_utils.dart';
 import 'package:socratic_ai/features/strategy_brief/models/extraction_result.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
 
+/// 对话提取引擎
+///
+/// 一次性分析——取整个对话历史，调 LLM 提取结构化结果：
+///   - new_goals：新目标（status=proposed，需用户确认）
+///   - goal_updates：已有目标状态变更建议（不自动执行）
+///   - strategies：每个目标的执行步骤（关联 goal_title）
+///   - cross_patterns：跨对话自我认知模式
+///
+/// 上下文保护：自动截断对话，保留最近的不超 token 预算的消息。
+/// 输出保护：maxTokens=2048，足够丰富的 JSON 提取结果。
+/// 依赖：LlamaEngine + chat_utils + think_tag_stripper
+/// 消费方：StrategyBriefProvider（唯一）
+
 class StrategistExtractor {
   final LlamaEngine _engine;
 

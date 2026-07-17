@@ -2,6 +2,12 @@ import 'package:sqflite/sqflite.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/repository/conversation_repository.dart';
 
+/// 大局观数据仓库（sqflite）
+///
+/// 负责 goals / strategies / cross_patterns 三张表的 CRUD。
+/// 复用 [ConversationRepository] 的 DB 实例（同一 sqflite 文件）。
+/// 被 DashboardProvider 和 StrategyBriefProvider 两个 feature 共享。
+
 class DashboardRepository {
   static Future<Database> _db() async {
     final db = ConversationRepository.database;

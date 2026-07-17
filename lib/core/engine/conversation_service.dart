@@ -23,14 +23,26 @@ class ConversationService {
     return conv;
   }
 
+  /// 加载全部会话列表
+  ///
+  /// 返回的是缓存实例，已缓存的会话对象在内存中就地被 DB 数据更新。
+  /// 这样 ChatProvider / BriefPage 持有的同一引用也能看到最新 DB 状态。
   Future<List<Conversation>> loadAll() async {
     final list = await _repo.listAll();
     for (final conv in list) {
-      if (conv.id != null) {
-        _cache.putIfAbsent(conv.id!, () => conv);
+      if (conv.id == null) continue;
+      final cached = _cache[conv.id];
+      if (cached != null) {
+        // Update cached instance in-place (preserve in-memory messages)
+        cached.status = conv.status;
+        cached.topic = conv.topic;
+        cached.extractionJson = conv.extractionJson;
+      } else {
+        _cache[conv.id!] = conv;
       }
     }
-    return list;
+    // Return cached instances so all consumers share the same objects
+    return list.map((c) => _cache[c.id] ?? c).toList();
   }
 
   void cacheConversation(Conversation conversation) {

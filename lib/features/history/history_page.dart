@@ -71,7 +71,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 MaterialPageRoute(
                   builder: (_) => StrategyBriefPage(conversation: conv),
                 ),
-              );
+              ).then((_) => provider.loadAll());
             } else {
               Navigator.push(
                 context,
