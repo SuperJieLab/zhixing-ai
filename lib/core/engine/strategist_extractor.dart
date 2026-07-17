@@ -68,6 +68,7 @@ class ExtractionResult {
         (e) => e.name == (g['category'] as String?),
         orElse: () => GoalCategory.other,
       ),
+      status: GoalStatus.proposed,
       priority: g['priority'] as int? ?? 3,
       deadline: g['deadline'] as String?,
       notes: g['notes'] as String?,
@@ -98,11 +99,12 @@ class GoalUpdate {
   });
 
   factory GoalUpdate.fromJson(Map<String, dynamic> json) {
+    final statusStr = (json['suggested_status'] ?? json['new_status']) as String?;
     return GoalUpdate(
       goalTitle: json['goal_title'] as String? ?? '',
-      newStatus: json['new_status'] != null
+      newStatus: statusStr != null
           ? GoalStatus.values.firstWhere(
-              (e) => e.name == json['new_status'],
+              (e) => e.name == statusStr,
               orElse: () => GoalStatus.active,
             )
           : null,
@@ -140,12 +142,14 @@ class StrategistExtractor {
 4. 标注每条策略类型：selfAction / aiAssist / externalDep
 5. 发现跨对话的模式或矛盾
 6. 严格只输出 JSON，不要带 markdown 代码块标记
+7. 新目标初始为「待确认」状态，需主公确认后才生效；已有目标状态变更仅为「建议」，不会自动执行
 
-new_goals 格式：
+new_goals 格式（新建目标，初始为待确认）：
 {"title":"...","category":"career|finance|relationship|health|growth|other","priority":1-5,"deadline":null或"2026-09-01","notes":"..."}
 
-goal_updates 格式：
-{"goal_title":"已有目标标题(精确匹配)","new_status":"active|completed|paused","new_notes":"...","reason":"为什么更新"}
+goal_updates 格式（仅建议，需主公确认后执行）：
+{"goal_title":"已有目标标题(精确匹配)","suggested_status":"completed|paused","reason":"为什么建议变更"}
+# 注意：只能建议 status 变更（completed 或 paused），不能建议改 title/category/priority
 
 strategies 格式：
 {"goal_title":"关联的目标标题","description":"...","type":"selfAction|aiAssist|externalDep","next_step":"下一步具体动作"}

@@ -24,6 +24,14 @@ class DashboardRepository {
     return rows.map((row) => Goal.fromMap(row)).toList();
   }
 
+  Future<List<Goal>> getActiveGoals() async {
+    final db = await _db();
+    final rows = await db.query('goals',
+        where: 'status = ?', whereArgs: ['active'],
+        orderBy: 'priority ASC');
+    return rows.map((row) => Goal.fromMap(row)).toList();
+  }
+
   Future<Goal?> getGoalByTitle(String title) async {
     final db = await _db();
     final rows = await db.query('goals',

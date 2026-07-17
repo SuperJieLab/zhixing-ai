@@ -12,6 +12,7 @@ enum GoalCategory {
 
 /// 目标状态
 enum GoalStatus {
+  proposed,
   active,
   completed,
   paused,

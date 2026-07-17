@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
+import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/strategy_brief/providers/strategy_brief_provider.dart';
+import 'package:socratic_ai/features/strategy_brief/strategy_detail_page.dart';
 
 class StrategyBriefPage extends StatefulWidget {
   final Conversation conversation;
@@ -79,12 +81,11 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                 const Icon(Icons.chat_bubble_outline,
                     size: 48, color: AppTheme.textSecondary),
                 const SizedBox(height: 16),
-                const Text('本次对话未发现新的目标或策略',
-                    style:
-                        TextStyle(fontSize: 16, color: AppTheme.textPrimary)),
+                const Text('本次对话未发现新的建议',
+                    style: TextStyle(fontSize: 16, color: AppTheme.textPrimary)),
                 const SizedBox(height: 8),
                 const Text(
-                  '这次聊的内容比较轻松，军师没有提取到新的目标。下次聊得深入些，我会帮你梳理出更清晰的策略。',
+                  '这次聊的内容比较轻松，军师没有提取到新的目标或策略。',
                   style: TextStyle(color: AppTheme.textSecondary),
                   textAlign: TextAlign.center,
                 ),
@@ -124,104 +125,285 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
 
   Widget _buildContent(StrategyBriefState state) {
     final extraction = state.extraction!;
+    final totalItems = extraction.newGoals.length +
+        extraction.goalUpdates.length +
+        extraction.crossPatterns.length;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text('军师从本次对话中发现了 $totalItems 条建议',
+              style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(height: 20),
+
+        // Zone 1: 新目标
         if (extraction.newGoals.isNotEmpty) ...[
-          const Text('🎯 新目标',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          _buildSectionHeader('🎯 新目标', Icons.flag_rounded,
+              count: extraction.newGoals.length),
           const SizedBox(height: 8),
-          ...extraction.newGoals.map((goal) => Card(
+          ...extraction.newGoals.asMap().entries.map((entry) {
+            final goal = entry.value;
+            final strategiesForGoal = extraction.strategies
+                .where((s) => s.goalId == entry.key)
+                .toList();
+
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(goal.title,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w500)),
-                      if (goal.notes != null) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(goal.title,
+                                style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const Icon(Icons.chevron_right,
+                              size: 18, color: AppTheme.textSecondary),
+                        ],
+                      ),
+                      if (goal.notes != null && goal.notes!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(goal.notes!,
                             style: const TextStyle(
+                                fontSize: 13,
                                 color: AppTheme.textSecondary)),
                       ],
+                      if (strategiesForGoal.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        ...strategiesForGoal.map((s) => Padding(
+                              padding:
+                                  const EdgeInsets.only(bottom: 2),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.task_alt,
+                                      size: 14,
+                                      color: AppTheme.primary),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(s.description,
+                                        style: const TextStyle(
+                                            fontSize: 13)),
+                                  ),
+                                ],
+                              ),
+                            )),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () =>
+                                _provider.ignoreNewGoal(entry.key),
+                            child: const Text('忽略',
+                                style: TextStyle(
+                                    color: AppTheme.textSecondary)),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () =>
+                                _provider.confirmNewGoal(entry.key),
+                            child: const Text('确认'),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-              )),
+              ),
+            );
+          }),
           const SizedBox(height: 16),
         ],
+
+        // Zone 2: 已有目标变更
         if (extraction.goalUpdates.isNotEmpty) ...[
-          const Text('📋 已更新目标',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          _buildSectionHeader('🔄 已有目标变更', Icons.update_rounded,
+              count: extraction.goalUpdates.length,
+              chipColor: AppTheme.secondary),
           const SizedBox(height: 8),
-          ...extraction.goalUpdates.map((update) => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(update.goalTitle,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w500)),
-                      if (update.newStatus != null)
-                        Text('状态 → ${update.newStatus!.name}',
-                            style:
-                                const TextStyle(color: AppTheme.primary)),
-                      if (update.reason.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(update.reason,
-                            style: const TextStyle(
-                                color: AppTheme.textSecondary)),
-                      ],
-                    ],
-                  ),
-                ),
-              )),
-          const SizedBox(height: 16),
-        ],
-        if (extraction.strategies.isNotEmpty) ...[
-          const Text('📝 建议策略',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          ...extraction.strategies.map((s) => Card(
-                child: ListTile(
-                  leading:
-                      const Icon(Icons.task_alt, color: AppTheme.primary),
-                  title: Text(s.description),
-                  subtitle: s.nextStep != null
-                      ? Text('下一步: ${s.nextStep}')
+          ...extraction.goalUpdates.asMap().entries.map((entry) {
+            final update = entry.value;
+            final relatedGoal = state.existingGoals.firstWhere(
+              (g) => g.title == update.goalTitle,
+              orElse: () => Goal(
+                  title: '',
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now()),
+            );
+            final relatedStrategies = state.existingGoals.isNotEmpty
+                ? <Strategy>[]
+                : <Strategy>[];
+
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Card(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: relatedGoal.title.isNotEmpty
+                      ? () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => StrategyDetailPage(
+                                goal: relatedGoal,
+                                strategies: relatedStrategies,
+                              ),
+                            ),
+                          )
                       : null,
-                ),
-              )),
-          const SizedBox(height: 16),
-        ],
-        if (extraction.crossPatterns.isNotEmpty) ...[
-          const Text('🔍 跨对话发现',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          ...extraction.crossPatterns.map((p) => Card(
-                color: AppTheme.primary.withAlpha(20),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(p.label,
-                          style: const TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(p.description,
-                          style: const TextStyle(
-                              color: AppTheme.textSecondary)),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(update.goalTitle,
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                            if (relatedGoal.title.isNotEmpty)
+                              const Icon(Icons.chevron_right,
+                                  size: 18,
+                                  color: AppTheme.textSecondary),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        if (update.newStatus != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accent.withAlpha(25),
+                              borderRadius:
+                                  BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                                '建议 → ${update.newStatus!.name}',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.accent)),
+                          ),
+                        if (update.reason.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(update.reason,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.textSecondary)),
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () =>
+                                  _provider.ignoreGoalUpdate(
+                                      entry.key),
+                              child: const Text('忽略',
+                                  style: TextStyle(
+                                      color:
+                                          AppTheme.textSecondary)),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () =>
+                                  _provider.confirmGoalUpdate(
+                                      entry.key),
+                              child: const Text('确认'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              )),
+              ),
+            );
+          }),
           const SizedBox(height: 16),
         ],
+
+        // Zone 3: 洞察
+        if (extraction.crossPatterns.isNotEmpty) ...[
+          _buildSectionHeader('💡 洞察', Icons.lightbulb_rounded,
+              count: extraction.crossPatterns.length,
+              chipColor: AppTheme.accent),
+          const SizedBox(height: 8),
+          ...extraction.crossPatterns.asMap().entries.map((entry) {
+            final pattern = entry.value;
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAF6EF),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: const Color(0xFFE6DDCE), width: 1),
+                ),
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withAlpha(30),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.lightbulb_rounded,
+                          size: 18, color: AppTheme.accent),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(pattern.label,
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Text(pattern.description,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close,
+                          size: 18, color: AppTheme.textSecondary),
+                      onPressed: () =>
+                          _provider.deleteInsight(entry.key),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+
         const SizedBox(height: 8),
         Center(
           child: OutlinedButton.icon(
@@ -232,6 +414,37 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
         ),
         const SizedBox(height: 32),
       ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon,
+      {int count = 0, Color chipColor = AppTheme.primary}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: chipColor),
+          const SizedBox(width: 6),
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary)),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: chipColor.withAlpha(20),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text('$count',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: chipColor)),
+          ),
+        ],
+      ),
     );
   }
 }

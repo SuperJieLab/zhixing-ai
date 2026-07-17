@@ -93,4 +93,65 @@ class StrategyBriefProvider {
     }
     _notify();
   }
+
+  void confirmNewGoal(int index) {
+    final goal = _state.extraction?.newGoals[index];
+    if (goal == null) return;
+    goal.status = GoalStatus.active;
+    _dashboardRepo.updateGoal(goal);
+    _state.extraction!.newGoals.removeAt(index);
+    _reevaluateStatus();
+    _notify();
+  }
+
+  void ignoreNewGoal(int index) {
+    _state.extraction?.newGoals.removeAt(index);
+    _reevaluateStatus();
+    _notify();
+  }
+
+  void confirmGoalUpdate(int index) {
+    final update = _state.extraction?.goalUpdates[index];
+    if (update == null) return;
+
+    final existingGoal = _state.existingGoals.firstWhere(
+      (g) => g.title == update.goalTitle,
+      orElse: () => Goal(
+          title: '',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now()),
+    );
+    if (existingGoal.title.isEmpty) return;
+
+    if (update.newStatus != null) {
+      existingGoal.status = update.newStatus!;
+      _dashboardRepo.updateGoal(existingGoal);
+    }
+
+    _state.extraction!.goalUpdates.removeAt(index);
+    _reevaluateStatus();
+    _notify();
+  }
+
+  void ignoreGoalUpdate(int index) {
+    _state.extraction?.goalUpdates.removeAt(index);
+    _reevaluateStatus();
+    _notify();
+  }
+
+  void deleteInsight(int index) {
+    _state.extraction?.crossPatterns.removeAt(index);
+    _reevaluateStatus();
+    _notify();
+  }
+
+  void _reevaluateStatus() {
+    final extraction = _state.extraction;
+    if (extraction == null || !extraction.hasContent) {
+      _state = StrategyBriefState(
+        status: BriefStatus.noContent,
+        existingGoals: _state.existingGoals,
+      );
+    }
+  }
 }

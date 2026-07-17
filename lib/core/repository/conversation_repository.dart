@@ -48,7 +48,7 @@ class ConversationRepository {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               title TEXT NOT NULL,
               category TEXT NOT NULL DEFAULT 'other',
-              status TEXT NOT NULL DEFAULT 'active',
+              status TEXT NOT NULL DEFAULT 'proposed',
               priority INTEGER DEFAULT 3,
               source_conv_ids TEXT NOT NULL DEFAULT '[]',
               deadline TEXT,
