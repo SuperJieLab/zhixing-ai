@@ -60,6 +60,69 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  void _showGoalStatusDialog(Goal goal) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('修改目标状态'),
+        content: Text('将「${goal.title}」标记为？'),
+        actions: [
+          if (goal.status == GoalStatus.active) ...[
+            TextButton(
+              onPressed: () {
+                _provider.toggleGoalStatus(goal.id!, GoalStatus.paused);
+                Navigator.pop(ctx);
+              },
+              child: const Text('暂停'),
+            ),
+            TextButton(
+              onPressed: () {
+                _provider.toggleGoalStatus(goal.id!, GoalStatus.completed);
+                Navigator.pop(ctx);
+              },
+              child: const Text('完成'),
+            ),
+          ],
+          if (goal.status == GoalStatus.paused)
+            TextButton(
+              onPressed: () {
+                _provider.toggleGoalStatus(goal.id!, GoalStatus.active);
+                Navigator.pop(ctx);
+              },
+              child: const Text('恢复'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showStrategyToggleDialog(Strategy strategy) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strategy.completed ? '取消完成' : '确认完成'),
+        content: Text(strategy.description),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _provider.toggleStrategy(strategy.id!, !strategy.completed);
+              Navigator.pop(ctx);
+            },
+            child: const Text('确认'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = _provider.state;
@@ -144,7 +207,8 @@ class _DashboardPageState extends State<DashboardPage> {
           ...activeGoals.map((goal) => GoalCard(
                 goal: goal,
                 strategies: strategiesByGoal[goal.id] ?? [],
-                onTap: null,
+                onStatusTap: () => _showGoalStatusDialog(goal),
+                onStrategyToggle: (s) => _showStrategyToggleDialog(s),
               ))
         else
           _buildEmptySection('暂无目标', '每次对话结束后，军师会帮你提炼目标'),

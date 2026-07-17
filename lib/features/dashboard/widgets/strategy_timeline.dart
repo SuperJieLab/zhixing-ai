@@ -15,7 +15,12 @@ class StrategyTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pending = strategies.where((s) => !s.completed).toList();
+    final pending = strategies.where((s) {
+      if (s.completed) return false;
+      final goal = goalMap[s.goalId];
+      if (goal == null) return false;
+      return goal.status == GoalStatus.active;
+    }).toList();
 
     // Sort: higher goal priority first, then by creation time
     pending.sort((a, b) {

@@ -6,12 +6,16 @@ class GoalCard extends StatelessWidget {
   final Goal goal;
   final List<Strategy> strategies;
   final VoidCallback? onTap;
+  final VoidCallback? onStatusTap;
+  final void Function(Strategy)? onStrategyToggle;
 
   const GoalCard({
     super.key,
     required this.goal,
     this.strategies = const [],
     this.onTap,
+    this.onStatusTap,
+    this.onStrategyToggle,
   });
 
   static Color categoryColor(GoalCategory category) {
@@ -100,6 +104,9 @@ class GoalCard extends StatelessWidget {
                           ...strategies.map((s) => _StrategyRow(
                                 strategy: s,
                                 catColor: catColor,
+                                onToggle: onStrategyToggle != null
+                                    ? () => onStrategyToggle!(s)
+                                    : null,
                               )),
                         ],
                       ],
@@ -184,36 +191,45 @@ class GoalCard extends StatelessWidget {
 class _StrategyRow extends StatelessWidget {
   final Strategy strategy;
   final Color catColor;
+  final VoidCallback? onToggle;
 
-  const _StrategyRow({required this.strategy, required this.catColor});
+  const _StrategyRow({
+    required this.strategy,
+    required this.catColor,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(
-              strategy.completed ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-              size: 16,
-              color: strategy.completed ? catColor.withAlpha(120) : catColor.withAlpha(180),
+    return GestureDetector(
+      onTap: onToggle,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(
+                strategy.completed ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                size: 16,
+                color: strategy.completed ? catColor.withAlpha(120) : catColor.withAlpha(180),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(strategy.description,
-                style: TextStyle(
-                    fontSize: 13,
-                    height: 1.35,
-                    color: strategy.completed
-                        ? AppTheme.textSecondary.withAlpha(180)
-                        : AppTheme.textPrimary.withAlpha(220),
-                    decoration: strategy.completed ? TextDecoration.lineThrough : null)),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(strategy.description,
+                  style: TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: strategy.completed
+                          ? AppTheme.textSecondary.withAlpha(180)
+                          : AppTheme.textPrimary.withAlpha(220),
+                      decoration: strategy.completed ? TextDecoration.lineThrough : null)),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -46,6 +46,14 @@ class DashboardRepository {
         where: 'id = ?', whereArgs: [goal.id]);
   }
 
+  Future<void> updateGoalStatus(int goalId, GoalStatus status) async {
+    final db = await _db();
+    await db.update('goals', {
+      'status': status.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, where: 'id = ?', whereArgs: [goalId]);
+  }
+
   // ================================================================
   // Strategies
   // ================================================================
@@ -66,6 +74,18 @@ class DashboardRepository {
     final db = await _db();
     final rows = await db.query('strategies', orderBy: 'created_at DESC');
     return rows.map((row) => Strategy.fromMap(row)).toList();
+  }
+
+  Future<void> updateStrategyCompleted(int strategyId, bool completed) async {
+    final db = await _db();
+    await db.update('strategies', {'completed': completed ? 1 : 0},
+        where: 'id = ?', whereArgs: [strategyId]);
+  }
+
+  Future<void> completeAllStrategiesForGoal(int goalId) async {
+    final db = await _db();
+    await db.update('strategies', {'completed': 1},
+        where: 'goal_id = ?', whereArgs: [goalId]);
   }
 
   // ================================================================

@@ -142,4 +142,17 @@ class DashboardProvider {
 
     await load();
   }
+
+  Future<void> toggleGoalStatus(int goalId, GoalStatus newStatus) async {
+    if (newStatus == GoalStatus.completed) {
+      await _repo.completeAllStrategiesForGoal(goalId);
+    }
+    await _repo.updateGoalStatus(goalId, newStatus);
+    await load();
+  }
+
+  Future<void> toggleStrategy(int strategyId, bool completed) async {
+    await _repo.updateStrategyCompleted(strategyId, completed);
+    await load();
+  }
 }
