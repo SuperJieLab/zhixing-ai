@@ -20,7 +20,7 @@ class ConversationRepository {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'socratic.db'),
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE conversations (
@@ -31,12 +31,17 @@ class ConversationRepository {
             messages_json TEXT,
             insight_json TEXT,
             graph_json TEXT,
+            extraction_json TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           )
         ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 4) {
+          await db.execute(
+              'ALTER TABLE conversations ADD COLUMN extraction_json TEXT');
+        }
         if (oldVersion < 2) {
           await db.execute(
             'ALTER TABLE conversations ADD COLUMN graph_json TEXT',
@@ -101,6 +106,20 @@ class ConversationRepository {
       'created_at': now,
       'updated_at': now,
     });
+  }
+
+  Future<void> updateTopic(int id, String topic) async {
+    await _ensureDb.update('conversations', {
+      'topic': topic,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateExtractionJson(int id, String json) async {
+    await _ensureDb.update('conversations', {
+      'extraction_json': json,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, where: 'id = ?', whereArgs: [id]);
   }
 
   /// 更新消息列表（整批覆盖 JSON）

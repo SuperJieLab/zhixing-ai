@@ -10,12 +10,13 @@ import 'package:socratic_ai/core/logger.dart';
 /// 的 mutation 方法就地更新（同时刷新 DB），其余字段 immutable。
 class Conversation {
   final int? id;
-  final String topic;
+  String topic;
   String status;
   final bool isFavorite;
   List<ChatMessage> messages;
   InsightResult? insight;
   ConversationGraph? graph;
+  String? extractionJson;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -27,6 +28,7 @@ class Conversation {
     this.messages = const [],
     this.insight,
     this.graph,
+    this.extractionJson,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -56,6 +58,7 @@ class Conversation {
       messages: _parseMessages(map['messages_json'] as String?),
       insight: _parseInsight(map['insight_json'] as String?),
       graph: _parseGraph(map['graph_json'] as String?),
+      extractionJson: map['extraction_json'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
@@ -71,6 +74,7 @@ class Conversation {
       'messages_json': _messagesToJson(messages),
       'insight_json': _insightToJson(insight),
       'graph_json': _graphToJson(graph),
+      'extraction_json': extractionJson,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };

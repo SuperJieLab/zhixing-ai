@@ -4,7 +4,7 @@ import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
 import 'package:socratic_ai/features/history/providers/history_provider.dart';
 import 'package:socratic_ai/features/history/widgets/conversation_card.dart';
-import 'package:socratic_ai/features/_deprecated/insights/insights_page.dart';
+import 'package:socratic_ai/features/strategy_brief/strategy_brief_page.dart';
 
 /// 历史对话列表页
 ///
@@ -65,16 +65,13 @@ class _HistoryPageState extends State<HistoryPage> {
         return ConversationCard(
           conversation: conv,
           onTap: () {
-            if (conv.insight != null) {
+            if (conv.status == 'completed') {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => InsightsPage(
-                    conversation: conv,
-                    fromHistory: true,
-                  ),
+                  builder: (_) => StrategyBriefPage(conversation: conv),
                 ),
-              ).then((_) => provider.loadAll());
+              );
             } else {
               Navigator.push(
                 context,

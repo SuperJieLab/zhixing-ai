@@ -61,6 +61,19 @@ class ExtractionResult {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'new_goals': newGoals.map((g) => g.toMap()).toList(),
+      'goal_updates': goalUpdates.map((u) => {
+            'goal_title': u.goalTitle,
+            'suggested_status': u.newStatus?.name,
+            'reason': u.reason,
+          }).toList(),
+      'strategies': strategies.map((s) => s.toMap()).toList(),
+      'cross_patterns': crossPatterns.map((p) => p.toMap()).toList(),
+    };
+  }
+
   static Goal _parseGoal(Map<String, dynamic> g, DateTime now) {
     return Goal(
       title: g['title'] as String? ?? '',

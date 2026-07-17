@@ -202,24 +202,63 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                             )),
                       ],
                       const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () =>
-                                _provider.ignoreNewGoal(entry.key),
-                            child: const Text('忽略',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary)),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton(
-                            onPressed: () =>
-                                _provider.confirmNewGoal(entry.key),
-                            child: const Text('确认'),
-                          ),
-                        ],
-                      ),
+                      if (state.confirmedNewGoals.contains(entry.key))
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primary.withAlpha(15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('已添加',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppTheme.primary)),
+                            ),
+                          ],
+                        )
+                      else if (state.ignoredNewGoals.contains(entry.key))
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.textSecondary.withAlpha(15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('已忽略',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppTheme.textSecondary)),
+                            ),
+                          ],
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () =>
+                                  _provider.ignoreNewGoal(entry.key),
+                              child: const Text('忽略',
+                                  style: TextStyle(
+                                      color: AppTheme.textSecondary)),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () =>
+                                  _provider.confirmNewGoal(entry.key),
+                              child: const Text('确认'),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -308,27 +347,63 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                                   color: AppTheme.textSecondary)),
                         ],
                         const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: () =>
-                                  _provider.ignoreGoalUpdate(
-                                      entry.key),
-                              child: const Text('忽略',
-                                  style: TextStyle(
-                                      color:
-                                          AppTheme.textSecondary)),
-                            ),
-                            const SizedBox(width: 8),
-                            FilledButton(
-                              onPressed: () =>
-                                  _provider.confirmGoalUpdate(
-                                      entry.key),
-                              child: const Text('确认'),
-                            ),
-                          ],
-                        ),
+                        if (state.confirmedGoalUpdates.contains(entry.key))
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withAlpha(15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('已应用',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: AppTheme.primary)),
+                              ),
+                            ],
+                          )
+                        else if (state.ignoredGoalUpdates.contains(entry.key))
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.textSecondary.withAlpha(15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('已忽略',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: AppTheme.textSecondary)),
+                              ),
+                            ],
+                          )
+                        else
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: () =>
+                                    _provider.ignoreGoalUpdate(entry.key),
+                                child: const Text('忽略',
+                                    style: TextStyle(
+                                        color: AppTheme.textSecondary)),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: () =>
+                                    _provider.confirmGoalUpdate(entry.key),
+                                child: const Text('确认'),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
@@ -388,14 +463,28 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close,
-                          size: 18, color: AppTheme.textSecondary),
-                      onPressed: () =>
-                          _provider.deleteInsight(entry.key),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
+                    if (state.deletedInsights.contains(entry.key))
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.textSecondary.withAlpha(15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('已删除',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: AppTheme.textSecondary)),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 18, color: AppTheme.textSecondary),
+                        onPressed: () =>
+                            _provider.deleteInsight(entry.key),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                   ],
                 ),
               ),

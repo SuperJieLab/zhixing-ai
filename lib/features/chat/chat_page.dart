@@ -31,7 +31,7 @@ class _ChatPageState extends State<ChatPage> {
   /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
   ChatProvider? _listenedProvider;
 
-  String get _displayTopic => widget.topic.isNotEmpty ? widget.topic : '军师对话';
+  String get _displayTopic => widget.topic.isNotEmpty ? widget.topic : '新对话';
 
   @override
   void dispose() {
@@ -55,7 +55,7 @@ class _ChatPageState extends State<ChatPage> {
     } else {
       conversation = Conversation(
         id: activeId,
-        topic: widget.topic,
+        topic: widget.topic.isNotEmpty ? widget.topic : '新对话',
         messages: chatProvider.messages,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

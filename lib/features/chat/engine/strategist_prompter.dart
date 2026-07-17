@@ -13,9 +13,11 @@ class StrategistPrompter implements DialogueEngine {
 
   final List<String> _recentQuestions = [];
   int _estimatedTokens = 0;
+  List<({String role, String content})> _history = [];
+  String _systemPrompt = '';
 
   static int get _contextWarnThreshold =>
-      (AppConstants.modelContextSize * 0.85).round();
+      (AppConstants.modelContextSize * 0.75).round();
 
   StrategistPrompter(this._engine);
 
@@ -25,10 +27,10 @@ class StrategistPrompter implements DialogueEngine {
   @override
   Future<bool> initialize({List<Goal> existingGoals = const []}) async {
     try {
-      final prompt = _buildSystemPrompt(existingGoals: existingGoals);
+      _systemPrompt = _buildSystemPrompt(existingGoals: existingGoals);
       _chat = await _engine.createChat();
-      _chat!.addSystem(prompt);
-      _estimatedTokens = LlamaService.estimateTokens(prompt);
+      _chat!.addSystem(_systemPrompt);
+      _estimatedTokens = LlamaService.estimateTokens(_systemPrompt);
       return true;
     } catch (e) {
       AppLogger.error('StrategistPrompter', '初始化失败', e);
@@ -38,7 +40,9 @@ class StrategistPrompter implements DialogueEngine {
 
   @override
   void seedHistory(List<ChatMessage> messages) {
+    _history.clear();
     for (final msg in messages) {
+      _history.add((role: msg.role.name, content: msg.content));
       if (msg.content.isEmpty) continue;
       if (msg.role == MessageRole.user) {
         _chat!.addUser(msg.content);
@@ -63,14 +67,17 @@ class StrategistPrompter implements DialogueEngine {
       _chat!.addUser(userMessage);
     }
 
+    _history.add((role: 'user', content: userMessage));
     _estimatedTokens += LlamaService.estimateTokens(userMessage);
 
     if (_estimatedTokens > _contextWarnThreshold) {
       AppLogger.warn('StrategistPrompter',
-          '上下文接近上限: ~$_estimatedTokens / ${AppConstants.modelContextSize} tokens');
+          '上下文接近上限 (~$_estimatedTokens tokens)，执行截断');
+      await _truncateContext();
     }
 
     final buffer = StringBuffer();
+    var passedThink = false;
     try {
       await for (final event in _chat!.generate(
         sampler: const SamplerParams(
@@ -82,7 +89,30 @@ class StrategistPrompter implements DialogueEngine {
       )) {
         if (event is TokenEvent) {
           buffer.write(event.text);
-          yield event.text;
+
+          if (!passedThink) {
+            final text = buffer.toString();
+            final closeIdx1 = text.indexOf('</think>');
+            final closeIdx2 = text.indexOf('</思考>');
+            final closeIdx = closeIdx1 >= 0
+                ? closeIdx1 + '</think>'.length
+                : closeIdx2 >= 0
+                    ? closeIdx2 + '</思考>'.length
+                    : -1;
+
+            if (closeIdx > 0) {
+              passedThink = true;
+              final after = text.substring(closeIdx).trimLeft();
+              if (after.isNotEmpty) {
+                yield after;
+              }
+              buffer.clear();
+              buffer.write(after);
+            }
+            // else: still in think section, suppress output
+          } else {
+            yield event.text;
+          }
         }
       }
 
@@ -90,11 +120,39 @@ class StrategistPrompter implements DialogueEngine {
       if (fullReply.isNotEmpty) {
         _chat!.addAssistant(fullReply);
         _estimatedTokens += LlamaService.estimateTokens(fullReply);
+        _history.add((role: 'assistant', content: fullReply));
       }
     } catch (e) {
       AppLogger.error('StrategistPrompter', '生成回复失败', e);
       yield '\n\n[军师暂时无法回应，请稍后再试]';
     }
+  }
+
+  Future<void> _truncateContext() async {
+    // Keep only the last 6 exchanges (12 messages: user-assistant pairs)
+    const keepCount = 12;
+    if (_history.length <= keepCount) return;
+
+    _history = _history.sublist(_history.length - keepCount).toList();
+
+    // Rebuild chat session
+    _chat?.dispose();
+    _chat = await _engine.createChat();
+    _chat!.addSystem(_systemPrompt);
+    _estimatedTokens = LlamaService.estimateTokens(_systemPrompt);
+
+    for (final msg in _history) {
+      if (msg.content.isEmpty) continue;
+      if (msg.role == 'user') {
+        _chat!.addUser(msg.content);
+      } else {
+        _chat!.addAssistant(msg.content);
+      }
+      _estimatedTokens += LlamaService.estimateTokens(msg.content);
+    }
+
+    AppLogger.info('StrategistPrompter',
+        '上下文截断完成: 保留最近 ${_history.length} 条消息, ~$_estimatedTokens tokens');
   }
 
   @override
@@ -164,7 +222,6 @@ $goalContext
 - 给具体建议，不说空话
 - 分析为什么这样建议，让主公理解背后的逻辑
 - 每次回复控制在 3-5 句话内，简洁有力
-- 不要使用 <think> 或 <思考> 标签
 - 目标需要主公确认后才能生效，不要假设目标已定''';
   }
 }

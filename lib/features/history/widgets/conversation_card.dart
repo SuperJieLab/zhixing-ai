@@ -74,7 +74,7 @@ class ConversationCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      conv.topic,
+                      conv.topic.isNotEmpty ? conv.topic : '新对话',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
