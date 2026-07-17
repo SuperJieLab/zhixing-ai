@@ -10,7 +10,7 @@ import 'package:zhixing_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
 ///
-/// 管理一次军师对话的完整生命周期：
+/// 管理一次助手对话的完整生命周期：
 ///   1. 加载模型 → [loadModel] 初始化 [StrategistPrompter] 并注入已有目标
 ///   2. 对话交互 → [sendMessage] 驱动 LLM 流式生成回复
 ///   3. 持久化 → 每轮保存 messages 到 DB，通过 [ConversationService]
@@ -103,8 +103,8 @@ class ChatProvider extends ChangeNotifier {
 
   static List<ChatMessage> _buildWelcome(String topic) {
     final opening = topic.isNotEmpty
-        ? '主公提到想聊聊$topic——请详细说说你的想法，我来帮你分析。'
-        : '主公请讲，军师在此。有任何困惑或打算，尽管说来——我帮你看清局势，给出策略。';
+        ? '用户提到想聊聊$topic——请详细说说你的想法，我来帮你分析。'
+        : '用户请讲，助手在此。有任何困惑或打算，尽管说来——我帮你看清局势，给出策略。';
 
     return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
   }

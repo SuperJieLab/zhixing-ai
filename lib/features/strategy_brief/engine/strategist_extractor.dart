@@ -32,7 +32,7 @@ class StrategistExtractor {
   StrategistExtractor(this._engine);
 
   static const _systemPrompt = '''
-你是一位军师。请首先判断以下对话是否包含值得关注的目标或策略。
+你是一位助手。请首先判断以下对话是否包含值得关注的目标或策略。
 
 如果对话内容为纯闲聊、情绪发泄（无进一步展开）、短试探，
 或没有任何可执行的信息，请直接输出：
@@ -48,18 +48,18 @@ class StrategistExtractor {
 }
 
 提取要求：
-1. 识别主公表达的目标（显性或隐性）
+1. 识别用户表达的目标（显性或隐性）
 2. 同名目标自动合并（视为同一目标的补充），标注更新而非新建
 3. 为每个目标建议 1-3 条可执行策略
 4. 标注每条策略类型：selfAction / aiAssist / externalDep
 5. 发现跨对话的模式或矛盾
 6. 严格只输出 JSON，不要带 markdown 代码块标记
-7. 新目标初始为「待确认」状态，需主公确认后才生效；已有目标状态变更仅为「建议」，不会自动执行
+7. 新目标初始为「待确认」状态，需用户确认后才生效；已有目标状态变更仅为「建议」，不会自动执行
 
 new_goals 格式（新建目标，初始为待确认）：
 {"title":"...","category":"career|finance|relationship|health|growth|other","priority":1-5,"deadline":null或"2026-09-01","notes":"..."}
 
-goal_updates 格式（仅建议，需主公确认后执行）：
+goal_updates 格式（仅建议，需用户确认后执行）：
 {"goal_title":"已有目标标题(精确匹配)","suggested_status":"completed|paused","reason":"为什么建议变更"}
 # 注意：只能建议 status 变更（completed 或 paused），不能建议改 title/category/priority
 
@@ -83,7 +83,7 @@ cross_patterns 格式：
     }
 
     final existingGoalsText = existingGoals.isNotEmpty
-        ? '\n## 主公已有的目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n'
+        ? '\n## 用户已有的目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n'
         : '';
 
     final overheadTokens = LlamaService.estimateTokens(_systemPrompt) +

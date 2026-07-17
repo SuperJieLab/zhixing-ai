@@ -225,7 +225,7 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
                 ),
               ))
         else
-          _buildEmptySection('暂无目标', '每次对话结束后，军师会帮你提炼目标'),
+          _buildEmptySection('暂无目标', '每次对话结束后，助手会帮你提炼目标'),
 
         // Zone 2: 执行路线 — global timeline of pending strategies
         const SizedBox(height: 28),
@@ -255,7 +255,7 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
                 child: CrossPatternCard(pattern: p),
               ))
         else
-          _buildEmptySection('暂无洞察', '多聊几次后，军师会帮你发现跨对话的自我认知'),
+          _buildEmptySection('暂无洞察', '多聊几次后，助手会帮你发现跨对话的自我认知'),
         const SizedBox(height: 80),
       ],
     );

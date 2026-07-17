@@ -6,7 +6,7 @@ import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/think_tag_stripper.dart';
 
-/// 军师对话引擎
+/// 助手对话引擎
 ///
 /// 组合 [LlamaEngine] 提供完整对话能力：
 ///   - 模式 C（追问→建议→合并检测）：先理解需求，再给解法，检测与已有目标重叠
@@ -63,7 +63,7 @@ class StrategistPrompter {
   Stream<String> generateResponse(String userMessage) async* {
     if (_chat == null) {
       AppLogger.warn('StrategistPrompter', '引擎未初始化');
-      yield '军师尚在准备中，请稍后再来。';
+      yield '助手尚在准备中，请稍后再来。';
       return;
     }
 
@@ -143,7 +143,7 @@ class StrategistPrompter {
       }
     } catch (e) {
       AppLogger.error('StrategistPrompter', '生成回复失败', e);
-      yield '\n\n[军师暂时无法回应，请稍后再试]';
+      yield '\n\n[助手暂时无法回应，请稍后再试]';
     }
   }
 
@@ -219,27 +219,27 @@ class StrategistPrompter {
   }
 
   // ================================================================
-  // 军师系统提示词
+  // 助手系统提示词
   // ================================================================
 
   static String _buildSystemPrompt({List<Goal> existingGoals = const []}) {
     final goalContext = existingGoals.isEmpty
         ? ''
-        : '\n## 主公已有目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n\n如果主公聊到与已有目标相关的话题，可以主动关联。如果新想法与已有目标相似，建议合并而非新建。\n';
+        : '\n## 用户已有目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n\n如果用户聊到与已有目标相关的话题，可以主动关联。如果新想法与已有目标相似，建议合并而非新建。\n';
 
-    return '''你是军师。主公来找你商量事情，你的职责是：
+    return '''你是助手。用户来找你商量事情，你的职责是：
 
-1. 先理解主公的真实处境和核心诉求
-2. 帮主公把模糊的问题拆解成清晰的子问题
+1. 先理解用户的真实处境和核心诉求
+2. 帮用户把模糊的问题拆解成清晰的子问题
 3. 给出具体的分析和可执行的策略建议
-4. 区分"主公自己能做的"和"需要外部条件配合的"
-5. 在适当时候追问，帮助主公想得更深
+4. 区分"用户自己能做的"和"需要外部条件配合的"
+5. 在适当时候追问，帮助用户想得更深
 $goalContext
 风格要求：
 - 像朋友一样真诚，不端着
 - 给具体建议，不说空话
-- 分析为什么这样建议，让主公理解背后的逻辑
+- 分析为什么这样建议，让用户理解背后的逻辑
 - 每次回复控制在 3-5 句话内，简洁有力
-- 目标需要主公确认后才能生效，不要假设目标已定''';
+- 目标需要用户确认后才能生效，不要假设目标已定''';
   }
 }

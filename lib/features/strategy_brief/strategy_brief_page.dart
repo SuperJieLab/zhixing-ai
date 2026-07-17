@@ -65,7 +65,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('军师正在分析本次对话...',
+              Text('助手正在分析本次对话...',
                   style: TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
@@ -85,7 +85,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                     style: TextStyle(fontSize: 16, color: AppTheme.textPrimary)),
                 const SizedBox(height: 8),
                 const Text(
-                  '这次聊的内容比较轻松，军师没有提取到新的目标或策略。',
+                  '这次聊的内容比较轻松，助手没有提取到新的目标或策略。',
                   style: TextStyle(color: AppTheme.textSecondary),
                   textAlign: TextAlign.center,
                 ),
@@ -134,7 +134,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text('军师从本次对话中发现了 $totalItems 条建议',
+          child: Text('助手从本次对话中发现了 $totalItems 条建议',
               style: const TextStyle(
                   fontSize: 14,
                   color: AppTheme.textSecondary,

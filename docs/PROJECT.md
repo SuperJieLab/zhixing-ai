@@ -13,7 +13,7 @@
 
 每次对话结束后，LLM 提取对话中涉及的**目标、策略、约束**，汇入全局面板（Dashboard）。面板自动合并、去重、跨对话关联，形成用户的全局态势图。
 
-| 传统 AI Chatbot | 军师 AI |
+| 传统 AI Chatbot | 助手 AI |
 |:--|:--|
 | 你问它答，给你答案 | 它理解你，帮你拆解问题 |
 | 聊完就忘 | 每次对话汇入全局视图，目标/策略持续追踪 |
@@ -91,7 +91,7 @@ Dashboard 三区对应：
 
 | 功能 | 说明 |
 |------|------|
-| 🎯 军师对话 | AI 主动分析、拆解、建议，目标需用户确认而非隐式生成 |
+| 🎯 助手对话 | AI 主动分析、拆解、建议，目标需用户确认而非隐式生成 |
 | 📊 目标与策略 | GoalCard 展示目标 + 策略 + 进度条，按目标维度组织 |
 | 📋 执行路线 | 所有目标的待办策略合并，按优先级+时间排序的时间线 |
 | 💡 洞察 | LLM 观察跨对话模式：性格矛盾、行为倾向、价值观归纳 |
@@ -197,9 +197,9 @@ lib/
 │   └── logger.dart
 │
 ├── features/
-│   ├── chat/                             # 军师模式对话
+│   ├── chat/                             # 助手模式对话
 │   │   ├── engine/
-│   │   │   └── strategist_prompter.dart   # 军师 Prompt
+│   │   │   └── strategist_prompter.dart   # 助手 Prompt
 │   │   ├── providers/chat_provider.dart
 │   │   ├── widgets/chat_bubble.dart, chat_input.dart
 │   │   ├── snackbar_throttle.dart          # SnackBar 防抖
@@ -357,8 +357,8 @@ DashboardPage.initState()
 |------|------|
 | 主页 | DashboardPage 唯一主页 |
 | 新对话入口 | Dashboard [+] → ChatPage |
-| 对话模式 | 军师模式（StrategistPrompter），模式 C：先追问 → 给解法 → 检测重叠 |
-| Prompter 上下文 | 注入已有目标列表，军师可基于已有目标追问 |
+| 对话模式 | 助手模式（StrategistPrompter），模式 C：先追问 → 给解法 → 检测重叠 |
+| Prompter 上下文 | 注入已有目标列表，助手可基于已有目标追问 |
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 相同 title 自动合并 sourceConvIds；Prompter 检测重叠建议合并 |
@@ -376,6 +376,6 @@ DashboardPage.initState()
 | 版本 | 日期 | 内容 |
 |------|------|------|
 | v1 (MVP) | 2026-07-01 ~ 07-13 | 苏格拉底教练：问答题 → AI 追问 → 洞察总结 → 思维图谱 |
-| v2 (当前) | 2026-07-16 | 军师模式：Dashboard 主页 → 对话 → 目标提取 → 全局态势 |
+| v2 (当前) | 2026-07-16 | 助手模式：Dashboard 主页 → 对话 → 目标提取 → 全局态势 |
 
 **旧 MVP 文档归档**：`docs/demo-plan-socratic-ai.md` 和 `docs/requirements-goals.md` 已移入 `docs/archived/`。
