@@ -45,10 +45,10 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('大局影响'),
+        title: const Text('分析结果'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: _returnToDashboard,
+          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       body: _buildBody(state),
@@ -92,7 +92,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                 const SizedBox(height: 24),
                 OutlinedButton(
                   onPressed: _returnToDashboard,
-                  child: const Text('返回大局观'),
+                  child: const Text('返回首页'),
                 ),
               ],
             ),
@@ -115,7 +115,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
               const SizedBox(height: 24),
               OutlinedButton(
                 onPressed: _returnToDashboard,
-                child: const Text('返回大局观'),
+                child: const Text('返回首页'),
               ),
             ],
           ),
@@ -498,7 +498,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
           child: OutlinedButton.icon(
             onPressed: _returnToDashboard,
             icon: const Icon(Icons.dashboard),
-            label: const Text('返回大局观'),
+            label: const Text('返回首页'),
           ),
         ),
         const SizedBox(height: 32),

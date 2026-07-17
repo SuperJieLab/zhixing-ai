@@ -84,6 +84,7 @@ class StrategistPrompter {
 
     final buffer = StringBuffer();
     var passedThink = false;
+    var suppressWhitespace = false;
     try {
       await for (final event in _chat!.generate(
         sampler: const SamplerParams(
@@ -108,14 +109,26 @@ class StrategistPrompter {
 
             if (closeIdx > 0) {
               passedThink = true;
+              suppressWhitespace = true;
               final after = text.substring(closeIdx).trimLeft();
               if (after.isNotEmpty) {
+                suppressWhitespace = false;
                 yield after;
               }
               buffer.clear();
               buffer.write(after);
             }
             // else: still in think section, suppress output
+          } else if (suppressWhitespace) {
+            // Still absorbing whitespace after </think>
+            final text = buffer.toString();
+            final trimmed = text.trimLeft();
+            if (trimmed.isNotEmpty) {
+              suppressWhitespace = false;
+              buffer.clear();
+              buffer.write(trimmed);
+              yield trimmed;
+            }
           } else {
             yield event.text;
           }

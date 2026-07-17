@@ -4,7 +4,7 @@ import 'package:socratic_ai/core/repository/dashboard_repository.dart';
 
 /// Dashboard 状态管理
 ///
-/// 管理大局观面板的全部状态：目标(Goal)、策略(Strategy)、洞察(CrossPattern)。
+/// 管理首页面板的全部状态：目标(Goal)、策略(Strategy)、洞察(CrossPattern)。
 /// 数据从 [DashboardRepository] 读取，通过 [load()] 从 DB 刷新。
 /// 状态变更（完成/暂停/恢复）通过 [toggleGoalStatus] / [toggleStrategy] 写入 DB 后重新加载。
 ///

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:socratic_ai/core/route_observer.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
@@ -7,6 +8,7 @@ import 'package:socratic_ai/features/dashboard/widgets/dashboard_header.dart';
 import 'package:socratic_ai/features/dashboard/widgets/goal_card.dart';
 import 'package:socratic_ai/features/dashboard/widgets/cross_pattern_card.dart';
 import 'package:socratic_ai/features/dashboard/widgets/strategy_timeline.dart';
+import 'package:socratic_ai/features/dashboard/goal_detail_page.dart';
 import 'package:socratic_ai/features/history/history_page.dart';
 import 'package:socratic_ai/features/model_manager/model_manage_page.dart';
 
@@ -17,8 +19,9 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage> with RouteAware {
   final DashboardProvider _provider = DashboardProvider();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -28,9 +31,22 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _provider.removeListener(_onStateChanged);
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    _provider.load();
   }
 
   void _onStateChanged(DashboardState state) {
@@ -129,7 +145,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('大局观'),
+        title: const Text('首页'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -190,12 +206,18 @@ class _DashboardPageState extends State<DashboardPage> {
         state.strategies.where((s) => !s.completed).length;
 
     return ListView(
+      key: const PageStorageKey('dashboard'),
+      controller: _scrollController,
+      primary: false,
       padding: const EdgeInsets.symmetric(vertical: 16),
       children: [
-        DashboardHeader(
-          activeGoalCount: state.activeGoalCount,
-          pendingStrategyCount: state.pendingStrategyCount,
-          patternCount: state.patternCount,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: DashboardHeader(
+            activeGoalCount: state.activeGoalCount,
+            pendingStrategyCount: state.pendingStrategyCount,
+            patternCount: state.patternCount,
+          ),
         ),
         const SizedBox(height: 28),
 
@@ -204,11 +226,26 @@ class _DashboardPageState extends State<DashboardPage> {
             count: activeGoals.length),
         const SizedBox(height: 10),
         if (activeGoals.isNotEmpty)
-          ...activeGoals.map((goal) => GoalCard(
-                goal: goal,
-                strategies: strategiesByGoal[goal.id] ?? [],
-                onStatusTap: () => _showGoalStatusDialog(goal),
-                onStrategyToggle: (s) => _showStrategyToggleDialog(s),
+          ...activeGoals.map((goal) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GoalCard(
+                  goal: goal,
+                  strategies: strategiesByGoal[goal.id] ?? [],
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GoalDetailPage(
+                          goal: goal,
+                          strategies: strategiesByGoal[goal.id] ?? [],
+                          onStrategyToggle: (s) =>
+                              _showStrategyToggleDialog(s),
+                        ),
+                      ),
+                    );
+                  },
+                  onStatusTap: () => _showGoalStatusDialog(goal),
+                ),
               ))
         else
           _buildEmptySection('暂无目标', '每次对话结束后，军师会帮你提炼目标'),
@@ -236,7 +273,10 @@ class _DashboardPageState extends State<DashboardPage> {
             count: state.crossPatterns.length, chipColor: AppTheme.accent),
         const SizedBox(height: 10),
         if (state.crossPatterns.isNotEmpty)
-          ...state.crossPatterns.map((p) => CrossPatternCard(pattern: p))
+          ...state.crossPatterns.map((p) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: CrossPatternCard(pattern: p),
+              ))
         else
           _buildEmptySection('暂无洞察', '多聊几次后，军师会帮你发现跨对话的自我认知'),
         const SizedBox(height: 80),
