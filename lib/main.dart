@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/app.dart';
 import 'package:socratic_ai/core/repository/conversation_repository.dart';
-import 'package:socratic_ai/core/engine/model_manager.dart';
+import 'package:socratic_ai/core/model_manager.dart';
 
 /// 应用入口
 ///

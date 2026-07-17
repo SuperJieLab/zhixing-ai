@@ -180,15 +180,14 @@ lib/
 ├── main.dart
 ├── app.dart
 ├── core/
+│   ├── model_manager.dart               # 模型下载/就绪检测（全局 Provider）
 │   ├── engine/
 │   │   ├── llama_service.dart            # LLM 引擎缓存池
-│   │   ├── conversation_service.dart     # 对话生命周期管理
-│   │   └── model_manager.dart            # 模型下载/就绪检测
+│   │   └── conversation_service.dart     # 对话生命周期管理
 │   ├── models/
 │   │   ├── chat_models.dart              # ChatMessage / ChatTurn
 │   │   ├── conversation.dart             # Conversation + 序列化
 │   │   ├── dashboard_models.dart         # Goal / Strategy / CrossPattern
-│   │   ├── extraction_result.dart        # ExtractionResult / GoalUpdate
 │   │   └── available_model.dart          # 可下载模型描述
 │   ├── repository/
 │   │   ├── conversation_repository.dart  # 对话 CRUD (sqflite)
@@ -203,6 +202,7 @@ lib/
 │   │   │   └── strategist_prompter.dart   # 军师 Prompt
 │   │   ├── providers/chat_provider.dart
 │   │   ├── widgets/chat_bubble.dart, chat_input.dart
+│   │   ├── snackbar_throttle.dart          # SnackBar 防抖
 │   │   └── chat_page.dart
 │   │
 │   ├── dashboard/                        # 全局面板
@@ -216,9 +216,12 @@ lib/
 │   │
 │   ├── strategy_brief/                   # 对话结束大局影响页
 │   │   ├── engine/
-│   │   │   └── strategist_extractor.dart  # LLM 提取目标/策略
+│   │   │   ├── strategist_extractor.dart  # LLM 提取目标/策略
+│   │   │   └── chat_utils.dart            # 对话文本格式化
+│   │   ├── models/
+│   │   │   └── extraction_result.dart     # ExtractionResult / GoalUpdate
 │   │   ├── providers/strategy_brief_provider.dart
-│   │   └── strategy_brief_page.dart
+│   │   ├── strategy_brief_page.dart
 │   │   └── strategy_detail_page.dart
 │   │
 │   ├── history/                          # 历史列表

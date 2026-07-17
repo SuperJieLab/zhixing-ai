@@ -3,14 +3,14 @@ import 'dart:math' as math;
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import 'package:socratic_ai/core/chat_utils.dart';
 import 'package:socratic_ai/core/constants.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/models/extraction_result.dart';
+import 'package:socratic_ai/features/strategy_brief/engine/chat_utils.dart';
+import 'package:socratic_ai/features/strategy_brief/models/extraction_result.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
 
 class StrategistExtractor {

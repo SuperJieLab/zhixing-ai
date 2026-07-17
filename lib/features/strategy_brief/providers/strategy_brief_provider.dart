@@ -4,10 +4,9 @@ import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
-import 'package:socratic_ai/core/models/extraction_result.dart';
-import 'package:socratic_ai/core/repository/conversation_repository.dart';
 import 'package:socratic_ai/core/repository/dashboard_repository.dart';
 import 'package:socratic_ai/features/strategy_brief/engine/strategist_extractor.dart';
+import 'package:socratic_ai/features/strategy_brief/models/extraction_result.dart';
 
 enum BriefStatus {
   loading,
@@ -44,7 +43,7 @@ class StrategyBriefState {
 class StrategyBriefProvider {
   final Conversation _conversation;
   final DashboardRepository _dashboardRepo = DashboardRepository();
-  final ConversationRepository _convRepo = ConversationRepository();
+  final ConversationService _convService = ConversationService();
 
   StrategyBriefState _state = StrategyBriefState();
   StrategyBriefState get state => _state;
@@ -142,7 +141,7 @@ class StrategyBriefProvider {
           final title =
               result.newGoals.map((g) => g.title).take(2).join('、');
           _conversation.topic = title;
-          await _convRepo.updateTopic(_conversation.id!, title);
+          await _convService.updateTopic(_conversation.id!, title);
         }
 
         await _persistCrossPatterns(result);
@@ -179,11 +178,11 @@ class StrategyBriefProvider {
     if (result != null) {
       final json = jsonEncode(result.toJson());
       _conversation.extractionJson = json;
-      await _convRepo.updateExtractionJson(_conversation.id!, json);
+      await _convService.updateExtractionJson(_conversation.id!, json);
     }
 
     _conversation.status = 'completed';
-    await ConversationService().finishConversation(_conversation.id!);
+    await _convService.finishConversation(_conversation.id!);
   }
 
   Future<void> _saveStateToCache() async {
@@ -201,7 +200,7 @@ class StrategyBriefProvider {
 
       final updated = jsonEncode(json);
       _conversation.extractionJson = updated;
-      await _convRepo.updateExtractionJson(_conversation.id!, updated);
+      await _convService.updateExtractionJson(_conversation.id!, updated);
     } catch (e) {
       AppLogger.warn('StrategyBriefProvider', '保存确认状态失败: $e');
     }

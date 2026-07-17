@@ -60,6 +60,19 @@ class ConversationService {
     await _repo.markCompleted(conversationId);
   }
 
+  Future<void> updateTopic(int conversationId, String topic) async {
+    final cached = _cache[conversationId];
+    if (cached != null) cached.topic = topic;
+    await _repo.updateTopic(conversationId, topic);
+  }
+
+  Future<void> updateExtractionJson(
+      int conversationId, String extractionJson) async {
+    final cached = _cache[conversationId];
+    if (cached != null) cached.extractionJson = extractionJson;
+    await _repo.updateExtractionJson(conversationId, extractionJson);
+  }
+
   Future<void> toggleFavorite(int id, bool currentValue) async {
     await _repo.toggleFavorite(id, currentValue);
   }
