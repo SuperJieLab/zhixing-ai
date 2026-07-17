@@ -1,13 +1,12 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
 
-class StrategistPrompter implements DialogueEngine {
+class StrategistPrompter {
   final LlamaEngine _engine;
   EngineChat? _chat;
 
@@ -21,10 +20,8 @@ class StrategistPrompter implements DialogueEngine {
 
   StrategistPrompter(this._engine);
 
-  @override
   bool get isReady => true;
 
-  @override
   Future<bool> initialize({List<Goal> existingGoals = const []}) async {
     try {
       _systemPrompt = _buildSystemPrompt(existingGoals: existingGoals);
@@ -38,7 +35,6 @@ class StrategistPrompter implements DialogueEngine {
     }
   }
 
-  @override
   void seedHistory(List<ChatMessage> messages) {
     _history.clear();
     for (final msg in messages) {
@@ -53,7 +49,6 @@ class StrategistPrompter implements DialogueEngine {
     }
   }
 
-  @override
   Stream<String> generateResponse(String userMessage) async* {
     if (_chat == null) {
       AppLogger.warn('StrategistPrompter', '引擎未初始化');
@@ -155,7 +150,6 @@ class StrategistPrompter implements DialogueEngine {
         '上下文截断完成: 保留最近 ${_history.length} 条消息, ~$_estimatedTokens tokens');
   }
 
-  @override
   void dispose() {
     _chat?.dispose();
     _chat = null;

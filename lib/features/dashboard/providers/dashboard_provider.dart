@@ -1,4 +1,3 @@
-import 'package:socratic_ai/core/engine/strategist_extractor.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/repository/dashboard_repository.dart';
@@ -82,65 +81,6 @@ class DashboardProvider {
       _state = _state.copyWith(isLoading: false, error: e.toString());
     }
     _notify();
-  }
-
-  Future<void> merge(ExtractionResult result) async {
-    if (!result.hasContent) return;
-
-    // 1) 合并新 goals（同名 goal 自动合并 sourceConvIds）
-    for (final newGoal in result.newGoals) {
-      final existing = await _repo.getGoalByTitle(newGoal.title);
-      if (existing != null) {
-        final mergedIds = {...existing.sourceConvIds, ...newGoal.sourceConvIds};
-        existing.sourceConvIds = mergedIds.toList();
-        existing.updatedAt = DateTime.now();
-        await _repo.updateGoal(existing);
-      } else {
-        await _repo.insertGoal(newGoal);
-      }
-    }
-
-    // 2) 处理 goal updates
-    for (final update in result.goalUpdates) {
-      final existing = await _repo.getGoalByTitle(update.goalTitle);
-      if (existing != null) {
-        if (update.newStatus != null) existing.status = update.newStatus!;
-        if (update.newNotes != null) existing.notes = update.newNotes;
-        existing.updatedAt = DateTime.now();
-        await _repo.updateGoal(existing);
-      }
-    }
-
-    // 3) 插入 strategies（按 goal_title 关联 goal）
-    final allGoals = await _repo.getAllGoals();
-    for (final strategy in result.strategies) {
-      // 找到关联的 goal（如果没有匹配的 goal，跳过该 strategy）
-      final matchedGoal = allGoals.cast<Goal?>().firstWhere(
-            (g) => g != null && g.title.isNotEmpty,
-            orElse: () => null,
-          );
-      if (matchedGoal != null) {
-        strategy.goalId = matchedGoal.id ?? 0;
-        await _repo.insertStrategy(strategy);
-      } else {
-        AppLogger.warn('DashboardProvider',
-            '策略「${strategy.description}」无关联目标，跳过');
-      }
-    }
-
-    // 4) 合并 cross patterns
-    for (final pattern in result.crossPatterns) {
-      final existing = await _repo.getCrossPatternByLabel(pattern.label);
-      if (existing != null) {
-        existing.frequency += 1;
-        existing.detectedAt = DateTime.now();
-        await _repo.updateCrossPattern(existing);
-      } else {
-        await _repo.insertCrossPattern(pattern);
-      }
-    }
-
-    await load();
   }
 
   Future<void> toggleGoalStatus(int goalId, GoalStatus newStatus) async {

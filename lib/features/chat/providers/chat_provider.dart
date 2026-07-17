@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:socratic_ai/core/engine/conversation_service.dart';
-import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
@@ -24,7 +23,7 @@ class ChatProvider extends ChangeNotifier {
   // 引擎状态
   // ================================================================
 
-  DialogueEngine? _engine;
+  StrategistPrompter? _engine;
   bool _isModelLoading = false;
   String? _modelError;
 
