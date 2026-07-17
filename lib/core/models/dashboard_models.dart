@@ -109,6 +109,7 @@ class Strategy {
   bool completed;
   DateTime? nextReminder;
   DateTime createdAt;
+  String? goalTitle;
 
   Strategy({
     this.id,
@@ -119,6 +120,7 @@ class Strategy {
     this.completed = false,
     this.nextReminder,
     required this.createdAt,
+    this.goalTitle,
   });
 
   factory Strategy.fromMap(Map<String, dynamic> map) {

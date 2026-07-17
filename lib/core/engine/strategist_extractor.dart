@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:socratic_ai/core/chat_utils.dart';
+import 'package:socratic_ai/core/constants.dart';
+import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
@@ -46,6 +48,7 @@ class ExtractionResult {
                     description: s['description'] as String? ?? '',
                     type: _parseStrategyType(s['type'] as String?),
                     nextStep: s['next_step'] as String?,
+                    goalTitle: s['goal_title'] as String?,
                     createdAt: now,
                   ))
               .toList() ??
@@ -69,7 +72,10 @@ class ExtractionResult {
             'suggested_status': u.newStatus?.name,
             'reason': u.reason,
           }).toList(),
-      'strategies': strategies.map((s) => s.toMap()).toList(),
+      'strategies': strategies.map((s) => {
+            ...s.toMap(),
+            'goal_title': s.goalTitle,
+          }).toList(),
       'cross_patterns': crossPatterns.map((p) => p.toMap()).toList(),
     };
   }
@@ -183,12 +189,19 @@ cross_patterns 格式：
       return null;
     }
 
-    final conversationText =
-        buildConversationText(conversation.topic, conversation.messages);
-
     final existingGoalsText = existingGoals.isNotEmpty
         ? '\n## 主公已有的目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n'
         : '';
+
+    final overheadTokens = LlamaService.estimateTokens(_systemPrompt) +
+        LlamaService.estimateTokens(existingGoalsText);
+    final budget = (AppConstants.modelContextSize * 0.85).round() - overheadTokens - 200;
+    final messages = _truncateMessages(conversation.messages, budget);
+
+    final conversationText =
+        buildConversationText(conversation.topic, messages);
+    AppLogger.info('StrategistExtractor',
+        '提取上下文: overhead=$overheadTokens, budget=$budget, 使用 ${messages.length}/${conversation.messages.length} 条消息');
 
     final chat = await _engine.createChat();
     try {
@@ -202,7 +215,7 @@ cross_patterns 格式：
           topP: 0.8,
           repeatPenalty: 1.1,
         ),
-        maxTokens: 4096,
+        maxTokens: 2048,
       )) {
         if (event is TokenEvent) {
           buffer.write(event.text);
@@ -230,5 +243,27 @@ cross_patterns 格式：
     } finally {
       chat.dispose();
     }
+  }
+
+  /// Keep the most recent messages that fit within token budget.
+  /// Messages are kept in user-assistant pairs to maintain context.
+  List<ChatMessage> _truncateMessages(
+      List<ChatMessage> messages, int tokenBudget) {
+    if (messages.isEmpty) return [];
+
+    var used = 0;
+    final kept = <ChatMessage>[];
+
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final msg = messages[i];
+      final tokens = LlamaService.estimateTokens(msg.content);
+      if (used + tokens > tokenBudget) break;
+      used += tokens;
+      kept.insert(0, msg);
+    }
+
+    AppLogger.info('StrategistExtractor',
+        '消息截断: ${messages.length}→${kept.length} 条, ~$used tokens');
+    return kept;
   }
 }

@@ -67,7 +67,6 @@ class StrategyBriefProvider {
   }
 
   Future<void> extract() async {
-    // Check if already extracted
     if (_conversation.extractionJson != null &&
         _conversation.extractionJson!.isNotEmpty) {
       try {
@@ -76,11 +75,22 @@ class StrategyBriefProvider {
         final result = ExtractionResult.fromJson(json);
         final existingGoals = await _dashboardRepo.getAllGoals();
 
+        final confirmedNew = _restoreIndexSet(json, '_c_ng');
+        final ignoredNew = _restoreIndexSet(json, '_i_ng');
+        final confirmedUp = _restoreIndexSet(json, '_c_gu');
+        final ignoredUp = _restoreIndexSet(json, '_i_gu');
+        final deletedIns = _restoreIndexSet(json, '_d_ip');
+
         if (result.hasContent) {
           _state = StrategyBriefState(
             status: BriefStatus.hasContent,
             extraction: result,
             existingGoals: existingGoals,
+            confirmedNewGoals: confirmedNew,
+            ignoredNewGoals: ignoredNew,
+            confirmedGoalUpdates: confirmedUp,
+            ignoredGoalUpdates: ignoredUp,
+            deletedInsights: deletedIns,
           );
         } else {
           _state = StrategyBriefState(
@@ -127,27 +137,17 @@ class StrategyBriefProvider {
           existingGoals: existingGoals,
         );
 
-        // Auto-update conversation title from extracted goals
         if (result.newGoals.isNotEmpty && _conversation.id != null) {
           final title =
               result.newGoals.map((g) => g.title).take(2).join('、');
           _conversation.topic = title;
           await _convRepo.updateTopic(_conversation.id!, title);
         }
+
+        await _persistCrossPatterns(result);
       }
 
-      // Save extraction snapshot to conversation
-      if (_conversation.id != null && result != null) {
-        _conversation.extractionJson = jsonEncode(result.toJson());
-        await _convRepo.updateExtractionJson(
-            _conversation.id!, _conversation.extractionJson!);
-      }
-
-      // Mark conversation as completed
-      if (_conversation.id != null) {
-        _conversation.status = 'completed';
-        await ConversationService().finishConversation(_conversation.id!);
-      }
+      await _saveExtractionAndComplete(result);
     } catch (e) {
       AppLogger.error('StrategyBriefProvider', '提取失败', e);
       _state = StrategyBriefState(
@@ -158,41 +158,85 @@ class StrategyBriefProvider {
     _notify();
   }
 
+  Future<void> _persistCrossPatterns(ExtractionResult result) async {
+    for (final pattern in result.crossPatterns) {
+      final existing =
+          await _dashboardRepo.getCrossPatternByLabel(pattern.label);
+      if (existing != null) {
+        existing.frequency += 1;
+        existing.detectedAt = DateTime.now();
+        await _dashboardRepo.updateCrossPattern(existing);
+      } else {
+        await _dashboardRepo.insertCrossPattern(pattern);
+      }
+    }
+  }
+
+  Future<void> _saveExtractionAndComplete(ExtractionResult? result) async {
+    if (_conversation.id == null) return;
+
+    if (result != null) {
+      final json = jsonEncode(result.toJson());
+      _conversation.extractionJson = json;
+      await _convRepo.updateExtractionJson(_conversation.id!, json);
+    }
+
+    _conversation.status = 'completed';
+    await ConversationService().finishConversation(_conversation.id!);
+  }
+
+  Future<void> _saveStateToCache() async {
+    if (_conversation.id == null || _conversation.extractionJson == null) {
+      return;
+    }
+    try {
+      final json =
+          jsonDecode(_conversation.extractionJson!) as Map<String, dynamic>;
+      json['_c_ng'] = _state.confirmedNewGoals.toList();
+      json['_i_ng'] = _state.ignoredNewGoals.toList();
+      json['_c_gu'] = _state.confirmedGoalUpdates.toList();
+      json['_i_gu'] = _state.ignoredGoalUpdates.toList();
+      json['_d_ip'] = _state.deletedInsights.toList();
+
+      final updated = jsonEncode(json);
+      _conversation.extractionJson = updated;
+      await _convRepo.updateExtractionJson(_conversation.id!, updated);
+    } catch (e) {
+      AppLogger.warn('StrategyBriefProvider', '保存确认状态失败: $e');
+    }
+  }
+
+  Set<int> _restoreIndexSet(Map<String, dynamic> json, String key) {
+    final list = json[key] as List<dynamic>?;
+    if (list == null) return {};
+    return list.map((e) => e as int).toSet();
+  }
+
   void confirmNewGoal(int index) {
     final goal = _state.extraction?.newGoals[index];
     if (goal == null) return;
     goal.status = GoalStatus.active;
-    _dashboardRepo.insertGoal(goal);
+    _dashboardRepo.insertGoal(goal).then((goalId) {
+      _insertStrategiesForGoal(goal.title, goalId);
+    });
 
-    final confirmed = {..._state.confirmedNewGoals, index};
-    _state = StrategyBriefState(
-      status: _state.status,
-      extraction: _state.extraction,
-      existingGoals: _state.existingGoals,
-      errorMessage: _state.errorMessage,
-      confirmedNewGoals: confirmed,
-      ignoredNewGoals: _state.ignoredNewGoals,
-      confirmedGoalUpdates: _state.confirmedGoalUpdates,
-      ignoredGoalUpdates: _state.ignoredGoalUpdates,
-      deletedInsights: _state.deletedInsights,
-    );
-    _notify();
+    _updateSet('confirmedNewGoals', index);
+  }
+
+  Future<void> _insertStrategiesForGoal(
+      String goalTitle, int goalId) async {
+    final strategies =
+        _state.extraction?.strategies.where((s) => s.goalTitle == goalTitle);
+    if (strategies == null) return;
+
+    for (final strategy in strategies) {
+      strategy.goalId = goalId;
+      await _dashboardRepo.insertStrategy(strategy);
+    }
   }
 
   void ignoreNewGoal(int index) {
-    final ignored = {..._state.ignoredNewGoals, index};
-    _state = StrategyBriefState(
-      status: _state.status,
-      extraction: _state.extraction,
-      existingGoals: _state.existingGoals,
-      errorMessage: _state.errorMessage,
-      confirmedNewGoals: _state.confirmedNewGoals,
-      ignoredNewGoals: ignored,
-      confirmedGoalUpdates: _state.confirmedGoalUpdates,
-      ignoredGoalUpdates: _state.ignoredGoalUpdates,
-      deletedInsights: _state.deletedInsights,
-    );
-    _notify();
+    _updateSet('ignoredNewGoals', index);
   }
 
   void confirmGoalUpdate(int index) {
@@ -202,59 +246,61 @@ class StrategyBriefProvider {
     final existingGoal = _state.existingGoals.firstWhere(
       (g) => g.title == update.goalTitle,
       orElse: () => Goal(
-          title: '',
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now()),
+          title: '', createdAt: DateTime.now(), updatedAt: DateTime.now()),
     );
     if (existingGoal.title.isNotEmpty && update.newStatus != null) {
       existingGoal.status = update.newStatus!;
       _dashboardRepo.updateGoal(existingGoal);
+
+      if (update.newStatus == GoalStatus.completed) {
+        _dashboardRepo.completeAllStrategiesForGoal(existingGoal.id!);
+      }
     }
 
-    final confirmed = {..._state.confirmedGoalUpdates, index};
-    _state = StrategyBriefState(
-      status: _state.status,
-      extraction: _state.extraction,
-      existingGoals: _state.existingGoals,
-      errorMessage: _state.errorMessage,
-      confirmedNewGoals: _state.confirmedNewGoals,
-      ignoredNewGoals: _state.ignoredNewGoals,
-      confirmedGoalUpdates: confirmed,
-      ignoredGoalUpdates: _state.ignoredGoalUpdates,
-      deletedInsights: _state.deletedInsights,
-    );
-    _notify();
+    _updateSet('confirmedGoalUpdates', index);
   }
 
   void ignoreGoalUpdate(int index) {
-    final ignored = {..._state.ignoredGoalUpdates, index};
-    _state = StrategyBriefState(
-      status: _state.status,
-      extraction: _state.extraction,
-      existingGoals: _state.existingGoals,
-      errorMessage: _state.errorMessage,
-      confirmedNewGoals: _state.confirmedNewGoals,
-      ignoredNewGoals: _state.ignoredNewGoals,
-      confirmedGoalUpdates: _state.confirmedGoalUpdates,
-      ignoredGoalUpdates: ignored,
-      deletedInsights: _state.deletedInsights,
-    );
-    _notify();
+    _updateSet('ignoredGoalUpdates', index);
   }
 
   void deleteInsight(int index) {
-    final deleted = {..._state.deletedInsights, index};
+    _updateSet('deletedInsights', index);
+  }
+
+  void _updateSet(String field, int index) {
+    final current = _getSet(field);
+    final updated = {...current, index};
+
     _state = StrategyBriefState(
       status: _state.status,
       extraction: _state.extraction,
       existingGoals: _state.existingGoals,
       errorMessage: _state.errorMessage,
-      confirmedNewGoals: _state.confirmedNewGoals,
-      ignoredNewGoals: _state.ignoredNewGoals,
-      confirmedGoalUpdates: _state.confirmedGoalUpdates,
-      ignoredGoalUpdates: _state.ignoredGoalUpdates,
-      deletedInsights: deleted,
+      confirmedNewGoals: field == 'confirmedNewGoals' ? updated : _state.confirmedNewGoals,
+      ignoredNewGoals: field == 'ignoredNewGoals' ? updated : _state.ignoredNewGoals,
+      confirmedGoalUpdates: field == 'confirmedGoalUpdates' ? updated : _state.confirmedGoalUpdates,
+      ignoredGoalUpdates: field == 'ignoredGoalUpdates' ? updated : _state.ignoredGoalUpdates,
+      deletedInsights: field == 'deletedInsights' ? updated : _state.deletedInsights,
     );
     _notify();
+    _saveStateToCache();
+  }
+
+  Set<int> _getSet(String field) {
+    switch (field) {
+      case 'confirmedNewGoals':
+        return _state.confirmedNewGoals;
+      case 'ignoredNewGoals':
+        return _state.ignoredNewGoals;
+      case 'confirmedGoalUpdates':
+        return _state.confirmedGoalUpdates;
+      case 'ignoredGoalUpdates':
+        return _state.ignoredGoalUpdates;
+      case 'deletedInsights':
+        return _state.deletedInsights;
+      default:
+        return {};
+    }
   }
 }
