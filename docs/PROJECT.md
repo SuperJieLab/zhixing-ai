@@ -199,11 +199,6 @@ lib/
 │   └── logger.dart
 │
 ├── features/
-│   ├── _deprecated/                      # 旧代码保留，不接入 UI
-│   │   ├── insights/                     # InsightsPage + engine
-│   │   ├── mindmap/                      # MindMapPage + layout
-│   │   └── topics/                       # TopicSelectionPage
-│   │
 │   ├── chat/                             # 军师模式对话
 │   │   ├── engine/
 │   │   │   ├── strategist_prompter.dart   # 军师 Prompt
@@ -249,8 +244,7 @@ lib/
 | status | TEXT | active / completed |
 | is_favorite | INTEGER | 0/1 |
 | messages_json | TEXT | List\<ChatMessage\> JSON |
-| insight_json | TEXT | 洞察 JSON（旧功能残留，可为 null） |
-| graph_json | TEXT | 图谱 JSON（旧功能残留，可为 null） |
+| extraction_json | TEXT | 提取结果缓存 JSON（可为 null） |
 | created_at | TEXT | ISO 8601 |
 | updated_at | TEXT | 最后活跃时间 |
 
@@ -369,7 +363,6 @@ DashboardPage.initState()
 | 提取频率 | 每次对话结束都提取 |
 | 洞察定义 | 跨对话自我认知：性格矛盾、行为模式、价值观，面向自我而非行动 |
 | 策略查看 | Brief 页点击目标箭头 → 二级页查看策略明细 |
-| 旧功能 | 代码保留在 _deprecated/，不接入 UI |
 | 提醒 | 服务端就绪前用 flutter_local_notifications |
 
 ---

@@ -23,10 +23,6 @@ class ConversationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final conv = conversation;
-    final firstInsight =
-        conv.hasInsight && conv.insight!.coreInsights.isNotEmpty
-            ? conv.insight!.coreInsights.first
-            : null;
 
     return Dismissible(
       key: Key('conversation_${conv.id}'),
@@ -89,19 +85,6 @@ class ConversationCard extends StatelessWidget {
                         color: AppTheme.textSecondary,
                       ),
                     ),
-                    if (conv.hasInsight && firstInsight != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        firstInsight,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.primary,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

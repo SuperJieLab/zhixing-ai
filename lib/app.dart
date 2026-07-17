@@ -6,7 +6,7 @@ import 'package:socratic_ai/features/dashboard/dashboard_page.dart';
 ///
 /// 配置 MaterialApp 的三大要素：
 /// - **theme**：全局主题（配色、字体、卡片样式——见 AppTheme.lightTheme）
-/// - **home**：首页（TopicSelectionPage）
+/// - **home**：首页（DashboardPage）
 /// - **debugShowCheckedModeBanner**：关闭调试横幅（右上角的 "DEBUG" 标签）
 ///
 /// ## MaterialApp 是什么

@@ -146,7 +146,7 @@ class StrategyBriefProvider {
       // Mark conversation as completed
       if (_conversation.id != null) {
         _conversation.status = 'completed';
-        await ConversationService().finishConversation(_conversation.id!, null);
+        await ConversationService().finishConversation(_conversation.id!);
       }
     } catch (e) {
       AppLogger.error('StrategyBriefProvider', '提取失败', e);

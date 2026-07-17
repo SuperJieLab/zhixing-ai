@@ -62,7 +62,7 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
 
-    // 注册到 Identity Map 缓存，后续 MindMapProvider 等的 mutation 会同步更新此实例
+    // 注册到 Identity Map 缓存
     chatProvider.conversationService.cacheConversation(conversation);
 
     Navigator.pushReplacement(

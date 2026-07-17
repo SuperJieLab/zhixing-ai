@@ -142,30 +142,12 @@ class ConversationRepository {
     );
   }
 
-  /// 完成会话（写入洞察 + 标记 completed）
-  Future<void> complete(int id, InsightResult? insight) async {
-    final update = <String, dynamic>{
-      'status': 'completed',
-      'updated_at': DateTime.now().toIso8601String(),
-    };
-    if (insight != null) {
-      update['insight_json'] = jsonEncode({
-        'core_insights': insight.coreInsights,
-        'underlying_values': insight.underlyingValues,
-        'contradictions_found': insight.contradictionsFound,
-        'next_topic_suggestion': insight.nextTopicSuggestion,
-      });
-    }
-    await _ensureDb.update('conversations', update,
-        where: 'id = ?', whereArgs: [id]);
-  }
-
-  /// 保存思维图谱 JSON
-  Future<void> saveGraph(int id, ConversationGraph graph) async {
+  /// 标记会话为已完成
+  Future<void> markCompleted(int id) async {
     await _ensureDb.update(
       'conversations',
       {
-        'graph_json': jsonEncode(graph.toJson()),
+        'status': 'completed',
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
