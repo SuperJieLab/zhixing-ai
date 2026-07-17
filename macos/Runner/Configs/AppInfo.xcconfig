@@ -5,7 +5,7 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = socratic_ai
+PRODUCT_NAME = 知行AI
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.socraticai.socraticAi
