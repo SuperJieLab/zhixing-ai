@@ -116,29 +116,6 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
     );
   }
 
-  void _showStrategyToggleDialog(Strategy strategy) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(strategy.completed ? '取消完成' : '确认完成'),
-        content: Text(strategy.description),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _provider.toggleStrategy(strategy.id!, !strategy.completed);
-              Navigator.pop(ctx);
-            },
-            child: const Text('确认'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = _provider.state;
@@ -238,8 +215,8 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
                         builder: (_) => GoalDetailPage(
                           goal: goal,
                           strategies: strategiesByGoal[goal.id] ?? [],
-                          onStrategyToggle: (s) =>
-                              _showStrategyToggleDialog(s),
+                          onStrategyToggle: (s) => _provider
+                              .toggleStrategy(s.id!, !s.completed),
                         ),
                       ),
                     );
