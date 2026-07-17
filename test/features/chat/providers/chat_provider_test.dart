@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/core/models/chat_models.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 ChatProvider makeProvider({String topic = 'test'}) => ChatProvider(topic: topic);
 

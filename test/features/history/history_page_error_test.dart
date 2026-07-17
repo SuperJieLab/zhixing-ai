@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/history/history_page.dart';
+import 'package:zhixing_ai/features/history/history_page.dart';
 
 /// HistoryPage 渲染测试
 ///

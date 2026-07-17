@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:socratic_ai/app.dart';
-import 'package:socratic_ai/core/engine/model_manager.dart';
+import 'package:zhixing_ai/app.dart';
+import 'package:zhixing_ai/core/model_manager.dart';
 
 /// 端到端冒烟测试
 ///
@@ -23,7 +23,7 @@ void main() {
       providers: [
         ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
       ],
-      child: const SocraticApp(),
+      child: const ZhixingApp(),
     );
   }
 
@@ -35,7 +35,7 @@ void main() {
     await tester.pumpWidget(buildTestApp());
 
     // 断言：首页显示了 App 名称和标语
-    expect(find.text('Socratic AI'), findsOneWidget);
+    expect(find.text('知行AI'), findsWidgets);
     expect(find.text('帮你想清楚'), findsOneWidget);
 
     // 断言：5 个预设话题可见

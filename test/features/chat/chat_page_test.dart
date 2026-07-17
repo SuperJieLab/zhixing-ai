@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/chat/chat_page.dart';
+import 'package:zhixing_ai/features/chat/chat_page.dart';
 
 /// ChatPage 的 Widget 测试
 ///

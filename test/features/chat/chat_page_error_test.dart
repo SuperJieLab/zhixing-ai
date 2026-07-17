@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:socratic_ai/features/chat/providers/chat_provider.dart';
+import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatProvider 错误状态 API 的单元测试
 ChatProvider makeProvider({String topic = '测试'}) => ChatProvider(topic: topic);
