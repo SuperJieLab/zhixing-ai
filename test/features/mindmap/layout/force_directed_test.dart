@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
-import 'package:socratic_ai/features/mindmap/layout/force_directed.dart';
+import 'package:socratic_ai/features/_deprecated/mindmap/layout/force_directed.dart';
 
 void main() {
   group('ForceDirectedLayout', () {

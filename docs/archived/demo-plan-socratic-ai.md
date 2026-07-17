@@ -1,7 +1,9 @@
-# 苏格拉底式 AI 对话 — MVP 执行方案
+# 苏格拉底式 AI 对话 — MVP 执行方案（已归档）
 
-> 最后更新：2026-07-09
-> 当前进度：Day 7 完成，下一个里程碑：Day 8 模型下载
+> ⚠️ 本文档已归档。项目已切换为军师/谋士模式，当前定义见 `docs/PROJECT.md`。
+>
+> 最后更新：2026-07-13
+> 当前进度：MVP Day 1-9 全部完成。新方向：军师/谋士模式 Plans A/B/C 已完成（2026-07-16）
 
 ---
 
@@ -418,8 +420,8 @@ MindNode:
 | **6** | 思维图谱 | LLM 端侧生成图谱 JSON + CustomPainter 渲染 + 手势交互 | ✅ |
 | **6a** | 架构重构 | LlamaService 缓存池 + 分层梳理 + MindMapService 内聚 | ✅ |
 | **7** | 错误覆盖 | 状态矩阵全覆盖 + 边界 case + Android 验证 + 收藏 UI | ✅ |
-| **8** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | |
-| **9** | 收尾 | README + 录 Demo + 截图 + Push GitHub + 上架准备 | |
+| **8** | 模型下载 | HuggingFace 直链下载 + 断点续传 + 进度条 | ✅ |
+| **9** | 收尾 | README + 录 Demo + 截图 + Push GitHub + 上架准备 | ✅ |
 
 ### 高阶版（Resume 加分项 — 后续迭代）
 
@@ -568,20 +570,21 @@ MindMapService（图谱生命周期）
 | Core model | chat_models (ConversationGraph) | ~50 |
 | **小计** | | **~900 行新增** |
 
-**Day 7 — 错误覆盖 + Android 验证**
+**Day 7 — 错误覆盖 + Android 验证 ✅**
+
 - 实现所有状态矩阵 UI
 - 测试边界 case：空话题、超长回答、网络断连、模型 crash
 - Android 真机/模拟器跑通
 - 修复双端差异问题
 
-**Day 8 — 模型下载**
+**Day 8 — 模型下载 ✅**
 
 - HuggingFace 直链获取
 - dio 断点续传实现
 - 下载进度 Provider → UI 进度条
 - 下载完成自动触发模型加载
 
-**Day 9 — 收尾**
+**Day 9 — 收尾 ✅**
 
 - 写 README（架构图 + 截图 + 技术栈 + 快速开始）
 - 录 2 分钟 Demo 视频

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/engine/model_manager.dart';
-import 'package:socratic_ai/features/topics/topic_selection_page.dart';
+import 'package:socratic_ai/features/_deprecated/topics/topic_selection_page.dart';
 
 /// TopicSelectionPage 的 Widget 测试
 ///

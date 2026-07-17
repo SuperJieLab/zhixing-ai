@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:socratic_ai/core/engine/model_manager.dart';
 import 'package:socratic_ai/core/theme.dart';
 import 'package:socratic_ai/features/chat/chat_page.dart';
-import 'package:socratic_ai/features/topics/topic_selection_page.dart';
+import 'package:socratic_ai/features/_deprecated/topics/topic_selection_page.dart';
 
 /// TopicSelectionPage 输入验证测试
 ///

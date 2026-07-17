@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:socratic_ai/core/constants.dart';
-import 'package:socratic_ai/features/topics/widgets/topic_card.dart';
+import 'package:socratic_ai/features/_deprecated/topics/widgets/topic_card.dart';
 
 /// TopicCard 组件的 Widget 测试
 ///
