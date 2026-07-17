@@ -4,6 +4,7 @@ import 'package:socratic_ai/core/engine/dialogue_engine.dart';
 import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/dashboard_models.dart';
 import 'package:socratic_ai/core/think_tag_stripper.dart';
 
 // ================================================================
@@ -100,7 +101,7 @@ class SocraticPrompter implements DialogueEngine {
   bool get isReady => true;
 
   @override
-  Future<bool> initialize() async {
+  Future<bool> initialize({List<Goal> existingGoals = const []}) async {
     try {
       _chat = await _engine.createChat();
       _chat!.addSystem(_socraticSystemPrompt);

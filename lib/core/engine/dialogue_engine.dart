@@ -1,4 +1,5 @@
 import 'package:socratic_ai/core/models/chat_models.dart';
+import 'package:socratic_ai/core/models/dashboard_models.dart';
 
 /// 对话引擎抽象接口
 ///
@@ -14,7 +15,7 @@ abstract class DialogueEngine {
   /// 初始化引擎（加载模型、设置系统提示词等）
   ///
   /// 返回 true 表示初始化成功。
-  Future<bool> initialize();
+  Future<bool> initialize({List<Goal> existingGoals = const []});
 
   /// 注入历史消息到引擎上下文（恢复对话或初始化时用）
   ///

@@ -6,6 +6,7 @@ import 'package:socratic_ai/core/engine/llama_service.dart';
 import 'package:socratic_ai/core/logger.dart';
 import 'package:socratic_ai/core/models/chat_models.dart';
 import 'package:socratic_ai/core/models/conversation.dart';
+import 'package:socratic_ai/core/repository/dashboard_repository.dart';
 import 'package:socratic_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
@@ -114,7 +115,11 @@ class ChatProvider extends ChangeNotifier {
     try {
       final llmEngine = await LlamaService.instance.ensureReady();
       final engine = StrategistPrompter(llmEngine);
-      await engine.initialize();
+
+      final dashboardRepo = DashboardRepository();
+      final activeGoals = await dashboardRepo.getActiveGoals();
+
+      await engine.initialize(existingGoals: activeGoals);
       _engine = engine;
     } catch (e) {
       AppLogger.warn('ChatProvider', '模型加载失败，将使用 Mock 回复: $e');
