@@ -1,6 +1,7 @@
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/services/sync_service.dart';
 
 /// Dashboard 状态管理
 ///
@@ -90,6 +91,16 @@ class DashboardProvider {
       _state = _state.copyWith(isLoading: false, error: e.toString());
     }
     _notify();
+
+    // 数据加载完成后触发服务端同步（异步，不阻塞 UI）
+    _syncToServer();
+  }
+
+  void _syncToServer() {
+    SyncService().syncDashboard(
+      goals: _state.goals,
+      strategies: _state.strategies,
+    );
   }
 
   Future<void> toggleGoalStatus(int goalId, GoalStatus newStatus) async {

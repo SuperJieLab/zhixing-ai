@@ -1,13 +1,32 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/models/conversation.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
-ChatProvider makeProvider({String topic = 'test'}) => ChatProvider(topic: topic);
+/// ChatProvider 单元测试
+///
+/// 传入 dummy Conversation(id: 1) 使 _activeConversationId 不为 null，
+/// sendMessage() 就不会触发 startConversation() → DB 操作。
+/// 避免在 macOS 测试环境中依赖 sqflite（需要 sqflite_common_ffi）。
+
+final _dummyConv = Conversation(
+  id: 1,
+  topic: 'test',
+  createdAt: DateTime.now(),
+  updatedAt: DateTime.now(),
+);
+
+ChatProvider makeProvider({String topic = 'test', bool skipDb = true}) =>
+    ChatProvider(
+      topic: topic,
+      conversation: skipDb ? _dummyConv : null,
+    );
 
 void main() {
   group('ChatProvider', () {
     test('初始化时包含一条 AI 欢迎消息（轮次 0）', () {
-      final provider = makeProvider(topic: '职业发展');
+      // skipDb: false → 不传 conversation，使用 _buildWelcome
+      final provider = makeProvider(topic: '职业发展', skipDb: false);
       expect(provider.messages.length, 1);
       expect(provider.messages.first.role, MessageRole.ai);
       expect(provider.messages.first.round, 0);
@@ -41,7 +60,7 @@ void main() {
     });
 
     test('messages 返回不可变列表', () {
-      final provider = makeProvider();
+      final provider = makeProvider(skipDb: false);
       expect(
         () => provider.messages.add(const ChatMessage(
           role: MessageRole.user, content: 'hack', round: 99,
@@ -53,7 +72,8 @@ void main() {
 
   group('ChatMessage', () {
     test('字段正确赋值', () {
-      const msg = ChatMessage(role: MessageRole.user, content: 'hello', round: 3);
+      const msg =
+          ChatMessage(role: MessageRole.user, content: 'hello', round: 3);
       expect(msg.role, MessageRole.user);
       expect(msg.content, 'hello');
       expect(msg.round, 3);

@@ -64,6 +64,20 @@
 │                                                                  │
 │  状态流转规则：见 §四 交互规则                                     │
 │  级联规则：    见 §四 交互规则                                     │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 环节 4: 推送与提醒（服务端）                                       │
+│                                                                  │
+│  Dashboard 数据变更 → 端侧同步到服务端                             │
+│    ├── 用户未开「AI 优化推送」→ 规则模式：deadline 到期前推送       │
+│    └── 用户开启「AI 优化推送」→ LLM 模式：DeepSeek 分析上下文推送   │
+│                                                                  │
+│  推送通道：Firebase Cloud Messaging（APNs + FCM 统一）            │
+│  隐私保护：不传对话原文，仅传结构化摘要，服务端不持久化用户数据       │
+│                                                                  │
+│  详见 §十二 服务端推送方案                                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,6 +173,20 @@ Strategy:
 │                                                      │
 │         llama.cpp (Dart FFI) + Metal/CoreML          │
 │              Qwen3.5-2B (Q4_K_M)                     │
+└──────────────────────────┬───────────────────────────┘
+                           │ POST /api/sync
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│              Node.js 服务端 (server/)                 │
+│                                                      │
+│  Express API → 规则引擎 / LLM 引擎 → 推送决策         │
+│                                                      │
+│  ┌──────────────┐  ┌────────────────────────────┐   │
+│  │ Rules Engine │  │ DeepSeek Chat API          │   │
+│  │ (node-cron)  │  │ (LLM 模式，用户可选开启)     │   │
+│  └──────────────┘  └────────────────────────────┘   │
+│                         ↓                            │
+│              APNs / FCM → 用户设备                    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -180,32 +208,30 @@ lib/
 ├── main.dart
 ├── app.dart
 ├── core/
-│   ├── model_manager.dart               # 模型下载/就绪检测（全局 Provider）
 │   ├── engine/
-│   │   ├── llama_service.dart            # LLM 引擎缓存池
-│   │   └── conversation_service.dart     # 对话生命周期管理
+│   │   ├── llama_service.dart
+│   │   └── conversation_service.dart
 │   ├── models/
-│   │   ├── chat_models.dart              # ChatMessage / ChatTurn
-│   │   ├── conversation.dart             # Conversation + 序列化
-│   │   ├── dashboard_models.dart         # Goal / Strategy / CrossPattern
-│   │   └── available_model.dart          # 可下载模型描述
+│   │   ├── chat_models.dart
+│   │   ├── conversation.dart
+│   │   ├── dashboard_models.dart
+│   │   └── available_model.dart
 │   ├── repository/
-│   │   ├── conversation_repository.dart  # 对话 CRUD (sqflite)
-│   │   └── dashboard_repository.dart     # 目标/策略 CRUD
+│   │   ├── conversation_repository.dart
+│   │   └── dashboard_repository.dart
 │   ├── theme.dart
 │   ├── constants.dart
 │   └── logger.dart
 │
 ├── features/
-│   ├── chat/                             # 助手模式对话
-│   │   ├── engine/
-│   │   │   └── strategist_prompter.dart   # 助手 Prompt
+│   ├── chat/
+│   │   ├── engine/strategist_prompter.dart
 │   │   ├── providers/chat_provider.dart
 │   │   ├── widgets/chat_bubble.dart, chat_input.dart
-│   │   ├── snackbar_throttle.dart          # SnackBar 防抖
+│   │   ├── snackbar_throttle.dart
 │   │   └── chat_page.dart
 │   │
-│   ├── dashboard/                        # 全局面板
+│   ├── dashboard/
 │   │   ├── providers/dashboard_provider.dart
 │   │   ├── widgets/
 │   │   │   ├── goal_card.dart
@@ -214,25 +240,38 @@ lib/
 │   │   │   └── cross_pattern_card.dart
 │   │   └── dashboard_page.dart
 │   │
-│   ├── strategy_brief/                   # 对话结束大局影响页
+│   ├── strategy_brief/
 │   │   ├── engine/
-│   │   │   ├── strategist_extractor.dart  # LLM 提取目标/策略
-│   │   │   └── chat_utils.dart            # 对话文本格式化
-│   │   ├── models/
-│   │   │   └── extraction_result.dart     # ExtractionResult / GoalUpdate
+│   │   │   ├── strategist_extractor.dart
+│   │   │   └── chat_utils.dart
+│   │   ├── models/extraction_result.dart
 │   │   ├── providers/strategy_brief_provider.dart
 │   │   ├── strategy_brief_page.dart
 │   │   └── strategy_detail_page.dart
 │   │
-│   ├── history/                          # 历史列表
+│   ├── history/
 │   │   ├── providers/history_provider.dart
 │   │   ├── widgets/conversation_card.dart
 │   │   └── history_page.dart
 │   │
-│   └── model_manager/                    # 模型下载 UI
+│   └── model_manager/
 │       ├── engine/model_download_service.dart
 │       ├── providers/model_download_provider.dart
 │       └── model_manage_page.dart
+│
+└── services/
+    └── sync_service.dart              # 服务端数据同步
+
+server/                                # 服务端（独立于 Flutter 工程）
+├── src/
+│   ├── index.js                       # Express 入口 + cron
+│   ├── routes/sync.js                 # POST /api/sync
+│   └── services/
+│       ├── push.js                    # 推送决策分发
+│       ├── rules-engine.js            # 规则模式
+│       └── llm-engine.js              # DeepSeek LLM 模式
+├── package.json
+└── .env.example
 ```
 
 ---
@@ -332,6 +371,33 @@ DashboardPage.initState()
         └── crossPatterns (from DB)
 ```
 
+### 推送同步数据流
+
+```
+DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
+  └── SyncService.syncToServer()
+        ├── 读取当前所有 active goal + 对应 strategies
+        ├── 读取当前「AI 优化推送」开关状态
+        ├── 构造请求体：
+        │     mode: "rules" | "llm"
+        │     goals: [{ title, category, status, deadline, priority }]
+        │     strategies: [{ description, goal_id, completed }]
+        │     vectors: [...] | null  ← 仅 mode=llm 时有值
+        └── POST /api/sync
+
+服务端：
+  └── 收到 data → node-cron 定时扫描
+        ├── 规则模式 → deadline 在3天内且未完成 → APNs/FCM 推送
+        └── LLM 模式 → DeepSeek 分析上下文
+              ├── should_push=true → 生成个性化推送内容 → APNs/FCM
+              └── should_push=false → 跳过
+
+推送到达 App：
+  └── onMessage / onNotificationOpened
+        ├── 策略提醒 → 跳转对应 GoalDetailPage
+        └── 目标到期 → 跳转 DashboardPage
+```
+
 ---
 
 ## 九、技术栈
@@ -348,6 +414,9 @@ DashboardPage.initState()
 | 本地存储 | sqflite | 对话 + 目标/策略持久化 |
 | 模型下载 | dio (HTTP Range) | HuggingFace 断点续传 |
 | 模型托管 | HuggingFace | GGUF 分发 |
+| 服务端 | Node.js + Express | 推送决策、定时任务 |
+| 推送通道 | Firebase Cloud Messaging | iOS APNs + Android FCM 统一 |
+| 服务端 LLM | DeepSeek Chat API | 推送内容智能生成（用户可选） |
 
 ---
 
@@ -367,7 +436,10 @@ DashboardPage.initState()
 | 提取频率 | 每次对话结束都提取 |
 | 洞察定义 | 跨对话自我认知：性格矛盾、行为模式、价值观，面向自我而非行动 |
 | 策略查看 | Brief 页点击目标箭头 → 二级页查看策略明细 |
-| 提醒 | 服务端就绪前用 flutter_local_notifications |
+| 提醒 | 端侧不自行发推送（App 被杀死后失效），推送通过服务端 APNs/FCM 通道实现 |
+| 推送模式 | 两级控制：默认规则模式（title+deadline），可选开启 LLM 优化模式（DeepSeek 分析上下文） |
+| 推送隐私 | 不传对话原文，仅传结构化摘要；服务端不持久化用户数据 |
+| 服务端模型 | DeepSeek Chat API（成本低、中文优化好），MVP 用 API 验证链路 |
 
 ---
 
@@ -377,5 +449,48 @@ DashboardPage.initState()
 |------|------|------|
 | v1 (MVP) | 2026-07-01 ~ 07-13 | 苏格拉底教练：问答题 → AI 追问 → 洞察总结 → 思维图谱 |
 | v2 (当前) | 2026-07-16 | 助手模式：Dashboard 主页 → 对话 → 目标提取 → 全局态势 |
+| v2.1 | 2026-07-20 | 服务端推送方案：推送与提醒闭环，端云协同推理 |
 
 **旧 MVP 文档归档**：`docs/demo-plan-socratic-ai.md` 和 `docs/requirements-goals.md` 已移入 `docs/archived/`。
+
+---
+
+## 十二、服务端推送方案
+
+> 设计依据：本文档 §二 环节 4 + §十二 服务端推送方案
+> 实现计划：`docs/plans/2026-07-20-server-push-plan.md`
+
+### 为什么需要服务端推送
+
+知行AI 的核心闭环缺少"主动触达"——用户设了目标但容易忘。端侧无法实现真正的推送（App 被杀死后失效），必须通过服务端 APNs/FCM 通道。
+
+### 两级推送模式
+
+设置页只有一个开关：「AI 优化推送」
+
+| 开关状态 | 上报数据 | 服务端决策 | 推送效果 |
+|:--|:--|:--|:--|
+| OFF（默认） | title + deadline + priority | 规则匹配（到期前N天） | 模板化："「XX目标」3天后到期" |
+| ON | 上述 + 语义向量（对话摘要脱敏） | DeepSeek 分析上下文 | 个性化："上次提到想约 mentor 喝咖啡——这周还剩两天" |
+
+### 隐私设计
+
+- 默认 OFF，不上传语义向量
+- 开启时弹窗说明数据范围
+- **永远不传对话原文**——端侧提取后再上传结构化结果
+- **服务端不持久化用户数据**——收到 → 处理 → 丢弃
+
+### 端云协同
+
+```
+端侧（Qwen2.5-2B）：对话理解 + 目标提取 → 隐私敏感的计算放在本地
+服务端（DeepSeek）：推送决策 + 内容生成 → 需要更强推理的任务放在云端
+```
+
+### 面试叙事
+
+这个方案可以从四个角度展开：
+1. **产品闭环**："设定了目标但缺乏主动触达 → 加上推送完成了 设定→追踪→提醒 的闭环"
+2. **隐私设计**："两级控制 + 不传原文 + 服务端不持久化——移动端隐私合规意识"
+3. **端云协同**："端侧负责隐私计算，服务端做推理增强——不是非此即彼"
+4. **技术选型**："DeepSeek 比 GPT-4 成本低、中文好，MVP 阶段性价比最优"
