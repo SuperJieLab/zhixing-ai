@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:zhixing_ai/core/route_observer.dart';
 import 'package:zhixing_ai/core/theme.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/services/sync_service.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/dashboard/providers/dashboard_provider.dart';
 import 'package:zhixing_ai/features/dashboard/widgets/dashboard_header.dart';
@@ -12,6 +11,7 @@ import 'package:zhixing_ai/features/dashboard/widgets/strategy_timeline.dart';
 import 'package:zhixing_ai/features/dashboard/goal_detail_page.dart';
 import 'package:zhixing_ai/features/history/history_page.dart';
 import 'package:zhixing_ai/features/model_manager/model_manage_page.dart';
+import 'package:zhixing_ai/features/settings/settings_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -77,63 +77,10 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
     );
   }
 
-  void _showPushSettings() {
-    final syncService = SyncService();
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('推送设置'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                title: const Text('AI 优化推送'),
-                subtitle: const Text('开启后，服务端使用 AI 分析你的目标数据，生成更智能的推送提醒。对话原文不会被上传。'),
-                value: syncService.aiOptimized,
-                onChanged: (val) {
-                  if (val && !syncService.aiOptimized) {
-                    // 首次开启时显示隐私说明
-                    showDialog(
-                      context: ctx,
-                      builder: (c) => AlertDialog(
-                        title: const Text('AI 优化推送说明'),
-                        content: const Text('开启后将上传目标标题、分类、截止日期和策略描述到服务端，用于 AI 分析推送时机。'
-                            '对话原文不会被上传。数据在服务端处理完成后即丢弃，不会持久化存储。'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(c),
-                            child: const Text('取消'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              setDialogState(() {
-                                syncService.aiOptimized = true;
-                              });
-                              Navigator.pop(c);
-                            },
-                            child: const Text('同意并开启'),
-                          ),
-                        ],
-                      ),
-                    );
-                    return;
-                  }
-                  setDialogState(() {
-                    syncService.aiOptimized = val;
-                  });
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      ),
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsPage()),
     );
   }
 
@@ -186,14 +133,14 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
         title: const Text('首页'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: _showPushSettings,
-            tooltip: '推送设置',
+            icon: const Icon(Icons.memory),
+            onPressed: _openModelManager,
+            tooltip: '模型管理',
           ),
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: _openModelManager,
-            tooltip: '模型管理',
+            onPressed: _openSettings,
+            tooltip: '设置',
           ),
           IconButton(
             icon: const Icon(Icons.history),

@@ -6,6 +6,7 @@ import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/conversation.dart';
 import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
@@ -118,7 +119,8 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final llmEngine = await LlamaService.instance.ensureReady();
+      final llmEngine = await LlamaService.instance
+          .ensureReady(gpuLayers: SettingsRepository.instance.gpuLayers);
       final engine = StrategistPrompter(llmEngine);
 
       final dashboardRepo = DashboardRepository();

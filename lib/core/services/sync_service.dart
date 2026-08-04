@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/services/push_service.dart';
 
 // ============================================================
@@ -24,7 +25,7 @@ import 'package:zhixing_ai/core/services/push_service.dart';
 //   POST http://localhost:3000/api/sync
 //   {
 //     device_token: "xxx",    // 来自 PushService
-//     mode: "rules" | "llm",  // 来自 aiOptimized 开关
+//     mode: "rules" | "llm",  // 来自「AI 优化推送」设置开关
 //     goals: [{ title, category, status, deadline, priority }],
 //     strategies: [{ description, goal_id, completed }]
 //   }
@@ -54,8 +55,6 @@ class SyncService {
     receiveTimeout: const Duration(seconds: 5),
   ));
 
-  bool aiOptimized = false;
-
   /// 同步 Dashboard 数据到服务端
   Future<void> syncDashboard({
     required List<Goal> goals,
@@ -67,7 +66,7 @@ class SyncService {
     try {
       await _dio.post('/api/sync', data: {
         'device_token': token,
-        'mode': aiOptimized ? 'llm' : 'rules',
+        'mode': SettingsRepository.instance.useAiOptimizedPush ? 'llm' : 'rules',
         'goals': goals.map((g) => {
           'title': g.title,
           'category': g.category.name,

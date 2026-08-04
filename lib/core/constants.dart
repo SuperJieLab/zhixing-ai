@@ -15,8 +15,12 @@ class AppConstants {
   /// 模型上下文窗口（token）
   static const int modelContextSize = 4096;
 
-  /// GPU 层数：-1 = 全部卸载到 GPU（Metal），0 = 纯 CPU
-  static const int modelGpuLayers = -1;
+  /// GPU 层数（兜底默认值）：-1 = 全部卸载到 GPU（Metal），0 = 纯 CPU
+  ///
+  /// ⚠️ 实际值已由「设置」决定：[LlamaService.ensureReady] 的调用方
+  /// 传入 [SettingsRepository.gpuLayers]（用户开关，默认 0 = 纯 CPU）。
+  /// 此处常量仅作为仓库不可用时的兜底，勿直接依赖。
+  static const int modelGpuLayers = 0;
 
   /// CPU 推理线程数
   static const int modelThreads = 4;

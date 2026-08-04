@@ -5,6 +5,7 @@ import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/models/conversation.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/strategy_brief/engine/strategist_extractor.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
 
@@ -138,7 +139,8 @@ class StrategyBriefProvider {
       );
       _notify();
 
-      final engine = LlamaService.instance.ensureReady();
+      final engine = LlamaService.instance
+          .ensureReady(gpuLayers: SettingsRepository.instance.gpuLayers);
       final llmEngine = await engine;
       final extractor = StrategistExtractor(llmEngine);
       final result = await extractor.extract(

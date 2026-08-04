@@ -59,19 +59,28 @@ class LlamaService {
 
   /// 默认模型 + 默认配置（99% 的使用场景）
   ///
-  /// 使用 [AppConstants.defaultModelPath]，搭配默认 contextSize / gpuLayers / threads。
-  Future<LlamaEngine> ensureReady() async {
-    return ensureReadyWithModel(AppConstants.defaultModelPath);
+  /// 使用 [AppConstants.defaultModelPath]，搭配默认 contextSize / threads。
+  /// [gpuLayers] 不传时回退 [AppConstants.modelGpuLayers]（一般应传
+  /// [SettingsRepository.gpuLayers]，由用户设置决定 GPU / CPU）。
+  Future<LlamaEngine> ensureReady({int? gpuLayers}) async {
+    return ensureReadyWithModel(
+      AppConstants.defaultModelPath,
+      gpuLayers: gpuLayers,
+    );
   }
 
   /// 指定模型路径（配置用默认值）
   ///
   /// [modelPath] 模型文件的绝对路径。
-  Future<LlamaEngine> ensureReadyWithModel(String modelPath) async {
+  /// [gpuLayers] 不传时回退 [AppConstants.modelGpuLayers]。
+  Future<LlamaEngine> ensureReadyWithModel(
+    String modelPath, {
+    int? gpuLayers,
+  }) async {
     return ensureReadyWithConfig(LlamaConfig(
       modelPath: modelPath,
       contextSize: AppConstants.modelContextSize,
-      gpuLayers: AppConstants.modelGpuLayers,
+      gpuLayers: gpuLayers ?? AppConstants.modelGpuLayers,
       threads: AppConstants.modelThreads,
     ));
   }
@@ -136,7 +145,7 @@ class LlamaService {
   // 私有
   // ================================================================
 
-  /// 解析平台对应的 native library 路径
+  /// 解析平台对应的 native library 路径（macOS / Android 用；iOS 走 spawnFromProcess）
   String _resolveLibraryPath() {
     if (Platform.isMacOS) {
       final exe = File(Platform.resolvedExecutable);
@@ -156,7 +165,11 @@ class LlamaService {
       LlamaEngine engine;
 
       if (Platform.isIOS) {
-        // iOS: dylib 已嵌入 xcframework，用 spawnFromProcess
+        // iOS: llama.xcframework 已通过 pbxproj 链接+嵌入，App 启动期由 dyld 加载进进程，
+        // 符号进入进程空间。按 llama_cpp_dart 官方设计用 spawnFromProcess
+        // (内部 DynamicLibrary.process() / RTLD_DEFAULT 查找)，无需运行时 dlopen
+        // 指定路径，也不依赖框架自身带 LC_RPATH —— App 的 LD_RUNPATH_SEARCH_PATHS
+        // 含 @executable_path/Frameworks，启动期即可解析 @rpath/llama.framework/llama。
         engine = await LlamaEngine.spawnFromProcess(
           modelParams: ModelParams(
             path: config.modelPath,

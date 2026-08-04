@@ -16,11 +16,55 @@ class ConversationRepository {
   static Database? get database => _db;
 
   /// 初始化数据库（应在 main() 中调用一次）
+  /// 在最新 schema 下创建支撑表（goals / strategies / cross_patterns）。
+  /// 供 onCreate（新装）与 onUpgrade（旧版本升级）共用，避免重复 DDL。
+  static Future<void> _createSupportingTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        status TEXT NOT NULL DEFAULT 'proposed',
+        priority INTEGER DEFAULT 3,
+        source_conv_ids TEXT NOT NULL DEFAULT '[]',
+        deadline TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS strategies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'selfAction',
+        next_step TEXT,
+        completed INTEGER NOT NULL DEFAULT 0,
+        next_reminder TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (goal_id) REFERENCES goals(id)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cross_patterns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL,
+        description TEXT,
+        source_conv_ids TEXT NOT NULL DEFAULT '[]',
+        frequency INTEGER NOT NULL DEFAULT 1,
+        detected_at TEXT NOT NULL
+      )
+    ''');
+  }
+
   static Future<void> initialize() async {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'socratic.db'),
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE conversations (
@@ -36,6 +80,8 @@ class ConversationRepository {
             updated_at TEXT NOT NULL
           )
         ''');
+        // 新装数据库直接从最终 schema 建全表，否则 goals 等表缺失
+        await _createSupportingTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 4) {
@@ -48,45 +94,11 @@ class ConversationRepository {
           );
         }
         if (oldVersion < 3) {
-          await db.execute('''
-            CREATE TABLE goals (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              title TEXT NOT NULL,
-              category TEXT NOT NULL DEFAULT 'other',
-              status TEXT NOT NULL DEFAULT 'proposed',
-              priority INTEGER DEFAULT 3,
-              source_conv_ids TEXT NOT NULL DEFAULT '[]',
-              deadline TEXT,
-              notes TEXT,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            )
-          ''');
-
-          await db.execute('''
-            CREATE TABLE strategies (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              goal_id INTEGER NOT NULL,
-              description TEXT NOT NULL,
-              type TEXT NOT NULL DEFAULT 'selfAction',
-              next_step TEXT,
-              completed INTEGER NOT NULL DEFAULT 0,
-              next_reminder TEXT,
-              created_at TEXT NOT NULL,
-              FOREIGN KEY (goal_id) REFERENCES goals(id)
-            )
-          ''');
-
-          await db.execute('''
-            CREATE TABLE cross_patterns (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              label TEXT NOT NULL,
-              description TEXT,
-              source_conv_ids TEXT NOT NULL DEFAULT '[]',
-              frequency INTEGER NOT NULL DEFAULT 1,
-              detected_at TEXT NOT NULL
-            )
-          ''');
+          await _createSupportingTables(db);
+        }
+        if (oldVersion < 5) {
+          // 修复：v4 通过 onCreate 新装的库 goals 等表缺失，补齐
+          await _createSupportingTables(db);
         }
       },
     );

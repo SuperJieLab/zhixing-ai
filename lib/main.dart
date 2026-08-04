@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/model_manager.dart';
 import 'package:zhixing_ai/core/services/push_service.dart';
 
@@ -21,6 +22,9 @@ Future<void> main() async {
 
   // 初始化本地数据库
   await ConversationRepository.initialize();
+
+  // 初始化用户设置（SharedPreferences 预取）
+  await SettingsRepository.instance.initialize();
 
   // 初始化 Firebase（未配置时 catch 异常，不影响 App 运行）
   try {
