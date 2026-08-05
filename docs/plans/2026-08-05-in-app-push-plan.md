@@ -84,7 +84,9 @@ function pushToToken(token, payload) {
   const data = JSON.stringify(payload);
   let n = 0;
   for (const ws of set) {
-    if (ws.readyState === ws.OPEN) {
+    // OPEN 是 WebSocket 规范常量 = 1；ws 实例的 readyState 为数值 0~3。
+    // 注意：ws.OPEN 是类的静态常量，实例上没有该属性，故直接用 === 1 判定。
+    if (ws.readyState === 1) {
       ws.send(data);
       n++;
     }
