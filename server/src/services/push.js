@@ -11,31 +11,33 @@
  *                              ├── runRulesMode() → rules-engine.js（规则引擎）
  *                              └── runLLMMode()  → llm-engine.js（DeepSeek API）
  *                              ↓
- *                           sendPush() → console.log（MVP 占位，后续换 Firebase Admin SDK）
+ *                           sendPush() → wsHub.pushToToken（经 WebSocket 真下发）
  *
  * 【三个导出函数】
- *   sendPush(token, notification)  — 发送推送（MVP：console.log 占位）
+ *   sendPush(token, notification)  — 发送推送（经 wsHub 真下发）
  *   runRulesMode(deviceStore)      — 遍历 rules 模式设备，调用规则引擎决策
  *   runLLMMode(deviceStore)        — 遍历 llm 模式设备，调用 DeepSeek 决策
  */
 
 const { shouldPush: rulesShouldPush } = require('./rules-engine');
 const { analyzePushDecision } = require('./llm-engine');
+const wsHub = require('./wsHub');
 
 /**
- * 发送推送通知（占位函数）
+ * 发送推送通知（站内，经 WebSocket 真下发）
  *
- * MVP 阶段用 console.log 代替真实 FCM 调用。
- * 后续替换为：
- *   const admin = require('firebase-admin');
- *   await admin.messaging().send({ token, notification: { title, body }, data });
+ * 通过 wsHub.pushToToken 把提醒推到该设备当前活跃的 WS 连接。
+ * 无活跃连接时 delivered=0（v1 不做补发队列，断线期间推送丢弃）。
  */
 async function sendPush(deviceToken, notification) {
-  console.log(`[push] → ${deviceToken.slice(0, 8)}...`);
-  console.log(`[push]   title: ${notification.title}`);
-  console.log(`[push]   body: ${notification.body}`);
-  // TODO: 替换为真实 Firebase Admin SDK 调用
-  return { sent: true, method: 'console' };
+  const delivered = wsHub.pushToToken(deviceToken, {
+    type: 'push',
+    title: notification.title,
+    body: notification.body,
+    ts: Date.now(),
+  });
+  console.log(`[push] → ${deviceToken.slice(0, 8)}... delivered=${delivered}`);
+  return { delivered, method: 'ws' };
 }
 
 /**
