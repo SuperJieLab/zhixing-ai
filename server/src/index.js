@@ -58,11 +58,16 @@ app.get('/health', (req, res) => {
 app.post('/api/debug-push', async (req, res) => {
   const { device_token, title, body } = req.body || {};
   if (!device_token) return res.status(400).json({ error: 'device_token required' });
-  const result = await sendPush(device_token, {
-    title: title || '测试提醒',
-    body: body || '这是一条调试推送',
-  });
-  res.json(result);
+  try {
+    const result = await sendPush(device_token, {
+      title: title || '测试提醒',
+      body: body || '这是一条调试推送',
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[debug-push] 推送失败:', err);
+    res.status(500).json({ error: 'push failed', detail: String(err?.message || err) });
+  }
 });
 
 const server = app.listen(PORT, () => {
