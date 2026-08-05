@@ -35,7 +35,11 @@ const syncRouter = require('./routes/sync');
 app.use('/api/sync', syncRouter);
 
 const cron = require('node-cron');
-const { runRulesMode, runLLMMode } = require('./services/push');
+const { runRulesMode, runLLMMode, sendPush } = require('./services/push');
+
+// WebSocket 相关：ws 包 + 连接注册中心 wsHub
+const { WebSocketServer } = require('ws');
+const { register, unregister } = require('./services/wsHub');
 
 // 每 30 分钟扫描一次
 cron.schedule('*/30 * * * *', async () => {
@@ -50,6 +54,35 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
+// 调试用：绕过 cron，手动触发一次推送（仅开发便捷）
+app.post('/api/debug-push', async (req, res) => {
+  const { device_token, title, body } = req.body || {};
+  if (!device_token) return res.status(400).json({ error: 'device_token required' });
+  const result = await sendPush(device_token, {
+    title: title || '测试提醒',
+    body: body || '这是一条调试推送',
+  });
+  res.json(result);
+});
+
+const server = app.listen(PORT, () => {
   console.log(`知行AI 推送服务启动，端口 ${PORT}`);
+});
+
+// 在已有 HTTP 服务上挂 WebSocket，路径 /ws?token=...
+const wss = new WebSocketServer({ server, path: '/ws' });
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const token = url.searchParams.get('token');
+  if (!token) {
+    ws.close();
+    return;
+  }
+  register(token, ws);
+  console.log(`[ws] 设备上线: ${token.slice(0, 8)}...`);
+  ws.on('close', () => {
+    unregister(token, ws);
+    console.log(`[ws] 设备离线: ${token.slice(0, 8)}...`);
+  });
+  ws.on('error', () => unregister(token, ws));
 });
