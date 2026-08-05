@@ -71,7 +71,7 @@ WS 连上来带的 `token` 必须与 `/api/sync` 上报的 `device_token` 一致
   - 启动时用 `PushService().getToken()` 取设备标识。
   - `WebSocketChannel.connect(Uri.parse('$wsBaseUrl/ws?token=$token'))`。
   - 监听 `channel.stream`；收到 `{type:'push'}` → 通过回调 / 简单事件总线抛给上层。
-  - **连接生命周期**：`main.dart` 启动后连一次；`AppLifecycleState.resumed` 时若断了就重连（基础指数退避，不堆复杂逻辑）。
+  - **连接生命周期**：`main.dart` 启动后连一次；断开后由 `_scheduleReconnect` 固定 5s 退避重连（无 `AppLifecycleState` 监听，保持简单）。生命周期重连 / 指数退避留作后续演进。
   - 容错：连接失败 / `onDone` / `onError` → 退避重连，**绝不抛异常影响主流程**（沿用 SyncService「推送是锦上添花」原则）。
 - **横幅展示（v1 最小）**：收到推送 → 经全局 `NavigatorKey` 触发 `ScaffoldMessenger` 的 SnackBar（或 `OverlayEntry` 顶部条）。优先 SnackBar，能验证「站内推送」效果即可。后续可升级为自定义顶部横幅。
 - **`lib/main.dart`**：在 `SettingsRepository.initialize()` 之后启动 `PushSocketService` 连接。

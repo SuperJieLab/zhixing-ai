@@ -56,6 +56,8 @@ app.get('/health', (req, res) => {
 
 // 调试用：绕过 cron，手动触发一次推送（仅开发便捷）
 app.post('/api/debug-push', async (req, res) => {
+  // 仅非生产环境暴露（避免生产被任意 token 触发推送）
+  if (process.env.NODE_ENV === 'production') return res.sendStatus(404);
   const { device_token, title, body } = req.body || {};
   if (!device_token) return res.status(400).json({ error: 'device_token required' });
   try {
