@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/repository/settings_repository.dart';
@@ -50,7 +51,7 @@ class SyncService {
   SyncService._();
 
   final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'http://localhost:3000',
+    baseUrl: AppConstants.serverBaseUrl,
     connectTimeout: const Duration(seconds: 5),
     receiveTimeout: const Duration(seconds: 5),
   ));

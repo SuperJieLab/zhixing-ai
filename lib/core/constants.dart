@@ -39,5 +39,15 @@ class AppConstants {
   static bool isModelAvailable() {
     return defaultModelPath.isNotEmpty && File(defaultModelPath).existsSync();
   }
+
+  // ─── 服务端地址（HTTP 与 WS 共用）───
+
+  /// 服务端基地址（HTTP 与 WS 共用）。
+  /// 默认 localhost，适合 iOS 模拟器；真机联调改为 Mac 局域网 IP（如 http://192.168.x.x:3000）。
+  static const String serverBaseUrl = 'http://localhost:3000';
+
+  /// WS 地址：把 http:// 换成 ws://（https:// → wss://）
+  static String get serverWsUrl =>
+      serverBaseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
 }
 
