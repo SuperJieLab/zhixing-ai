@@ -9,6 +9,7 @@ import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/model_manager.dart';
 import 'package:zhixing_ai/core/services/push_service.dart';
 import 'package:zhixing_ai/core/services/push_socket_service.dart';
+import 'package:zhixing_ai/core/ui/in_app_banner.dart';
 
 /// 全局 Navigator key
 ///
@@ -51,21 +52,9 @@ Future<void> main() async {
   // 而 connect() 拿到 null token 会静默放弃且不重连。
   unawaited(PushSocketService.instance.connect());
   PushSocketService.instance.addHandler((title, body) {
-    final context = navigatorKey.currentContext;
-    if (context != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-              if (body.isNotEmpty) Text(body),
-            ],
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+    final overlay = navigatorKey.currentState?.overlay;
+    if (overlay != null) {
+      InAppBanner.show(overlay, title: title, body: body);
     }
   });
 

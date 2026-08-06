@@ -39,7 +39,7 @@ SyncService ──POST /api/sync──────────▶ routes/sync (t
   │                                     cron 每30分
   │                                          └─▶ push.js → rules-engine / llm-engine → sendPush → wsHub.pushToToken
   ▼
-应用内横幅（SnackBar / Overlay）
+应用内横幅（顶部 Overlay 浮层，不挤压主视图）
 ```
 
 设备身份 = 现有 `device_token`（来自 `PushService().getToken()`）。
@@ -73,7 +73,7 @@ WS 连上来带的 `token` 必须与 `/api/sync` 上报的 `device_token` 一致
   - 监听 `channel.stream`；收到 `{type:'push'}` → 通过回调 / 简单事件总线抛给上层。
   - **连接生命周期**：`main.dart` 启动后连一次；断开后由 `_scheduleReconnect` 固定 5s 退避重连（无 `AppLifecycleState` 监听，保持简单）。生命周期重连 / 指数退避留作后续演进。
   - 容错：连接失败 / `onDone` / `onError` → 退避重连，**绝不抛异常影响主流程**（沿用 SyncService「推送是锦上添花」原则）。
-- **横幅展示（v1 最小）**：收到推送 → 经全局 `NavigatorKey` 触发 `ScaffoldMessenger` 的 SnackBar（或 `OverlayEntry` 顶部条）。优先 SnackBar，能验证「站内推送」效果即可。后续可升级为自定义顶部横幅。
+- **横幅展示（v1）**：收到推送 → 经全局 `NavigatorKey` 拿到 `NavigatorState.overlay`，插入 `OverlayEntry` 顶部浮层横幅（从顶部滑下、盖在主视图上、**不挤压**主视图；区别于 SnackBar 从底部上滑、MaterialBanner 顶内容）。点击或 4s 后自动消失，多个推送排队展示。实现见 `lib/core/ui/in_app_banner.dart` 的 `InAppBanner`。
 - **`lib/main.dart`**：在 `SettingsRepository.initialize()` 之后启动 `PushSocketService` 连接。
 
 ## 6. 数据流
