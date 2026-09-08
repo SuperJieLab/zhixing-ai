@@ -31,7 +31,20 @@ class ChatInput extends StatefulWidget {
   /// 如果不需要处理发送事件（纯展示），可以不传。
   final void Function(String message)? onSend;
 
-  const ChatInput({super.key, this.onSend});
+  /// 是否正在等待 AI 回复（思考中）。
+  ///
+  /// 为 true 时，右侧圆钮切换为红色停止按钮（[onStop]）；否则为正常发送按钮。
+  final bool isThinking;
+
+  /// 点击停止按钮的回调（仅在 [isThinking] 为 true 时有效）。
+  final VoidCallback? onStop;
+
+  const ChatInput({
+    super.key,
+    this.onSend,
+    this.isThinking = false,
+    this.onStop,
+  });
 
   /// 创建 State 对象
   ///
@@ -179,22 +192,37 @@ class _ChatInputState extends State<ChatInput> {
             const SizedBox(width: 8),
 
             // =========================================================
-            // 右侧：发送按钮（圆形，鼠尾草绿底色 + 白色飞机图标）
+            // 右侧：按钮（思考中显示红色停止按钮，否则为发送按钮）
             // =========================================================
-            Container(
-              decoration: const BoxDecoration(
-                color: AppTheme.primary,
-                shape: BoxShape.circle, // 圆形
-              ),
-              child: IconButton(
-                icon: const Icon(
-                  Icons.send_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                onPressed: _handleSubmit,
-              ),
-            ),
+            widget.isThinking
+                ? Container(
+                    decoration: const BoxDecoration(
+                      color: AppTheme.error, // 柔和暗红，提示「中止」
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.stop_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: widget.onStop,
+                    ),
+                  )
+                : Container(
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primary,
+                      shape: BoxShape.circle, // 圆形
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: _handleSubmit,
+                    ),
+                  ),
           ],
         ),
       ),

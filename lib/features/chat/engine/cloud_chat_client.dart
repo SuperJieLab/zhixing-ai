@@ -29,22 +29,30 @@ enum ChatMode {
 ///     CancelToken 只能在请求建立阶段生效，对已进入响应体的流无效）。
 ///   - 服务端按帧下发 `{"delta":"..."}` / `{"error":"..."}` / `[DONE]`，[SseBuffer] 负责切帧。
 class CloudChatClient {
-  final String _baseUrl;
   late final Dio _dio;
+
+  /// 帧间空闲超时：任意两帧（解码后的 chunk）之间的间隔超过该值即视为服务端卡死，
+  /// 向上抛 [TimeoutException]，交由上层（ChatProvider）决定降级策略。
+  ///
+  /// 注意这是「帧间空闲」而非「总时长」语义：流式过程中只要持续有数据到达就不会触发，
+  /// 仅当服务端长时间（默认 10s）不再下发任何字节时才超时。触发后由上层决定降级。
+  final Duration _frameTimeout;
 
   CancelToken? _cancelToken;
   StreamSubscription<void>? _bodySubscription;
   StreamController<String>? _activeController;
 
   /// [baseUrl] 默认取 [AppConstants.serverBaseUrl]，测试时可注入 mock 服务端地址。
-  CloudChatClient({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.serverBaseUrl {
-    _dio = Dio(BaseOptions(
-      baseUrl: _baseUrl,
-      responseType: ResponseType.stream,
-      connectTimeout: const Duration(seconds: 10),
-    ));
-  }
+  /// [frameTimeout] 帧间空闲超时（默认 10s），详见 [_frameTimeout]。
+  CloudChatClient({
+    String? baseUrl,
+    Duration frameTimeout = const Duration(seconds: 10),
+  })  : _frameTimeout = frameTimeout, // ignore: prefer_initializing_formals
+        _dio = Dio(BaseOptions(
+          baseUrl: baseUrl ?? AppConstants.serverBaseUrl,
+          responseType: ResponseType.stream,
+          connectTimeout: const Duration(seconds: 10),
+        ));
 
   /// 流式生成回复
   ///
@@ -101,7 +109,14 @@ class CloudChatClient {
     }
 
     final buffer = SseBuffer();
-    final subscription = stream.cast<List<int>>().transform(utf8.decoder).listen(
+    // 帧间空闲超时：叠加在解码流之上（每帧到达都会重置计时，单个大 chunk 不受影响）。
+    // 超时无 onTimeout 处理 → 抛 TimeoutException 作为 stream 的错误事件，
+    // 由下方 onError 透传给消费方；cancel 该订阅会向下转发取消底层响应体订阅。
+    final subscription = stream
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .timeout(_frameTimeout)
+        .listen(
       (chunkText) {
         try {
           for (final data in buffer.feed(chunkText)) {

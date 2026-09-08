@@ -67,6 +67,45 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
             const Divider(height: 1),
+            Consumer<SettingsProvider>(
+              builder: (context, provider, _) => SwitchListTile(
+                title: const Text('云端对话模式'),
+                subtitle: const Text(
+                  '开启后，对话内容将发送至服务端处理（经转发至 DeepSeek）。\n'
+                  '默认关闭，本地模式全程不出设备。切换后下次新对话生效。',
+                ),
+                value: provider.chatCloudMode,
+                onChanged: (value) async {
+                  if (value && !provider.chatCloudConsented) {
+                    final agreed = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: const Text('云端对话说明'),
+                        content: const Text(
+                          '开启云端对话后，你的对话内容将离开设备：经服务端转发至 '
+                          'DeepSeek API 处理。本地模式则全程在设备内完成，不出设备。'
+                          '请确认你是否接受将对话内容上传至服务端。',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(c, false),
+                            child: const Text('取消'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(c, true),
+                            child: const Text('同意并开启'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (agreed != true) return;
+                    await provider.setChatCloudConsented(true);
+                  }
+                  await provider.setChatCloudMode(value);
+                },
+              ),
+            ),
+            const Divider(height: 1),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
               child: Text(

@@ -8,6 +8,8 @@ class SettingsRepository {
   static const String _kGpuAcceleration = 'gpu_acceleration_enabled';
   static const String _kAiPush = 'ai_optimized_push';
   static const String _kAiPushConsented = 'ai_push_consented';
+  static const String _kCloudChat = 'chat_cloud_mode';
+  static const String _kCloudChatConsented = 'chat_cloud_consented';
 
   static final SettingsRepository instance = SettingsRepository._();
 
@@ -68,6 +70,35 @@ class SettingsRepository {
   Future<void> setAiPushConsented(bool value) async {
     _assertInit();
     await _prefs.setBool(_kAiPushConsented, value);
+  }
+
+  /// 是否启用「云端对话模式」。
+  ///
+  /// true  → 对话内容经服务端转发至 DeepSeek API（离开设备）。
+  /// false → 本地 LLM 引擎离线生成（默认，全程不出设备）。
+  ///
+  /// 默认 false：用户需在「设置」中开启。模式在 [ChatProvider] 构造时读取，
+  /// 仅对开启后的新对话生效，不影响正在进行中的对话。
+  bool get chatCloudMode {
+    _assertInit();
+    return _prefs.getBool(_kCloudChat) ?? false;
+  }
+
+  Future<void> setChatCloudMode(bool value) async {
+    _assertInit();
+    await _prefs.setBool(_kCloudChat, value);
+  }
+
+  /// 用户是否已同意「云端对话模式」的隐私说明。
+  /// 首次开启时弹窗，同意后持久化，之后不再重复弹。
+  bool get chatCloudConsented {
+    _assertInit();
+    return _prefs.getBool(_kCloudChatConsented) ?? false;
+  }
+
+  Future<void> setChatCloudConsented(bool value) async {
+    _assertInit();
+    await _prefs.setBool(_kCloudChatConsented, value);
   }
 
   void _assertInit() {

@@ -40,4 +40,23 @@ class SettingsProvider extends ChangeNotifier {
     await _repo.setAiPushConsented(value);
     notifyListeners();
   }
+
+  bool get chatCloudMode => _repo.chatCloudMode;
+
+  /// 切换「云端对话模式」。持久化后下次新对话生效。
+  /// 隐私同意判定在设置页（[SettingsPage]）处理，此处只负责持久化。
+  Future<void> setChatCloudMode(bool value) async {
+    if (_repo.chatCloudMode == value) return;
+    await _repo.setChatCloudMode(value);
+    notifyListeners();
+  }
+
+  /// 是否已同意云端对话的隐私说明（首次开启弹窗用）。
+  bool get chatCloudConsented => _repo.chatCloudConsented;
+
+  Future<void> setChatCloudConsented(bool value) async {
+    if (_repo.chatCloudConsented == value) return;
+    await _repo.setChatCloudConsented(value);
+    notifyListeners();
+  }
 }

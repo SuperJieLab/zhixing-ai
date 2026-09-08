@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:zhixing_ai/core/engine/conversation_service.dart';
@@ -54,6 +56,17 @@ class ChatProvider extends ChangeNotifier {
   final List<ChatMessage> _messages;
   bool _engineSeeded = false;
 
+  // ================================================================
+  // 流式消费控制（支持中断）
+  // ================================================================
+
+  /// 当前进行中的流式订阅，供 [stopGeneration] 取消。
+  /// 自然结束或中断后清空。
+  StreamSubscription<String>? _activeSubscription;
+
+  /// 与本轮流式消费对应的完成器，[stopGeneration] 通过它把中断标记为正常完成。
+  Completer<void>? _generationCompleter;
+
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   int get round => _round;
   bool get isThinking => _isThinking;
@@ -86,8 +99,12 @@ class ChatProvider extends ChangeNotifier {
     required String topic,
     Conversation? conversation,
     ConversationService? conversationService,
-    this._mode = ChatMode.local,
-  })  : _topic = topic,
+    ChatMode? mode,
+  })  : _mode = mode ??
+            (SettingsRepository.instance.chatCloudMode
+                ? ChatMode.cloud
+                : ChatMode.local),
+        _topic = topic,
         _messages = conversation?.messages ?? _buildWelcome(topic),
         _round = conversation != null
             ? conversation.messages
@@ -189,7 +206,18 @@ class ChatProvider extends ChangeNotifier {
       }
     } catch (e, stack) {
       AppLogger.error('ChatProvider', '推理失败', e, stack);
-      if (_mode == ChatMode.cloud &&
+      if (_mode == ChatMode.cloud && e is TimeoutException) {
+        // 连接超时：丢弃可能残缺的半截 markdown（截断渲染异常），提示用户重试。
+        final partialLen = _messages[aiMessageIndex].content.length;
+        AppLogger.warn(
+            'ChatProvider', '云端连接超时，丢弃 $partialLen 字符的半成品内容');
+        _error = '连接超时';
+        _messages[aiMessageIndex] = ChatMessage(
+          role: MessageRole.ai,
+          content: '连接超时了，请重新发送你的问题。',
+          round: _round,
+        );
+      } else if (_mode == ChatMode.cloud &&
           _messages[aiMessageIndex].content.isEmpty) {
         // 云端完全无产出：降级为本地 Mock 回复，给出友好提示。
         AppLogger.warn('ChatProvider', '云端失败，降级为本地回复');
@@ -208,7 +236,7 @@ class ChatProvider extends ChangeNotifier {
           round: _round,
         );
       } else {
-        // 云端已流出部分内容：保留半成品，仅记录错误。
+        // 云端已流出部分内容（非超时异常）：保留半成品，仅记录错误。
         _error = e.toString();
       }
     } finally {
@@ -236,16 +264,7 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
-    final buffer = StringBuffer();
-    await for (final token in engine.generateResponse(content)) {
-      buffer.write(token);
-      _messages[aiMessageIndex] = ChatMessage(
-        role: MessageRole.ai,
-        content: buffer.toString(),
-        round: _round,
-      );
-      notifyListeners();
-    }
+    await _consume(engine.generateResponse(content), aiMessageIndex);
   }
 
   /// 云端 SSE 流式生成
@@ -271,16 +290,67 @@ class ChatProvider extends ChangeNotifier {
         .toList();
     cloudMessages.add((role: 'user', content: content));
 
+    await _consume(_cloud.generateResponse(cloudMessages), aiMessageIndex);
+  }
+
+  /// 统一消费一段流式回复，边收边写回 AI 消息并通知监听者。
+  ///
+  /// 抽象自 [ _sendLocal ] / [ _sendCloud ] 中完全一致的「缓冲 + notify」循环，
+  /// 改为手动 [StreamSubscription] 管理，使 [stopGeneration] 能中途取消订阅，
+  /// 而不再依赖无法被外部打断的 `await for`。
+  ///
+  /// 正常完成（onDone）或中断（stopGeneration）后清空 [_activeSubscription] /
+  /// [_generationCompleter]，避免悬挂引用。
+  Future<void> _consume(Stream<String> stream, int aiMessageIndex) {
+    final completer = Completer<void>();
+    _generationCompleter = completer;
+
     final buffer = StringBuffer();
-    await for (final delta in _cloud.generateResponse(cloudMessages)) {
-      buffer.write(delta);
-      _messages[aiMessageIndex] = ChatMessage(
-        role: MessageRole.ai,
-        content: buffer.toString(),
-        round: _round,
-      );
-      notifyListeners();
+    _activeSubscription = stream.listen(
+      (delta) {
+        buffer.write(delta);
+        _messages[aiMessageIndex] = ChatMessage(
+          role: MessageRole.ai,
+          content: buffer.toString(),
+          round: _round,
+        );
+        notifyListeners();
+      },
+      onError: (Object e) {
+        if (!completer.isCompleted) completer.completeError(e);
+        _activeSubscription = null;
+        _generationCompleter = null;
+      },
+      onDone: () {
+        if (!completer.isCompleted) completer.complete();
+        _activeSubscription = null;
+        _generationCompleter = null;
+      },
+      cancelOnError: true,
+    );
+
+    return completer.future;
+  }
+
+  /// 中断当前正在进行的生成
+  ///
+  /// 用于输入栏停止按钮：
+  ///   - 云端：调用 [_cloud.stop()] 取消底层响应体订阅 → 关闭 socket → 服务端感知断开。
+  ///   - 本地：取消正在消费的 token 流，`await for` 等价物就此停止（已生成文本保留）。
+  /// 将完成器标记为「正常完成」而非错误，使 sendMessage 的 finally 正常推进轮次并保存
+  /// 半截内容，且不进入 catch 的降级分支。
+  void stopGeneration() {
+    final sub = _activeSubscription;
+    if (sub == null) return;
+    _activeSubscription = null;
+
+    _cloud.stop(); // 云端：中断 socket（本地无活动请求时无害）。
+    sub.cancel(); // 本地：停止消费 token 流（保留已生成文本）。
+
+    if (_generationCompleter != null && !_generationCompleter!.isCompleted) {
+      _generationCompleter!.complete(); // 视为正常结束：走 finally，不进 catch。
     }
+    _generationCompleter = null;
   }
 
   void _saveMessages() {

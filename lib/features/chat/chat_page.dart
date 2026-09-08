@@ -214,6 +214,8 @@ class _ChatPageState extends State<ChatPage> {
                     }
                     chatProvider.sendMessage(message);
                   },
+                  isThinking: chatProvider.isThinking,
+                  onStop: () => chatProvider.stopGeneration(),
                 ),
               ],
             ),
