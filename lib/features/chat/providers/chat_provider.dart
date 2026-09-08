@@ -7,6 +7,7 @@ import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/conversation.dart';
 import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/strategist_prompter.dart';
 
 /// 对话状态管理
@@ -25,6 +26,10 @@ import 'package:zhixing_ai/features/chat/engine/strategist_prompter.dart';
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
+  final ChatMode _mode;
+
+  // 云端模式复用的 SSE 客户端（本地模式不会真正发起请求）。
+  final CloudChatClient _cloud = CloudChatClient();
 
   // ================================================================
   // 引擎状态
@@ -81,6 +86,7 @@ class ChatProvider extends ChangeNotifier {
     required String topic,
     Conversation? conversation,
     ConversationService? conversationService,
+    this._mode = ChatMode.local,
   })  : _topic = topic,
         _messages = conversation?.messages ?? _buildWelcome(topic),
         _round = conversation != null
@@ -95,6 +101,7 @@ class ChatProvider extends ChangeNotifier {
   @override
   void dispose() {
     _engine?.dispose();
+    _cloud.dispose();
     super.dispose();
   }
 
@@ -152,8 +159,8 @@ class ChatProvider extends ChangeNotifier {
     }
 
     // Seed the engine with current history before adding new messages.
-    // At this point _messages contains only what the engine hasn't seen yet.
-    if (!_engineSeeded && _engine != null) {
+    // 云端模式不需要：历史由 _sendCloud 显式构造并随请求发送。
+    if (_mode != ChatMode.cloud && !_engineSeeded && _engine != null) {
       _engineSeeded = true;
       _engine!.seedHistory(_messages);
     }
@@ -175,34 +182,35 @@ class ChatProvider extends ChangeNotifier {
     ));
 
     try {
-      final engine = _engine;
-
-      if (engine == null || !engine.isReady) {
+      if (_mode == ChatMode.cloud) {
+        await _sendCloud(content, aiMessageIndex);
+      } else {
+        await _sendLocal(content, aiMessageIndex);
+      }
+    } catch (e, stack) {
+      AppLogger.error('ChatProvider', '推理失败', e, stack);
+      if (_mode == ChatMode.cloud &&
+          _messages[aiMessageIndex].content.isEmpty) {
+        // 云端完全无产出：降级为本地 Mock 回复，给出友好提示。
+        AppLogger.warn('ChatProvider', '云端失败，降级为本地回复');
+        _error = '云端连接失败，已使用本地回复';
         _messages[aiMessageIndex] = ChatMessage(
           role: MessageRole.ai,
           content: _generateMockResponse(),
           round: _round,
         );
+      } else if (_messages[aiMessageIndex].content.isEmpty) {
+        // 本地引擎失败（含未就绪兜底之外的异常）：保留通用失败文案。
+        _error = e.toString();
+        _messages[aiMessageIndex] = ChatMessage(
+          role: MessageRole.ai,
+          content: '抱歉，我在思考时遇到了一些问题。你能换个方式再说说吗？',
+          round: _round,
+        );
       } else {
-        final buffer = StringBuffer();
-        await for (final token in engine.generateResponse(content)) {
-          buffer.write(token);
-          _messages[aiMessageIndex] = ChatMessage(
-            role: MessageRole.ai,
-            content: buffer.toString(),
-            round: _round,
-          );
-          notifyListeners();
-        }
+        // 云端已流出部分内容：保留半成品，仅记录错误。
+        _error = e.toString();
       }
-    } catch (e, stack) {
-      AppLogger.error('ChatProvider', '推理失败', e, stack);
-      _error = e.toString();
-      _messages[aiMessageIndex] = ChatMessage(
-        role: MessageRole.ai,
-        content: '抱歉，我在思考时遇到了一些问题。你能换个方式再说说吗？',
-        round: _round,
-      );
     } finally {
       _round++;
       _isThinking = false;
@@ -214,6 +222,66 @@ class ChatProvider extends ChangeNotifier {
   // ================================================================
   // 私有
   // ================================================================
+
+  /// 本地引擎流式生成（原 sendMessage 内联逻辑提取）
+  Future<void> _sendLocal(String content, int aiMessageIndex) async {
+    final engine = _engine;
+
+    if (engine == null || !engine.isReady) {
+      _messages[aiMessageIndex] = ChatMessage(
+        role: MessageRole.ai,
+        content: _generateMockResponse(),
+        round: _round,
+      );
+      return;
+    }
+
+    final buffer = StringBuffer();
+    await for (final token in engine.generateResponse(content)) {
+      buffer.write(token);
+      _messages[aiMessageIndex] = ChatMessage(
+        role: MessageRole.ai,
+        content: buffer.toString(),
+        round: _round,
+      );
+      notifyListeners();
+    }
+  }
+
+  /// 云端 SSE 流式生成
+  ///
+  /// 历史窗口：取 [content] 对应的用户消息追加前的最后 10 条消息（过滤 round==0
+  /// 欢迎语，因其读起来像助手指令而非真实对话），映射角色后附上本轮用户消息发送。
+  /// 注意：调用此方法时用户消息与空 AI 占位符已入 [_messages]（末尾 2 条），
+  /// 需剔除后再取窗口，否则用户消息会重复下发、占位符会变成空 assistant 轮。
+  Future<void> _sendCloud(String content, int aiMessageIndex) async {
+    var window = _messages
+        .sublist(0, _messages.length - 2)
+        .where((m) => m.round != 0)
+        .toList();
+    if (window.length > 10) {
+      window = window.sublist(window.length - 10);
+    }
+
+    final cloudMessages = window
+        .map((m) => (
+              role: m.role == MessageRole.user ? 'user' : 'assistant',
+              content: m.content,
+            ))
+        .toList();
+    cloudMessages.add((role: 'user', content: content));
+
+    final buffer = StringBuffer();
+    await for (final delta in _cloud.generateResponse(cloudMessages)) {
+      buffer.write(delta);
+      _messages[aiMessageIndex] = ChatMessage(
+        role: MessageRole.ai,
+        content: buffer.toString(),
+        round: _round,
+      );
+      notifyListeners();
+    }
+  }
 
   void _saveMessages() {
     if (_activeConversationId == null) return;
