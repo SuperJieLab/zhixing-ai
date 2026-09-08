@@ -76,16 +76,20 @@ async function streamChatCompletion(messages, { onDelta, signal } = {}) {
   }
 
   let rest = '';
+  let done = false; // 必须提到循环外：截断检查在 loop 结束后仍需读取此flag
   for await (const chunk of response.body) {
     // 注意：fetch 的 chunk 是 Uint8Array，其 toString('utf8') 不解码（返回数字串），
     // 需用 Buffer.from 转换；Buffer 兼容 Uint8Array。
     const text = Buffer.from(chunk).toString('utf8');
-    const { deltas, rest: nextRest, done } = extractDeltas(text, rest);
-    rest = nextRest;
-    for (const d of deltas) {
+    const result = extractDeltas(text, rest);
+    rest = result.rest;
+    for (const d of result.deltas) {
       if (typeof onDelta === 'function') onDelta(d);
     }
-    if (done) break;
+    if (result.done) {
+      done = true;
+      break;
+    }
   }
 
   // 上游「干净地」中途断开（没发 [DONE] 且还有半帧数据没吐完）时，

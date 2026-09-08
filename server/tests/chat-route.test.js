@@ -153,6 +153,11 @@ test('chat 路由：流式转发三段 content + [DONE]', async () => {
     assert.ok(frames.some((f) => f.includes('"delta":"好"')), '应有 好 帧');
     assert.ok(frames.some((f) => f.includes('"delta":"世界"')), '应有 世界 帧');
     assert.ok(frames.includes('[DONE]'), '应有 [DONE] 帧');
+    // 回归断言：正常完成绝不能夹带 error 帧（曾因 llm-engine 中 done 变量
+    // 作用域错误，每次正常结束都抛 ReferenceError → error 帧，客户端把完整
+    // 回答当失败。此处若缺失，该 bug 无法被任何测试捕获）。
+    const errFrames = frames.filter((f) => f.includes('"error"'));
+    assert.equal(errFrames.length, 0, `正常完成不应有 error 帧: ${errFrames}`);
   } finally {
     server.close();
     mock.close();
