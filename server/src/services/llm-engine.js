@@ -30,6 +30,72 @@
  * API 文档：https://platform.deepseek.com/api-docs
  */
 
+const { extractDeltas } = require('./sse-parse');
+
+// 聊天模式系统人设：目标管理助手（知行AI），中文回答，可用 Markdown 组织内容
+const CHAT_SYSTEM_PROMPT =
+  '你是"知行AI"——一个个人目标管理助手。请用简体中文回答用户，' +
+  '可以合理使用 Markdown（如列表、加粗、代码块）来组织内容，让回答清晰易读。';
+
+// 上游基础地址：测试时可用 DEEPSEEK_BASE_URL 指向本地 mock（懒读取，覆盖 require 顺序）
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+
+/**
+ * 流式聊天补全（DeepSeek chat/completions，stream=true）
+ *   messages: [{role, content}]，role 为 'system' | 'user' | 'assistant'
+ *   onDelta(text): 每收到一段增量 content 时回调
+ *   signal: AbortSignal，用于取消传播（客户端断开时中断上游请求）
+ *
+ * 说明：本函数不校验 API Key（职责分离，由路由层负责 501）。
+ * 无 key 也可被调用，但真实请求会因 401 失败；测试通过 mock 规避。
+ */
+async function streamChatCompletion(messages, { onDelta, signal } = {}) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  // 懒读取上游地址：测试时可通过 DEEPSEEK_BASE_URL 指向本地 mock，覆盖 require 顺序
+  const baseUrl = process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL;
+
+  const response = await fetch(baseUrl + '/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'Accept': 'text/event-stream',
+    },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...messages],
+      stream: true,
+      temperature: 0.7,
+      max_tokens: 1024,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`upstream ${response.status}`);
+  }
+
+  let rest = '';
+  for await (const chunk of response.body) {
+    // 注意：fetch 的 chunk 是 Uint8Array，其 toString('utf8') 不解码（返回数字串），
+    // 需用 Buffer.from 转换；Buffer 兼容 Uint8Array。
+    const text = Buffer.from(chunk).toString('utf8');
+    const { deltas, rest: nextRest, done } = extractDeltas(text, rest);
+    rest = nextRest;
+    for (const d of deltas) {
+      if (typeof onDelta === 'function') onDelta(d);
+    }
+    if (done) break;
+  }
+
+  // 上游「干净地」中途断开（没发 [DONE] 且还有半帧数据没吐完）时，
+  // 静默 resolve 会让客户端误以为回答完整 → 必须抛错，路由层转成 error 帧。
+  // 正常结束（done=true）或 rest 只剩空白时不算截断。
+  if (!done && rest.trim().length > 0) {
+    throw new Error('upstream closed mid-stream, answer truncated');
+  }
+}
+
 async function analyzePushDecision(goals, strategies) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
@@ -101,4 +167,9 @@ ${strategiesSummary || '(无)'}
   }
 }
 
-module.exports = { analyzePushDecision };
+module.exports = {
+  analyzePushDecision,
+  streamChatCompletion,
+  DEEPSEEK_BASE_URL,
+  CHAT_SYSTEM_PROMPT,
+};

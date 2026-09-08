@@ -34,6 +34,9 @@ app.use(express.json());
 const syncRouter = require('./routes/sync');
 app.use('/api/sync', syncRouter);
 
+const chatRouter = require('./routes/chat');
+app.use('/api/chat', chatRouter);
+
 const cron = require('node-cron');
 const { runRulesMode, runLLMMode, sendPush } = require('./services/push');
 
