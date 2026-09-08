@@ -190,6 +190,8 @@ class _ChatPageState extends State<ChatPage> {
                     itemBuilder: (context, index) {
                       return ChatBubble(
                         message: chatProvider.messages[index],
+                        isStreaming: chatProvider.isThinking &&
+                            index == chatProvider.messages.length - 1,
                       );
                     },
                   ),

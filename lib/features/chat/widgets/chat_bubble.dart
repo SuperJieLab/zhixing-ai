@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/features/chat/widgets/markdown_message_view.dart';
 
 /// 聊天气泡组件
 ///
@@ -19,7 +20,14 @@ class ChatBubble extends StatelessWidget {
   /// 要显示的消息数据
   final ChatMessage message;
 
-  const ChatBubble({super.key, required this.message});
+  /// 是否正处于流式生成中（仅最后一条 AI 消息可能为 true）
+  final bool isStreaming;
+
+  const ChatBubble({
+    super.key,
+    required this.message,
+    this.isStreaming = false,
+  });
 
   /// 判断这条消息是否是 AI 发出的
   ///
@@ -109,15 +117,25 @@ class ChatBubble extends StatelessWidget {
                 ],
               ),
 
-              child: Text(
-                message.content,
-                style: TextStyle(
-                  // AI：深色文字，用户：白色文字
-                  color: _isAI ? AppTheme.textPrimary : Colors.white,
-                  fontSize: 15,
-                  height: 1.5, // 行高 1.5 倍，增加可读性
-                ),
-              ),
+              child: _isAI
+                  ? MarkdownMessageView(
+                      content: message.content,
+                      isComplete: !isStreaming,
+                      baseStyle: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 15,
+                        height: 1.5, // 行高 1.5 倍，增加可读性
+                      ),
+                    )
+                  : Text(
+                      message.content,
+                      style: TextStyle(
+                        // 用户消息：白色文字
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.5, // 行高 1.5 倍，增加可读性
+                      ),
+                    ),
             ),
           ),
 
