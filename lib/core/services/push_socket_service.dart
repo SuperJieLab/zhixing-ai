@@ -37,10 +37,15 @@ typedef PushHandler = void Function(String title, String body);
 ///   main.dart → PushSocketService.instance.connect()（App 启动后调用）
 ///   handler（main.dart 注册）→ 弹 SnackBar 横幅
 ///
-/// 【容错】连接失败/断开自动 5s 重连；connect 有重入守卫避免重复 socket 泄漏。
+/// 【容错】连接失败/断开自动指数退避重连（5s 起、×2、封顶 60s，连上后重置）；
+/// connect 有重入守卫避免重复 socket 泄漏。
 class PushSocketService {
   static final PushSocketService instance = PushSocketService._();
   PushSocketService._();
+
+  static const Duration _baseReconnectDelay = Duration(seconds: 5);
+  static const Duration _maxReconnectDelay = Duration(seconds: 60);
+  Duration _reconnectDelay = _baseReconnectDelay;
 
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
@@ -63,13 +68,22 @@ class PushSocketService {
       }
       final channel = WebSocketChannel.connect(Uri.parse(buildWsUrl(token)));
       _channel = channel;
+      // web_socket_channel 2.4+：连接失败错误经 channel.ready 传播，
+      // 不 await 会导致 Unhandled Exception，且无法感知"真正连上"的时刻。
+      await channel.ready;
+      if (_disposed) {
+        await channel.sink.close();
+        return;
+      }
       _sub = channel.stream.listen(
         _onMessage,
         onDone: _onDisconnect,
         onError: (_) => _onDisconnect(),
       );
+      _reconnectDelay = _baseReconnectDelay; // 连上后重置退避
       AppLogger.info('PushWS', '已连接');
     } catch (e) {
+      _channel = null;
       AppLogger.info('PushWS', '连接失败: $e');
       _scheduleReconnect();
     } finally {
@@ -90,14 +104,21 @@ class PushSocketService {
     _sub?.cancel();
     _sub = null;
     _channel = null;
-    AppLogger.info('PushWS', '连接断开，5s 后重连');
+    AppLogger.info('PushWS', '连接断开');
     _scheduleReconnect();
   }
 
   void _scheduleReconnect() {
     if (_disposed) return;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), connect);
+    AppLogger.info('PushWS', '${_reconnectDelay.inSeconds}s 后重连');
+    _reconnectTimer = Timer(_reconnectDelay, () {
+      // 指数退避：失败越多次重连间隔越长，封顶 60s，避免服务端不在线时刷屏
+      final doubled = _reconnectDelay * 2;
+      _reconnectDelay =
+          doubled > _maxReconnectDelay ? _maxReconnectDelay : doubled;
+      connect();
+    });
   }
 
   void dispose() {
