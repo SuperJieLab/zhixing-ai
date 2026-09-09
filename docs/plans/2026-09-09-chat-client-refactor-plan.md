@@ -76,10 +76,10 @@
 
 ## Task 5：收尾
 
-- [ ] 手工冒烟：本地模式对话（含恢复会话）、云端模式对话、停止生成、断网降级 Mock
-- [ ] 提交（拆分：Task 1+2 策略与本地客户端 / Task 3+4 接口对齐与接入，或按用户意愿合并）
-- [ ] 更新 `MEMORY.md`：v2 候选①标记完成，记录 LocalChatClient/ConversationStrategy 新结构；②的前置（initialize 暂存 goals）就位
-- [ ] 周边一致性：README/docs 中 StrategistPrompter 表述如有时新，按「建议：」方式提示用户
+- [ ] 手工冒烟：本地模式对话（含恢复会话）、云端模式对话、停止生成、断网降级 Mock（用户侧执行）
+- [x] 提交：Task 1+2（b07a726 / 562a623 / 03bf357）与 Task 3+4（6408e6f）分批入库，全量 109/109 绿
+- [x] 更新 `MEMORY.md`：v2 候选①标记完成，记录 LocalChatClient/ConversationStrategy 新结构；②的前置（initialize 暂存 goals）就位
+- [x] 周边一致性：README 无残留；docs/PROJECT.md 有 4 处漂移，已按「建议：」列给用户（历史 notes/plans 按约定不动）
 
 ## 依赖关系
 
