@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 
 /// 起一个 mock SSE 服务端，按 [frames] 逐帧下发，帧间延迟 [delayMs]。
@@ -55,7 +56,7 @@ Future<void> main() async {
 
   final received = <String>[];
   await for (final d in client.generateResponse([
-    (role: 'user', content: '你好'),
+    ChatMessage(role: MessageRole.user, content: '你好', round: 1),
   ])) {
     received.add(d);
     stdout.writeln('[delta] $d');
@@ -79,7 +80,7 @@ Future<void> main() async {
   var stoppedClean = false;
   try {
     await for (final d in slowClient.generateResponse([
-      (role: 'user', content: '慢一点'),
+      ChatMessage(role: MessageRole.user, content: '慢一点', round: 1),
     ])) {
       beforeStop.add(d);
       stdout.writeln('[slow delta] $d');

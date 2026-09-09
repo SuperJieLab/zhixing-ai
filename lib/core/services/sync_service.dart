@@ -46,6 +46,10 @@ import 'package:zhixing_ai/core/services/push_service.dart';
 //   - DashboardModels（Goal / Strategy 数据模型）
 
 class SyncService {
+  /// 测试开关：false 时 syncDashboard 直接跳过（widget 测试的 FakeAsync zone
+  /// 中 Dio 连接 Timer 不会触发，挂到测试收尾报 "Timer is still pending"）。
+  static bool enabled = true;
+
   static final SyncService _instance = SyncService._();
   factory SyncService() => _instance;
   SyncService._();
@@ -61,6 +65,7 @@ class SyncService {
     required List<Goal> goals,
     required List<Strategy> strategies,
   }) async {
+    if (!enabled) return;
     final token = await PushService().getToken();
     if (token == null) return;
 

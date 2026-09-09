@@ -1,17 +1,22 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 
 // 云端对话客户端真实集成测试
 //
 // 用真实 dart:io HttpServer 起本地 mock SSE 服务端（127.0.0.1 直连），验证
-// [CloudChatClient] 的三种关键行为：
+// [CloudChatClient] 的关键行为：
 //   A. 正常 delta 流按序产出并正常结束；
 //   B. [CloudChatClient.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
 //      断开（客户端取消 → 连接销毁 → 服务端中断，对应 Task 3 的取消传播链）；
-//   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）。
+//   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）；
+//   D. 窗口构造：round==0 欢迎语被过滤、尾部用户消息随请求发送（Task 3 签名对齐）；
+//   E. 窗口裁剪：尾部消息之外超过 10 条时取尾部 10 条。
 //
 // 关键：服务端必须设 `bufferOutput = false`——dart:io HttpResponse 默认缓冲输出，
 // 小写入会攒到连接关闭才上线，SSE 增量投递完全失效（曾由此误判为环境代理缓冲）。
@@ -31,10 +36,12 @@ class _MockServer {
 
 /// 起一个 mock SSE 服务端。
 ///
-/// [onConnected] 在收到 POST 后被调用，拿到响应写出器；测试用例自行决定
-/// 发什么帧、何时停顿。服务端全程感知客户端是否提前断开（[response.done]）。
+/// [onConnected] 在收到 POST 后被调用，拿到响应写出器与请求体（UTF-8 解码后的
+/// JSON 字符串）；测试用例自行决定发什么帧、何时停顿。服务端全程感知客户端
+/// 是否提前断开（[response.done]）。
 Future<_MockServer> _startMock(
-  Future<void> Function(HttpResponse resp, _MockServer s) onConnected,
+  Future<void> Function(HttpResponse resp, _MockServer s, String body)
+      onConnected,
 ) async {
   final server = await HttpServer.bind('127.0.0.1', 0);
   final disconnected = Completer<void>();
@@ -57,8 +64,9 @@ Future<_MockServer> _startMock(
         ..close();
       return;
     }
-    // 读取并丢弃请求体。
-    await req.fold<List<int>>([], (b, c) => b..addAll(c));
+    // 读取请求体（UTF-8 解码，供窗口断言回显）。
+    final bodyBytes = await req.fold<List<int>>([], (b, c) => b..addAll(c));
+    final body = utf8.decode(bodyBytes);
     req.response
       ..bufferOutput = false // ★ 关闭输出缓冲，否则 SSE 帧攒到 close 才上线
       ..statusCode = 200
@@ -66,7 +74,7 @@ Future<_MockServer> _startMock(
           ContentType('text', 'event-stream', charset: 'utf-8')
       ..headers.add('Cache-Control', 'no-cache')
       ..headers.add('Connection', 'keep-alive');
-    await onConnected(req.response, _MockServer(server, disconnected));
+    await onConnected(req.response, _MockServer(server, disconnected), body);
   });
   return _MockServer(server, disconnected);
 }
@@ -88,9 +96,28 @@ Future<void> _writeFrame(
 }
 
 void main() {
+  /// 回显服务端收到的 messages（role:content| 逐帧），供窗口断言。
+  Future<void> echoMessages(
+    HttpResponse resp,
+    _MockServer s,
+    String body,
+  ) async {
+    final msgs =
+        (jsonDecode(body) as Map<String, dynamic>)['messages'] as List;
+    for (final m in msgs) {
+      await _writeFrame(
+        resp,
+        '{"delta":"${m['role']}:${m['content']}|"}',
+        s.clientDisconnected,
+      );
+    }
+    await _writeFrame(resp, '[DONE]', s.clientDisconnected);
+    await resp.close();
+  }
+
   // ── 测试 A：正常 delta 流，按序产出并正常结束 ──
   test('A. 正常 delta 流按序产出并正常结束', () async {
-    final s = await _startMock((resp, s) async {
+    final s = await _startMock((resp, s, body) async {
       await _writeFrame(resp, '{"delta":"你"}', s.clientDisconnected);
       await Future<void>.delayed(const Duration(milliseconds: 30));
       await _writeFrame(resp, '{"delta":"好"}', s.clientDisconnected);
@@ -101,8 +128,9 @@ void main() {
     final client = CloudChatClient(baseUrl: s.baseUrl);
 
     final received = <String>[];
-    await for (final d
-        in client.generateResponse([(role: 'user', content: '你好')])) {
+    await for (final d in client.generateResponse([
+      ChatMessage(role: MessageRole.user, content: '你好', round: 1),
+    ])) {
       received.add(d);
     }
     client.dispose();
@@ -113,7 +141,7 @@ void main() {
 
   // ── 测试 B：stop() 提前终止消费 + 服务端感知 socket 提前断开 ──
   test('B. stop() 提前终止且服务端感知连接断开', () async {
-    final s = await _startMock((resp, s2) async {
+    final s = await _startMock((resp, s2, body) async {
       try {
         for (var i = 0; i < 100; i++) {
           if (s2.clientDisconnected.isCompleted) return;
@@ -128,8 +156,9 @@ void main() {
     final client = CloudChatClient(baseUrl: s.baseUrl);
 
     final received = <String>[];
-    await for (final d
-        in client.generateResponse([(role: 'user', content: '慢一点')])) {
+    await for (final d in client.generateResponse([
+      ChatMessage(role: MessageRole.user, content: '慢一点', round: 1),
+    ])) {
       received.add(d);
       if (received.length == 1) client.stop(); // 收到首帧后立刻中止
     }
@@ -150,7 +179,7 @@ void main() {
   // 首帧后服务端保持流打开、不再下发任何字节；超过帧超时（200ms）后客户端应抛
   // [TimeoutException]（帧间空闲语义，非总时长）。
   test('C. 帧间空闲超时被上报为 TimeoutException', () async {
-    final s = await _startMock((resp, s) async {
+    final s = await _startMock((resp, s, body) async {
       await _writeFrame(resp, '{"delta":"一"}', s.clientDisconnected);
       // 保持打开、不再发帧：挂起一个永不完成的等待（服务端由 finally 强制关闭）。
       await Completer<void>().future;
@@ -163,8 +192,9 @@ void main() {
     final received = <String>[];
     Object? caught;
     try {
-      await for (final d
-          in client.generateResponse([(role: 'user', content: '超时')])) {
+      await for (final d in client.generateResponse([
+        ChatMessage(role: MessageRole.user, content: '超时', round: 1),
+      ])) {
         received.add(d);
       }
     } on TimeoutException catch (e) {
@@ -176,5 +206,74 @@ void main() {
 
     expect(received, ['一']); // 仅收到首帧
     expect(caught, isA<TimeoutException>());
+  });
+
+  // ── 测试 D：窗口构造——round==0 欢迎语被过滤，尾部用户消息随请求发送 ──
+  test('D. round==0 欢迎语被过滤，尾部用户消息随请求发送', () async {
+    final s = await _startMock(echoMessages);
+    final client = CloudChatClient(baseUrl: s.baseUrl);
+
+    final received = <String>[];
+    await for (final d in client.generateResponse([
+      ChatMessage(role: MessageRole.ai, content: '欢迎语', round: 0),
+      ChatMessage(role: MessageRole.ai, content: '旧回答', round: 1),
+      ChatMessage(role: MessageRole.user, content: '问题1', round: 1),
+      ChatMessage(role: MessageRole.user, content: '问题2', round: 2),
+    ])) {
+      received.add(d);
+    }
+    client.dispose();
+    await s.close();
+
+    // 请求体：欢迎语被滤，历史映射 user/assistant，尾部用户消息在末尾
+    expect(received.join(), 'assistant:旧回答|user:问题1|user:问题2|');
+  });
+
+  // ── 测试 E：窗口裁剪——尾部消息之外超过 10 条时取尾部 10 条 ──
+  test('E. 历史超过窗口大小时取尾部 10 条', () async {
+    final s = await _startMock(echoMessages);
+    final client = CloudChatClient(baseUrl: s.baseUrl);
+
+    final history = <ChatMessage>[];
+    for (var r = 1; r <= 15; r++) {
+      history.add(ChatMessage(
+        role: r.isOdd ? MessageRole.user : MessageRole.ai,
+        content: '消息$r',
+        round: r,
+      ));
+    }
+    history.add(
+        ChatMessage(role: MessageRole.user, content: '新问题', round: 16));
+
+    final received = <String>[];
+    await for (final d in client.generateResponse(history)) {
+      received.add(d);
+    }
+    client.dispose();
+    await s.close();
+
+    // 消息1..15 中取尾部 10 条（消息6..15）+ 新问题 = 11 条
+    expect(received.length, 11);
+    expect(received.first, 'assistant:消息6|'); // 消息6 为偶数轮 → AI 角色
+    expect(received[10], 'user:新问题|');
+  });
+
+  // ── 测试 F：isReady 恒真；initialize 暂存 goals 且恒成功 ──
+  test('F. isReady 恒真，initialize 暂存 goals', () async {
+    final client = CloudChatClient();
+    expect(client.isReady, isTrue);
+
+    final ok = await client.initialize(
+      existingGoals: [
+        Goal(
+          title: '学英语',
+          createdAt: DateTime(2026, 1, 1),
+          updatedAt: DateTime(2026, 1, 1),
+        ),
+      ],
+    );
+    expect(ok, isTrue);
+    expect(client.isReady, isTrue);
+    // goals 仅占位暂存（② 落地后随请求体发送），此处不发起网络请求即可验证
   });
 }

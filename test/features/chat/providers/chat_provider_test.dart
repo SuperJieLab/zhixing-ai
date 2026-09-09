@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/engine/conversation_service.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatProvider 单元测试
@@ -29,7 +34,65 @@ Conversation _dummyConv() => Conversation(
 class _NoopConversationService extends ConversationService {
   @override
   Future<void> saveMessages(
-      int conversationId, List<ChatMessage> messages) async {}
+          int conversationId, List<ChatMessage> messages) async {}
+}
+
+/// 记录型持久化：捕获 saveMessages 调用（id + 消息快照）
+class _RecordingConversationService extends ConversationService {
+  final List<({int id, List<ChatMessage> messages})> saves = [];
+
+  @override
+  Future<void> saveMessages(
+      int conversationId, List<ChatMessage> messages) async {
+    saves.add((id: conversationId, messages: List.of(messages)));
+  }
+}
+
+/// fake 对话客户端：脚本化生成行为，供 Provider 降级/取消/持久化测试
+class _FakeChatClient implements ChatClient {
+  bool ready = false;
+  Object? throwOnInitialize;
+  Stream<String> Function(List<ChatMessage> history)? onGenerate;
+
+  final List<List<ChatMessage>> generateCalls = [];
+  final List<List<Goal>> initializeGoals = [];
+  int stopCalls = 0;
+  bool disposed = false;
+
+  @override
+  bool get isReady => ready;
+
+  @override
+  Future<bool> initialize({List<Goal> existingGoals = const []}) async {
+    initializeGoals.add(existingGoals);
+    if (throwOnInitialize != null) throw throwOnInitialize!;
+    ready = true;
+    return true;
+  }
+
+  @override
+  Stream<String> generateResponse(List<ChatMessage> history) {
+    generateCalls.add(history);
+    return onGenerate?.call(history) ?? const Stream.empty();
+  }
+
+  @override
+  void stop() => stopCalls++;
+
+  @override
+  void dispose() => disposed = true;
+}
+
+/// 目标仓库 fake：返回空目标（load 不依赖 DB）
+class _OkDashboardRepo extends DashboardRepository {
+  @override
+  Future<List<Goal>> getActiveGoals() async => const [];
+}
+
+/// 目标仓库 fake：模拟测试环境无 DB（getActiveGoals 抛错）
+class _FailingDashboardRepo extends DashboardRepository {
+  @override
+  Future<List<Goal>> getActiveGoals() async => throw StateError('no db');
 }
 
 void main() {
@@ -39,11 +102,19 @@ void main() {
     await SettingsRepository.instance.initialize();
   });
 
-  ChatProvider makeProvider({String topic = 'test', bool skipDb = true}) =>
+  ChatProvider makeProvider({
+    String topic = 'test',
+    bool skipDb = true,
+    ChatClient? client,
+    DashboardRepository? dashboardRepo,
+    ConversationService? conversationService,
+  }) =>
       ChatProvider(
         topic: topic,
         conversation: skipDb ? _dummyConv() : null,
-        conversationService: _NoopConversationService(),
+        conversationService: conversationService ?? _NoopConversationService(),
+        client: client,
+        dashboardRepo: dashboardRepo,
       );
 
   group('ChatProvider', () {
@@ -91,6 +162,149 @@ void main() {
         )),
         throwsUnsupportedError,
       );
+    });
+  });
+
+  group('ChatProvider × ChatClient 接入', () {
+    test('loadModel：注入 client 初始化成功 → isModelReady，goals 透传', () async {
+      final client = _FakeChatClient();
+      final provider = makeProvider(client: client, dashboardRepo: _OkDashboardRepo());
+
+      expect(provider.isModelReady, isFalse);
+      await provider.loadModel();
+      expect(provider.isModelReady, isTrue);
+      expect(provider.hasModelError, isFalse);
+      expect(client.initializeGoals.single, isEmpty);
+    });
+
+    test('loadModel：目标仓库失败 → modelError（不阻塞 mock 路径）', () async {
+      final provider = makeProvider(
+        client: _FakeChatClient(),
+        dashboardRepo: _FailingDashboardRepo(),
+      );
+
+      await provider.loadModel();
+      expect(provider.hasModelError, isTrue);
+      expect(provider.isModelReady, isFalse);
+    });
+
+    test('流式回复逐段写回 AI 消息，历史尾部为本轮用户消息', () async {
+      final client = _FakeChatClient();
+      final provider = makeProvider(
+        client: client,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      await provider.loadModel();
+      final controller = StreamController<String>();
+
+      final seen = <String>[];
+      provider.addListener(() {
+        final msgs = provider.messages;
+        if (msgs.isNotEmpty && msgs.last.role == MessageRole.ai) {
+          seen.add(msgs.last.content);
+        }
+      });
+
+      client.onGenerate = (_) => controller.stream;
+      final sendFuture = provider.sendMessage('我想转管理');
+      await Future<void>.delayed(Duration.zero);
+
+      controller.add('你'); // 逐段流出
+      await Future<void>.delayed(Duration.zero);
+      controller.add('好');
+      await Future<void>.delayed(Duration.zero);
+      await controller.close();
+      await sendFuture;
+
+      expect(provider.messages.last.content, '你好');
+      expect(seen, contains('你')); // 中间态曾被写回
+      // 历史 = 去掉尾部空 AI 占位符 → 尾部是本轮用户消息
+      final history = client.generateCalls.single;
+      expect(history.last.role, MessageRole.user);
+      expect(history.last.content, '我想转管理');
+      expect(history.where((m) => m.content.isEmpty), isEmpty);
+    });
+
+    test('stopGeneration：半截内容保留，正常收尾且转发 stop 到 client', () async {
+      final client = _FakeChatClient();
+      final provider = makeProvider(
+        client: client,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      await provider.loadModel();
+      final gate = Completer<void>();
+
+      client.onGenerate = (_) async* {
+        yield '部分';
+        await gate.future;
+        yield '后半';
+      };
+
+      final sendFuture = provider.sendMessage('长问题');
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.messages.last.content, '部分');
+
+      provider.stopGeneration();
+      await sendFuture; // 不应抛异常：finally 正常推进
+
+      expect(provider.messages.last.content, '部分'); // 半截保留
+      expect(provider.isThinking, isFalse);
+      expect(provider.round, 2); // 轮次已推进
+      expect(provider.error, isNull); // 未进降级分支
+      expect(client.stopCalls, 1);
+      gate.complete(); // 清理挂起的生成器
+    });
+
+    test('TimeoutException → 固定超时文案', () async {
+      final client = _FakeChatClient();
+      final provider = makeProvider(
+        client: client,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      await provider.loadModel();
+
+      client.onGenerate = (_) async* {
+        throw TimeoutException('帧间空闲');
+      };
+
+      await provider.sendMessage('hi');
+      expect(provider.messages.last.content, '连接超时了，请重新发送你的问题。');
+      expect(provider.error, '连接超时');
+    });
+
+    test('空内容异常 → Mock 降级', () async {
+      final client = _FakeChatClient();
+      final provider = makeProvider(
+        client: client,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      await provider.loadModel();
+
+      client.onGenerate = (_) async* {
+        throw StateError('boom');
+      };
+
+      await provider.sendMessage('hi');
+      expect(provider.error, '连接失败，已使用本地回复');
+      expect(provider.messages.last.content, isNotEmpty);
+    });
+
+    test('每轮流式结束后持久化消息', () async {
+      final client = _FakeChatClient();
+      final service = _RecordingConversationService();
+      final provider = makeProvider(
+        client: client,
+        conversationService: service,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      await provider.loadModel();
+
+      client.onGenerate = (history) => Stream.value('回复');
+      await provider.sendMessage('hi');
+
+      expect(service.saves.length, 1);
+      expect(service.saves.single.id, 1);
+      expect(service.saves.single.messages.length, 2); // user + ai
     });
   });
 

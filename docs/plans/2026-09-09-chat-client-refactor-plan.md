@@ -39,8 +39,8 @@
 - 迁移 `test/cloud_chat_client_test.dart` 到新签名，新增窗口/过滤断言
 
 **验证**
-- [ ] 云端单测绿（真 HttpServer）：round==0 被滤、>10 条取尾部、SSE/超时/取消行为不回归
-- [ ] 此 Task 后 Provider 暂不可编译（签名变了）——与 Task 4 同批提交或先合入 Task 4 再验
+- [x] 云端单测绿（真 HttpServer）：round==0 被滤、>10 条取尾部、SSE/超时/取消行为不回归（6/6，A–F）
+- [x] 此 Task 后 Provider 暂不可编译（签名变了，仅 chat_provider.dart:293 + tool/cloud_smoke.dart 两处调用点）——与 Task 4 同批提交或先合入 Task 4 再验
 
 ## Task 4：ChatProvider 接入单 client
 
@@ -69,8 +69,10 @@
 - 排查全仓引用：`grep -r StrategistPrompter`（docs/learning-notes 不改，代码引用清零）
 
 **验证**
-- [ ] 新增/迁移 Provider 测试（fake ChatClient）：流式缓冲写回、stopGeneration 半截保留且走 finally、TimeoutException 文案、空内容 Mock 降级、消息持久化
-- [ ] `flutter analyze` 0 issues；全量 `flutter test` 绿（含既有 41+ 测试）
+- [x] 新增/迁移 Provider 测试（fake ChatClient）：流式缓冲写回、stopGeneration 半截保留且走 finally、TimeoutException 文案、空内容 Mock 降级、消息持久化（7 个新测试）
+- [x] `flutter analyze` 0 issues；全量 `flutter test` **109/109 绿**（遗留 6 个失败已随注入缝落地全部修复：smoke ×4、chat_page ×2）
+- [x] 实施中发现并修复 LocalChatClient diff 契约缺口：正常完成后下一轮 diff 会把已登记的 assistant 回复重复 append 进 session（Task 2 测试恰好未断言此条）——`_unregisteredAi` 改为 `_skipNextHistoryAi`，finally 无条件置位（已登记→防重复；未登记→有意缺席），并补双重登记断言
+- [x] 附带落地：ChatPage `providerFactory` 注入缝（页面不 import engine 层，守分层规范）；DashboardRepository 注入缝；SyncService.enabled 测试开关（Dio Timer 在 FakeAsync zone 挂尾根因）；smoke_test 3 用 chat_cloud_mode=true 走云端默认工厂绕开 FFI
 
 ## Task 5：收尾
 

@@ -8,6 +8,13 @@ import 'package:zhixing_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:zhixing_ai/features/chat/widgets/chat_input.dart';
 import 'package:zhixing_ai/features/strategy_brief/strategy_brief_page.dart';
 
+/// 自定义 [ChatProvider] 构造工厂（测试注入 fake client / fake repo 用；
+/// 缺省走内部默认构造 + loadModel）。
+typedef ChatProviderFactory = ChatProvider Function({
+  required String topic,
+  Conversation? conversation,
+});
+
 /// 对话页面
 ///
 /// 两种模式通过 [conversation] 参数区分：
@@ -17,7 +24,15 @@ class ChatPage extends StatefulWidget {
   final String topic;
   final Conversation? conversation;
 
-  const ChatPage({super.key, required this.topic, this.conversation});
+  /// 可选的 Provider 构造工厂；null 时使用默认构造（真实 client + 真实仓库）。
+  final ChatProviderFactory? providerFactory;
+
+  const ChatPage({
+    super.key,
+    required this.topic,
+    this.conversation,
+    this.providerFactory,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -87,10 +102,13 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) {
-        final provider = ChatProvider(
-          topic: widget.topic,
-          conversation: widget.conversation,
-        );
+        final factory = widget.providerFactory;
+        final provider = factory != null
+            ? factory(topic: widget.topic, conversation: widget.conversation)
+            : ChatProvider(
+                topic: widget.topic,
+                conversation: widget.conversation,
+              );
         provider.loadModel();
         return provider;
       },

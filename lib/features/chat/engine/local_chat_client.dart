@@ -75,8 +75,9 @@ typedef SessionFactory = Future<ChatSession> Function();
 ///     （mirror 只存原文，与旧行为一致）
 ///   - 超上下文估算阈值自动截断：session 重建，mirror 保留最近 12 条
 ///   - think 标签剥离流式输出（逐行搬自原实现）
-///   - 取消/失败轮的 assistant 不登记 session 与 mirror（与旧实现一致），
-///     下一轮 diff 时跳过历史中对应的那条 AI 消息（[_unregisteredAi]）
+///   - 取消/失败轮的 assistant 不登记 session 与 mirror（与旧实现一致）；
+///     生成结束后（无论成败）下一轮 diff 都跳过历史中紧接着的那条 AI 消息
+///     ——正常完成时它已由生成流程登记，跳过以防重复（[_skipNextHistoryAi]）
 ///
 /// 消费方：ChatProvider（唯一），不跨 feature 共享。
 class LocalChatClient implements ChatClient {
@@ -92,9 +93,13 @@ class LocalChatClient implements ChatClient {
   int _consumed = 0;
   int _estimatedTokens = 0;
 
-  /// 上一轮生成未正常完成（取消/失败）→ assistant 未登记；
-  /// 下一轮 diff 时跳过历史中对应的那条 AI 消息（至多一条）。
-  bool _unregisteredAi = false;
+  /// 上一轮生成结束后，历史中紧接着的那条 AI 消息已"结算"：
+  ///   - 正常完成 → 回复已由生成流程登记进 session/mirror（addAssistant），
+  ///     下一轮 diff 再遇到它会重复登记 → 需跳过；
+  ///   - 取消/失败 → assistant 有意不登记，下一轮 diff 同样跳过该条。
+  /// 两种情形对 diff 的处理一致（只推进 [_consumed]，不动 session/mirror），
+  /// 故共用一个标志，在 generateResponse 的 finally 中无条件置位。
+  bool _skipNextHistoryAi = false;
 
   static const _maxTokens = 2048;
 
@@ -130,7 +135,7 @@ class LocalChatClient implements ChatClient {
       _session!.addSystem(_systemPrompt);
       _mirror.clear();
       _consumed = 0;
-      _unregisteredAi = false;
+      _skipNextHistoryAi = false;
       _estimatedTokens = LlamaService.estimateTokens(_systemPrompt);
       return true;
     } catch (e) {
@@ -148,8 +153,8 @@ class LocalChatClient implements ChatClient {
       return;
     }
 
-    final skipFirstAi = _unregisteredAi;
-    _unregisteredAi = false;
+    final skipFirstAi = _skipNextHistoryAi;
+    _skipNextHistoryAi = false;
     var aiSkipped = false;
 
     // ---- diff：只 append 新增部分（恢复会话时 _consumed==0，全量 seed）----
@@ -158,7 +163,8 @@ class LocalChatClient implements ChatClient {
       final content = msg.content;
 
       if (msg.role == MessageRole.ai && skipFirstAi && !aiSkipped) {
-        // 上轮取消/失败的半截回复：不入 session、不入 mirror。
+        // 上一轮生成的回复：正常完成时已登记（重复 append 会让 session 出现
+        // 重复 assistant 轮），取消/失败时有意缺席——两种情形都只推进游标。
         aiSkipped = true;
         _consumed++;
         continue;
@@ -191,7 +197,6 @@ class LocalChatClient implements ChatClient {
     final buffer = StringBuffer();
     var passedThink = false;
     var suppressWhitespace = false;
-    var registered = false;
     try {
       await for (final token in session.generate(maxTokens: _maxTokens)) {
         if (!passedThink) {
@@ -248,14 +253,14 @@ class LocalChatClient implements ChatClient {
         _estimatedTokens += LlamaService.estimateTokens(fullReply);
         _mirror.add((role: 'assistant', content: fullReply));
       }
-      registered = true;
     } catch (e) {
       AppLogger.error('LocalChatClient', '生成回复失败', e);
       yield '\n\n[助手暂时无法回应，请稍后再试]';
     } finally {
-      // 取消/失败时 assistant 未登记：置位，下一轮 diff 跳过该条历史。
+      // 无论正常完成（回复已登记，防重复）还是取消/失败（有意缺席），
+      // 下一轮 diff 都要跳过历史中紧接着的那条 AI 消息。
       // （流被取消时 async* 生成器的 finally 保证执行。）
-      _unregisteredAi = !registered;
+      _skipNextHistoryAi = true;
     }
   }
 

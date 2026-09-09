@@ -156,6 +156,11 @@ void main() {
         session.ops.where((op) => op == 'assistant:欢迎语').length,
         1,
       );
+      // 上一轮回复已在生成时登记：历史里的 回复A 不得再次 append
+      expect(
+        session.ops.where((op) => op == 'assistant:回复A').length,
+        1,
+      );
       // 新增的用户消息 + 生成完成后的 assistant 登记
       expect(session.ops.contains('user:问题2'), isTrue);
       expect(session.ops.contains('assistant:回复B'), isTrue);

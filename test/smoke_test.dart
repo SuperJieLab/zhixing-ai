@@ -3,10 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/app.dart';
+import 'package:zhixing_ai/core/engine/conversation_service.dart';
 import 'package:zhixing_ai/core/model_manager.dart';
+import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/services/sync_service.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
+import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
+import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 
 /// v2 冒烟测试
 ///
@@ -15,8 +23,12 @@ import 'package:zhixing_ai/features/chat/chat_page.dart';
 /// - [+] FAB → ChatPage（军师对话）
 /// - 结束对话 → StrategyBriefPage → Dashboard
 ///
-/// 测试环境限制：sqflite 在 test 环境不可用，
-/// DashboardProvider.load() 会抛异常，页面展示错误或空状态。
+/// 测试环境处理：
+/// - sqflite 不可用 → DashboardProvider.load() 抛异常，页面展示错误或空状态（可接受）；
+/// - SyncService.enabled = false：避免 Dio 连接 Timer 在 FakeAsync zone 挂尾；
+/// - chat_cloud_mode = true：测试 3 经真实导航进入 ChatPage，无法注入，
+///   云端模式不加载 llama FFI（FakeAsync 下 FFI 回调永不完成会卡 pumpAndSettle）；
+/// - 测试 4/5 直接构造 ChatPage，经 providerFactory 注入 fake client/repo。
 
 Widget buildTestApp() {
   return MultiProvider(
@@ -27,10 +39,65 @@ Widget buildTestApp() {
   );
 }
 
+// ---- 测试 4/5 用的注入件 ----
+
+class _OkDashboardRepo extends DashboardRepository {
+  @override
+  Future<List<Goal>> getActiveGoals() async => const [];
+}
+
+class _FakeChatClient implements ChatClient {
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<bool> initialize({List<Goal> existingGoals = const []}) async => true;
+
+  @override
+  Stream<String> generateResponse(List<ChatMessage> history) async* {
+    yield '这是 fake 回复。';
+  }
+
+  @override
+  void stop() {}
+
+  @override
+  void dispose() {}
+}
+
+class _NoopConversationService extends ConversationService {
+  @override
+  Future<void> saveMessages(
+      int conversationId, List<ChatMessage> messages) async {}
+}
+
+Conversation _dummyConv() => Conversation(
+      id: 1,
+      topic: 'test',
+      messages: <ChatMessage>[],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+ChatProvider _fakeProviderFactory({
+  required String topic,
+  Conversation? conversation,
+}) =>
+    ChatProvider(
+      topic: topic,
+      conversation: conversation ?? _dummyConv(),
+      conversationService: _NoopConversationService(),
+      client: _FakeChatClient(),
+      dashboardRepo: _OkDashboardRepo(),
+    );
+
 void main() {
   // ChatPage / SyncService 等依赖 SettingsRepository 已初始化
   setUpAll(() async {
-    SharedPreferences.setMockInitialValues({});
+    SyncService.enabled = false; // FakeAsync zone 中 Dio Timer 会挂尾
+    SharedPreferences.setMockInitialValues({
+      'chat_cloud_mode': true, // 经导航进入 ChatPage 的路径不加载本地 FFI
+    });
     await SettingsRepository.instance.initialize();
   });
 
@@ -80,11 +147,13 @@ void main() {
   });
 
   // ============================================================
-  // 测试 4：ChatPage 渲染基本结构
+  // 测试 4：ChatPage 渲染基本结构（注入 fake，加载成功）
   // ============================================================
   testWidgets('ChatPage 渲染 AppBar + 输入框', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: ChatPage(topic: '测试话题')),
+      MaterialApp(
+        home: ChatPage(topic: '测试话题', providerFactory: _fakeProviderFactory),
+      ),
     );
     await tester.pump();
 
@@ -99,11 +168,13 @@ void main() {
   });
 
   // ============================================================
-  // 测试 5：ChatPage 发送消息后显示用户内容
+  // 测试 5：ChatPage 发送消息后显示用户内容（fake client 回复）
   // ============================================================
   testWidgets('ChatPage 发送消息后展示用户输入内容', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: ChatPage(topic: '职业发展')),
+      MaterialApp(
+        home: ChatPage(topic: '职业发展', providerFactory: _fakeProviderFactory),
+      ),
     );
     await tester.pump();
 
@@ -112,7 +183,7 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
 
-    // 断言：用户消息出现在屏幕上（Mock 模式下无引擎也会回复）
+    // 断言：用户消息出现在屏幕上（fake client 会给出回复）
     expect(find.text('我想转管理岗位'), findsOneWidget);
   });
 }
