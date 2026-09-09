@@ -25,7 +25,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 环节 1: 对话 (StrategistPrompter)                                │
+│ 环节 1: 对话 (ConversationStrategy + ChatClient)                 │
 │                                                                  │
 │  注入已有目标列表 → 模式 C 工作：                                  │
 │    1. 先追问理解用户需求                                          │
@@ -164,7 +164,8 @@ Strategy:
 │  └──────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Engine 层                                    │   │
-│  │  StrategistPrompter  StrategistExtractor      │   │
+│  │  ConversationStrategy  StrategistExtractor    │   │
+│  │  LocalChatClient  CloudChatClient             │   │
 │  │  ConversationService  LlamaService            │   │
 │  └──────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────┐   │
@@ -225,9 +226,16 @@ lib/
 │
 ├── features/
 │   ├── chat/
-│   │   ├── engine/strategist_prompter.dart
-│   │   ├── providers/chat_provider.dart
-│   │   ├── widgets/chat_bubble.dart, chat_input.dart
+│   │   ├── engine/
+│   │   │   ├── chat_client.dart          # abstract ChatClient 接口
+│   │   │   ├── conversation_strategy.dart # 系统提示词(含goals) + LCS 去重
+│   │   │   ├── local_chat_client.dart    # 本地 llama 传输（diff 增量 append）
+│   │   │   ├── cloud_chat_client.dart    # 云端 SSE 传输（窗口构造）
+│   │   │   ├── sse_parser.dart           # SSE 半包/畸形 JSON 容错
+│   │   │   └── markdown_blocks.dart      # fence 感知流式块切分
+│   │   ├── providers/chat_provider.dart  # 单 ChatClient，无模式分支
+│   │   ├── widgets/chat_bubble.dart, chat_input.dart,
+│   │   │        markdown_message_view.dart
 │   │   ├── snackbar_throttle.dart
 │   │   └── chat_page.dart
 │   │
@@ -426,11 +434,12 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 |------|------|
 | 主页 | DashboardPage 唯一主页 |
 | 新对话入口 | Dashboard [+] → ChatPage |
-| 对话模式 | 助手模式（StrategistPrompter），模式 C：先追问 → 给解法 → 检测重叠 |
+| 对话模式 | 助手模式（ConversationStrategy），模式 C：先追问 → 给解法 → 检测重叠 |
 | Prompter 上下文 | 注入已有目标列表，助手可基于已有目标追问 |
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
-| 目标去重 | 相同 title 自动合并 sourceConvIds；Prompter 检测重叠建议合并 |
+| 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
+| 传输层 | ChatClient 接口双实现：LocalChatClient（llama diff 增量）/ CloudChatClient（SSE 窗口）；Provider 单 client 无模式分支 |
 | 状态变更 | 仅用户操作触发，AI 不可自动修改已有目标/策略状态 |
 | Brief 页确认 | 点击即生效，无弹窗（区别于 Dashboard 的弹窗确认） |
 | 提取频率 | 每次对话结束都提取 |
