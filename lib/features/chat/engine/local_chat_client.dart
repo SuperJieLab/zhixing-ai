@@ -58,21 +58,57 @@ class LlamaChatSession implements ChatSession {
 /// 生产包 [LlamaEngine.createChat]，测试注入 fake。
 typedef SessionFactory = Future<ChatSession> Function();
 
+/// 摘要生成器：把旧摘要 + 被移出上下文的消息压成新摘要。
+/// 异常由调用方（compact）兜底回落；测试注入 fake。
+typedef Summarizer = Future<String> Function(
+    String previousSummary, List<({String role, String content})> dropped);
+
+/// 生产摘要实现：一次性独立 session，不污染对话 session 上下文。
+/// [think 标签剥离]：摘要模型同为思考模型，取闭合标签后的正文。
+Future<String> llamaSummarizer(
+  LlamaEngine engine,
+  String previousSummary,
+  List<({String role, String content})> dropped,
+) async {
+  final chat = await engine.createChat();
+  try {
+    chat.addSystem(ConversationStrategy.buildSummaryPrompt(
+      previousSummary: previousSummary,
+      dropped: dropped,
+    ));
+    chat.addUser('请输出摘要。');
+    final buf = StringBuffer();
+    await for (final event in chat.generate(
+      sampler: const SamplerParams(temperature: 0.3),
+      maxTokens: 512,
+    )) {
+      if (event is TokenEvent) buf.write(event.text);
+    }
+    return stripThinkTags(buf.toString());
+  } finally {
+    chat.dispose();
+  }
+}
+
 /// 本地（端侧 llama）对话客户端。
 ///
 /// 收完整历史自行 diff（[_consumed] 计数），只把新增消息 append 进 session
 /// （增量 prefill；恢复会话时首调自然完成全量 seed，欢迎语也入 session）。
 /// 尾部用户消息过 [ConversationStrategy.isDuplicate] 决定 session 侧改写
-/// （mirror 只存原文）；超阈值时重建 session，mirror 保留最近 12 条。
+/// （mirror 只存原文）；超阈值时预算驱动压缩（滚动摘要 + 尾部装窗）。
 class LocalChatClient implements ChatClient {
   final ConversationStrategy _strategy;
   final SessionFactory _createSession;
+  final Summarizer _summarizer;
 
   /// 截断阈值（token 估算），默认 75% 上下文窗口；测试可注入小值强制触发。
   final int _truncateThreshold;
 
   ChatSession? _session;
   String _systemPrompt = '';
+
+  /// 递归压实的对话摘要（压缩产物，非对话历史；随 session 重建滚动更新）。
+  String _summary = '';
   final List<({String role, String content})> _mirror = [];
   int _consumed = 0;
   int _estimatedTokens = 0;
@@ -97,6 +133,7 @@ class LocalChatClient implements ChatClient {
     ConversationStrategy? strategy,
     SessionFactory? sessionFactory,
     int? truncateThreshold,
+    Summarizer? summarizer,
   })  : _strategy = strategy ?? ConversationStrategy(),
         _createSession = sessionFactory ??
             (() {
@@ -106,6 +143,15 @@ class LocalChatClient implements ChatClient {
                     'LocalChatClient 需要 engine 或 sessionFactory 之一');
               }
               return e.createChat().then(LlamaChatSession.new);
+            }),
+        _summarizer = summarizer ??
+            ((previousSummary, dropped) {
+              final e = engine;
+              if (e == null) {
+                throw StateError(
+                    'LocalChatClient 需要 engine 或 sessionFactory 之一');
+              }
+              return llamaSummarizer(e, previousSummary, dropped);
             }),
         _truncateThreshold = truncateThreshold ??
             AppConstants.modelContextSize - _maxTokens - _contextMargin;
@@ -125,6 +171,7 @@ class LocalChatClient implements ChatClient {
       _session = await _createSession();
       _session!.addSystem(_systemPrompt);
       _mirror.clear();
+      _summary = '';
       _consumed = 0;
       _skipNextHistoryAi = false;
       _estimatedTokens =
@@ -180,8 +227,8 @@ class LocalChatClient implements ChatClient {
 
     if (_estimatedTokens > _truncateThreshold) {
       AppLogger.warn(
-          'LocalChatClient', '上下文接近上限 (~$_estimatedTokens tokens)，执行截断');
-      await _truncateContext();
+          'LocalChatClient', '上下文接近上限 (~$_estimatedTokens tokens)，执行压缩');
+      await _compactContext();
       session = _session!;
     }
 
@@ -249,7 +296,7 @@ class LocalChatClient implements ChatClient {
       // 都全量重渲染 prompt，重建不减内容则依旧撑爆——必须真正减少保留条数。
       if (_isContextFullError(e)) {
         try {
-          await _truncateContext(force: true);
+          await _compactContext(force: true);
         } catch (re) {
           AppLogger.error('LocalChatClient', '自愈重建失败', re);
         }
@@ -277,25 +324,70 @@ class LocalChatClient implements ChatClient {
   bool _isContextFullError(Object e) =>
       e is LlamaDecodeException || e.toString().contains('context full');
 
-  Future<void> _truncateContext({bool force = false}) async {
-    // 常规：保留最近 6 组问答（12 条）；自愈（force）：只留 4 条，
-    // 保证重建后的 prompt 真正变小。
-    final keepCount = force ? 4 : 12;
-    if (!force && _mirror.length <= keepCount) return;
+  /// 预算驱动上下文压缩（替换旧的固定 12 条截断）：
+  ///
+  /// 常规路径：从尾部往前装窗，能塞进预算（阈值）的最近消息保留原文，
+  /// 装不下的 [dropped] 交给 [Summarizer] 与旧摘要合并压成新摘要卡；
+  /// 摘要失败回落为纯丢弃。dropped 为空时仅重建 session（不调摘要器）。
+  ///
+  /// 自愈路径（[force]）：真实上下文已撑爆、估算不可信——硬性只留最后 4 条
+  /// 保证内容真正减少（插件每次 generate 全量重渲染 prompt），且不调摘要器。
+  Future<void> _compactContext({bool force = false}) async {
+    final budget = _truncateThreshold;
 
-    final kept = _mirror.length > keepCount
-        ? _mirror.sublist(_mirror.length - keepCount)
-        : List.of(_mirror);
+    // 1) 计算保留窗口（cut = dropped 与 kept 的分界）
+    int cut;
+    if (force) {
+      cut = _mirror.length > 4 ? _mirror.length - 4 : 0;
+    } else {
+      cut = _mirror.length;
+      var used =
+          LlamaService.estimateTokens(_systemPrompt) + _perMessageOverhead;
+      var keptCount = 0;
+      while (cut > 0) {
+        final msg = _mirror[cut - 1];
+        final cost =
+            LlamaService.estimateTokens(msg.content) + _perMessageOverhead;
+        // 最后 2 条保底：当前问题原文不能只存在于摘要里
+        if (keptCount >= 2 && used + cost > budget) break;
+        used += cost;
+        keptCount++;
+        cut--;
+      }
+    }
+
+    final dropped = _mirror.sublist(0, cut);
+    final kept = _mirror.sublist(cut);
+
+    // 2) 摘要压实
+    var newSummary = _summary;
+    if (!force && dropped.isNotEmpty) {
+      try {
+        final compressed = await _summarizer(_summary, dropped);
+        if (compressed.isNotEmpty) newSummary = _capSummary(compressed);
+      } catch (e) {
+        // 回落：丢弃 dropped，保留旧摘要（若有的话）作为背景
+        AppLogger.warn('LocalChatClient', '摘要生成失败，回落纯丢弃截断: $e');
+      }
+    }
+
     _mirror
       ..clear()
       ..addAll(kept);
+    _summary = newSummary;
 
+    // 3) 重建 session：system 提示词 + 摘要卡 + 保留消息
     _session?.dispose();
     _session = await _createSession();
     _session!.addSystem(_systemPrompt);
-    _estimatedTokens =
+    var used =
         LlamaService.estimateTokens(_systemPrompt) + _perMessageOverhead;
 
+    if (_summary.isNotEmpty) {
+      final card = '【此前对话摘要】\n$_summary';
+      _session!.addSystem(card);
+      used += LlamaService.estimateTokens(card) + _perMessageOverhead;
+    }
     for (final msg in _mirror) {
       if (msg.content.isEmpty) continue;
       if (msg.role == 'user') {
@@ -303,11 +395,16 @@ class LocalChatClient implements ChatClient {
       } else {
         _session!.addAssistant(msg.content);
       }
-      _estimatedTokens +=
-          LlamaService.estimateTokens(msg.content) + _perMessageOverhead;
+      used += LlamaService.estimateTokens(msg.content) + _perMessageOverhead;
     }
+    _estimatedTokens = used;
 
     AppLogger.info('LocalChatClient',
-        '上下文截断完成: 保留最近 ${_mirror.length} 条消息, ~$_estimatedTokens tokens');
+        '上下文压缩完成: 摘要${_summary.isEmpty ? '无' : ' ${_summary.length} 字'}, 保留 ${_mirror.length} 条, ~$_estimatedTokens tokens');
+  }
+
+  static String _capSummary(String s) {
+    final t = s.trim();
+    return t.length > 200 ? '${t.substring(0, 200)}…' : t;
   }
 }

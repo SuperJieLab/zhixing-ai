@@ -48,7 +48,7 @@ class _SessionFactory {
   final List<_FakeSession> created = [];
   Object? throwOnCreate;
 
-  /// 新建 session 预置的生成 tokens（截断重建发生在 generateResponse 内部，
+  /// 新建 session 预置的生成 tokens（压缩重建发生在 generateResponse 内部，
   /// 无法在调用前拿到新 session 实例逐个设置）。
   List<String> tokensForNew = const [];
 
@@ -57,6 +57,23 @@ class _SessionFactory {
     final s = _FakeSession()..tokens = tokensForNew;
     created.add(s);
     return s;
+  }
+}
+
+class _FakeSummarizer {
+  int callCount = 0;
+  String? lastPrevious;
+  List<({String role, String content})>? lastDropped;
+  Object? throwOnCall;
+  String result = '摘要内容';
+
+  Future<String> call(String previousSummary,
+      List<({String role, String content})> dropped) async {
+    callCount++;
+    lastPrevious = previousSummary;
+    lastDropped = dropped;
+    if (throwOnCall != null) throw throwOnCall!;
+    return result;
   }
 }
 
@@ -199,11 +216,13 @@ void main() {
       expect(session.ops.contains('user:目标A'), isTrue); // 首次调用
     });
 
-    test('截断：超过阈值时 session 重建，mirror 保留最近 12 条', () async {
+    test('压缩：超阈值时预算装窗重建，移出消息进摘要卡', () async {
       final factory = _SessionFactory();
+      final summarizer = _FakeSummarizer();
       final client = LocalChatClient(
         sessionFactory: factory.call,
-        truncateThreshold: 0, // 强制每次调用后触发截断
+        summarizer: summarizer.call,
+        truncateThreshold: 0, // 强制触发压缩
       );
       await client.initialize();
 
@@ -214,37 +233,123 @@ void main() {
       }
       // 20 条历史：welcome + 9 对完整问答 + 尾部问题10
 
-      factory.tokensForNew = ['新回复']; // 截断重建后的新 session 用
+      factory.tokensForNew = ['新回复']; // 压缩重建后的新 session 用
       await client.generateResponse(history).join();
 
       expect(factory.created.length, 2); // 重建了一次 session
       expect(factory.created.first.ops.last, 'dispose');
 
+      // 摘要器被调一次：旧摘要为空，dropped = 除保底 2 条外的全部
+      expect(summarizer.callCount, 1);
+      expect(summarizer.lastPrevious, isEmpty);
+      expect(summarizer.lastDropped!.length, 18);
+      expect(
+        summarizer.lastDropped!.first,
+        (role: 'ai', content: '欢迎语'),
+      );
+
       final rebuilt = factory.created.last;
-      // system + 最近 12 条 mirror（回复4..问题10）+ generate + 新回复登记
-      expect(rebuilt.ops.first, startsWith('system:'));
+      // 两条 system：人设 + 摘要卡
+      expect(rebuilt.ops.where((op) => op.startsWith('system:')).length, 2);
+      expect(
+        rebuilt.ops.where((op) => op.startsWith('system:')).last,
+        'system:【此前对话摘要】\n摘要内容',
+      );
+      // 预算装窗（阈值 0 → 仅保底最后 2 条）+ 生成登记
       expect(
         rebuilt.ops
             .where((op) => op.startsWith('user:') || op.startsWith('assistant:'))
             .toList(),
         [
-          'assistant:回复4',
-          'user:问题5',
-          'assistant:回复5',
-          'user:问题6',
-          'assistant:回复6',
-          'user:问题7',
-          'assistant:回复7',
-          'user:问题8',
-          'assistant:回复8',
-          'user:问题9',
           'assistant:回复9',
           'user:问题10',
-          'assistant:新回复', // 生成完成后的登记（发生在重建后的 session 上）
+          'assistant:新回复',
         ],
       );
       expect(rebuilt.ops.contains('generate:2048'), isTrue);
       expect(rebuilt.ops.last, 'assistant:新回复');
+    });
+
+    test('压缩递归压实：第二次压缩把旧摘要并入 summarizer 入参', () async {
+      final factory = _SessionFactory();
+      final summarizer = _FakeSummarizer();
+      final client = LocalChatClient(
+        sessionFactory: factory.call,
+        summarizer: summarizer.call,
+        truncateThreshold: 0,
+      );
+      await client.initialize();
+
+      final history = <ChatMessage>[_welcome];
+      for (var r = 1; r <= 10; r++) {
+        history.add(_user('问题$r', r));
+        if (r < 10) history.add(_ai('回复$r', r));
+      }
+      factory.tokensForNew = ['新回复'];
+      await client.generateResponse(history).join();
+      expect(summarizer.lastPrevious, isEmpty);
+
+      summarizer.result = '第二轮摘要';
+      await client
+          .generateResponse(
+              [...history, _ai('新回复', 10), _user('问题11', 11)])
+          .join();
+
+      expect(summarizer.callCount, 2);
+      expect(summarizer.lastPrevious, '摘要内容'); // 旧摘要进入合并入参
+      final rebuilt = factory.created.last;
+      expect(
+        rebuilt.ops.where((op) => op.startsWith('system:')).last,
+        'system:【此前对话摘要】\n第二轮摘要',
+      );
+    });
+
+    test('压缩：消息不超保底（mirror ≤ 2）时仅重建，不调摘要器', () async {
+      final factory = _SessionFactory();
+      final summarizer = _FakeSummarizer();
+      final client = LocalChatClient(
+        sessionFactory: factory.call,
+        summarizer: summarizer.call,
+        truncateThreshold: 0,
+      );
+      await client.initialize();
+
+      factory.tokensForNew = ['回复A'];
+      await client.generateResponse([_welcome, _user('问题1', 1)]).join();
+
+      expect(summarizer.callCount, 0);
+      expect(factory.created.length, 2); // 仅重建
+      final rebuilt = factory.created.last;
+      expect(rebuilt.ops.where((op) => op.startsWith('system:')).length, 1);
+      expect(rebuilt.ops.contains('assistant:欢迎语'), isTrue);
+      expect(rebuilt.ops.contains('user:问题1'), isTrue);
+    });
+
+    test('压缩：摘要器失败回落纯丢弃，生成不受影响', () async {
+      final factory = _SessionFactory();
+      final summarizer = _FakeSummarizer()..throwOnCall = StateError('boom');
+      final client = LocalChatClient(
+        sessionFactory: factory.call,
+        summarizer: summarizer.call,
+        truncateThreshold: 0,
+      );
+      await client.initialize();
+
+      final history = <ChatMessage>[_welcome];
+      for (var r = 1; r <= 10; r++) {
+        history.add(_user('问题$r', r));
+        if (r < 10) history.add(_ai('回复$r', r));
+      }
+      factory.tokensForNew = ['新回复'];
+      final out = await client.generateResponse(history).join();
+
+      expect(out, '新回复');
+      expect(summarizer.callCount, 1);
+      // 回落：无摘要卡，只有人设一条 system
+      final rebuilt = factory.created.last;
+      expect(rebuilt.ops.where((op) => op.startsWith('system:')).length, 1);
+      expect(rebuilt.ops.contains('assistant:回复9'), isTrue);
+      expect(rebuilt.ops.contains('user:问题10'), isTrue);
     });
 
     test('think 标签剥离：标签内不输出，标签后正常流式', () async {
