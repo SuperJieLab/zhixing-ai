@@ -1,6 +1,6 @@
 # 知行AI — 本地对话上下文压缩实施计划
 
-> 状态：待执行
+> 状态：已执行完毕（2026-09-09，Task 4 手工冒烟为用户侧待办）
 > 设计：`docs/plans/2026-09-09-context-compaction-design.md`（已确认：方案 A 滚动摘要；预算驱动窗口，不固定 12 条）
 > 纪律：每 Task 实现 → 自查 → 改动留工作区，由用户确认后提交；不自动 commit。
 > 测试命令（沙箱代理会拦截 flutter_tester）：
@@ -16,8 +16,8 @@
 - 改 `test/features/chat/engine/local_chat_client_test.dart`：阈值相关用例按新语义更新
 
 **验证**
-- [ ] 单测：注入小阈值触发重建（新默认值算法不依赖真实 nCtx）；generate 抛 context-full 异常 → 当轮降级文案 + session 已重建 + 下轮可继续
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] 单测：注入小阈值触发重建（新默认值算法不依赖真实 nCtx）；generate 抛 context-full 异常 → 当轮降级文案 + session 已重建 + 下轮可继续
+- [x] `flutter analyze` 0；全量 `flutter test` 绿（提交 6f9c837，113/113）
 
 ## Task 2：摘要生成器（Summarizer）
 
@@ -29,8 +29,8 @@
   - `LocalChatClient` 构造参数加 `Summarizer? summarizer`（测试缝），默认为生产实现
 
 **验证**
-- [ ] `buildSummaryPrompt` 纯函数单测：有/无旧摘要两态、dropped 行格式、不含对话外内容
-- [ ] 生产 Summarizer 不便于真跑（FFI），以 fake 注入路径在 Task 3 覆盖；生产实现仅做编译级验证 + 代码走查（dispose 必达）
+- [x] `buildSummaryPrompt` 纯函数单测：有/无旧摘要两态、dropped 行格式、不含对话外内容
+- [x] 生产 Summarizer 不便于真跑（FFI），以 fake 注入路径在 Task 3 覆盖；生产实现仅做编译级验证 + 代码走查（dispose 必达，finally 保证）
 
 ## Task 3：预算驱动 compact（替换 `_truncateContext`）
 
@@ -45,20 +45,20 @@
 - 改 `test/features/chat/engine/local_chat_client_test.dart`：新增/更新 compact 用例
 
 **验证**
-- [ ] 单测（fake Session + fake Summarizer）：
-  - [ ] 预算装窗：短消息多留/长消息少留，窗口大小随预算浮动（不再断言 12 条）
-  - [ ] 最后 2 条保底：即使超预算也保留（当前问题原文可见）
-  - [ ] 摘要合并语义：旧摘要 + dropped 都进 summarizer 入参；摘要卡写入新 session
-  - [ ] dropped 为空（仅重建）时跳过摘要生成
-  - [ ] summarizer 抛异常/返回空 → 回落纯窗口，不阻塞生成
-  - [ ] 既有语义不回归：diff 增量、`_skipNextHistoryAi`、去重改写仅 session 侧、think 剥离
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] 单测（fake Session + fake Summarizer）：
+  - [x] 预算装窗：阈值 0 → 仅保底最后 2 条；长消息少留/短消息多留（窗口随预算浮动，无固定条数）
+  - [x] 最后 2 条保底：即使超预算也保留（当前问题原文可见）
+  - [x] 摘要合并语义：旧摘要 + dropped 都进 summarizer 入参；摘要卡写入新 session（递归压实断言 lastPrevious）
+  - [x] dropped 为空（mirror ≤ 2 仅重建）时跳过摘要生成
+  - [x] summarizer 抛异常/返回空 → 回落纯窗口，不阻塞生成
+  - [x] 既有语义不回归：diff 增量、`_skipNextHistoryAi`、去重改写仅 session 侧、think 剥离
+- [x] `flutter analyze` 0；全量 `flutter test` 绿（119/119，提交 59342d7）
 
 ## Task 4：收尾
 
-- [ ] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿 + `npm test`（server 18/18，确认无波及）
-- [ ] 提交：Task 1 一笔（防御修复）；Task 2+3 一笔（压缩功能）——按用户确认节奏
-- [ ] 更新 `MEMORY.md`：上下文压缩落地记录（参数、compact 算法、兜底链）
+- [x] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 119/119 + `npm test`（server 18/18，无波及）
+- [x] 提交：Task 1（6f9c837）与 Task 2+3（59342d7，依赖耦合为一个提交单元）
+- [x] 更新 `MEMORY.md`：上下文压缩落地记录（参数、compact 算法、兜底链）
 - [ ] 手工冒烟项（用户侧）：本地模式长对话压到阈值，观察摘要卡生效、触发轮延迟可接受、恢复会话正常
 - [ ] 范围外备忘：异步预压缩、摘要持久化为后续候选
 
