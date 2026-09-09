@@ -1,38 +1,17 @@
 /**
- * services/llm-engine.js — LLM 模式推送决策（DeepSeek API）
- * ==========================================================
+ * services/llm-engine.js — DeepSeek API 封装
  *
- * 【这个文件做什么】
- * 将用户的目标和策略数据发给 DeepSeek Chat API，让大模型判断是否需要推送提醒，
- * 并生成个性化的推送文案。
+ *   streamChatCompletion(): 对话流式补全（chat 路由使用），SSE 增量经 onDelta 回调
+ *   analyzePushDecision(): 推送决策（push 定时任务使用），返回 { should_push, title, body }
  *
- * 【在架构中的位置】
- *   push.js → runLLMMode() → llm-engine.js → analyzePushDecision()
- *                                ↓
- *                         POST https://api.deepseek.com/chat/completions
- *                                ↓
- *                         返回 { should_push, title, body } 或 null（失败时）
- *
- * 【输入/输出】
- *   输入：goals[] + strategies[]（结构化摘要，不含对话原文）
- *   输出：DeepSeek 返回的 JSON → 解析为 { should_push, title, body }
- *
- * 【容错设计】
- *   - 无 API Key → 直接返回 null（push.js 会跳过，不会崩溃）
- *   - API 调用失败 → catch 后返回 null（优雅降级，不推送）
- *   - JSON 解析失败 → catch 后返回 null
- *
- * 【面试可聊】
- *   - 为什么不用 GPT-4？→ DeepSeek 成本低（百万 token 几毛钱）、中文好、国产合规
- *   - 为什么 temperature=0.3？→ 推送决策不需要创意，需要确定性
- *   - Prompt 设计：指定了 JSON 格式 + 50 字限制 + 行动号召力——工程化的 prompt 工程
- *
+ * 容错约定：调用失败一律由调用方决定降级（路由 500 / push 跳过），引擎内不抛出未处理异常。
  * API 文档：https://platform.deepseek.com/api-docs
  */
 
 const { extractDeltas } = require('./sse-parse');
 
-// 聊天模式系统人设：目标管理助手（知行AI），中文回答，可用 Markdown 组织内容
+// 聊天系统提示词——兜底：客户端随请求体发送其拼装的 systemPrompt（人设唯一出处
+// 在客户端，与本地模式共享），仅旧客户端/独立调用未带时使用。
 const CHAT_SYSTEM_PROMPT =
   '你是"知行AI"——一个个人目标管理助手。请用简体中文回答用户，' +
   '可以合理使用 Markdown（如列表、加粗、代码块）来组织内容，让回答清晰易读。';
@@ -42,14 +21,10 @@ const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek
 
 /**
  * 流式聊天补全（DeepSeek chat/completions，stream=true）
- *   messages: [{role, content}]，role 为 'system' | 'user' | 'assistant'
- *   onDelta(text): 每收到一段增量 content 时回调
- *   signal: AbortSignal，用于取消传播（客户端断开时中断上游请求）
- *
- * 说明：本函数不校验 API Key（职责分离，由路由层负责 501）。
- * 无 key 也可被调用，但真实请求会因 401 失败；测试通过 mock 规避。
+ *   systemPrompt 可选：客户端拼装的系统提示词，缺省回落 CHAT_SYSTEM_PROMPT。
+ *   不校验 API Key（路由层负责 501）；onDelta(text) 每段增量回调一次。
  */
-async function streamChatCompletion(messages, { onDelta, signal } = {}) {
+async function streamChatCompletion(messages, { onDelta, signal, systemPrompt } = {}) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   // 懒读取上游地址：测试时可通过 DEEPSEEK_BASE_URL 指向本地 mock，覆盖 require 顺序
   const baseUrl = process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL;
@@ -63,7 +38,11 @@ async function streamChatCompletion(messages, { onDelta, signal } = {}) {
     },
     body: JSON.stringify({
       model: 'deepseek-chat',
-      messages: [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...messages],
+      // 客户端 systemPrompt 优先（人设唯一出处），缺省回落内置文案
+      messages: [
+        { role: 'system', content: systemPrompt || CHAT_SYSTEM_PROMPT },
+        ...messages,
+      ],
       stream: true,
       temperature: 0.7,
       max_tokens: 1024,
@@ -78,8 +57,7 @@ async function streamChatCompletion(messages, { onDelta, signal } = {}) {
   let rest = '';
   let done = false; // 必须提到循环外：截断检查在 loop 结束后仍需读取此flag
   for await (const chunk of response.body) {
-    // 注意：fetch 的 chunk 是 Uint8Array，其 toString('utf8') 不解码（返回数字串），
-    // 需用 Buffer.from 转换；Buffer 兼容 Uint8Array。
+    // fetch chunk 是 Uint8Array，toString('utf8') 不解码，须经 Buffer.from。
     const text = Buffer.from(chunk).toString('utf8');
     const result = extractDeltas(text, rest);
     rest = result.rest;

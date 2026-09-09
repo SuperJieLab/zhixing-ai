@@ -1,23 +1,14 @@
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 
-/// 对话策略（本地/云端共享）
-///
-/// 从 StrategistPrompter 抽出的纯逻辑部分，无引擎/IO 依赖：
-///   - [buildSystemPrompt]：助手人设 + 已有目标上下文。本地在 initialize 时
-///     注入 session；云端（②）将随请求体发送、由服务端拼装，人设对等。
-///   - [isDuplicate]：相邻问题 LCS 相似度去重（>0.8 判重）。判重命中时**不**
-///     追加到滚动窗口，避免相邻同问反复触发改写。
-///
-/// 有状态（[_recentQuestions]），每个 ChatClient 实例持有一份。
+/// 对话策略（本地/云端共享，无引擎/IO 依赖）：
+///   - [buildSystemPrompt]：本地/云端共享的唯一人设出处；
+///   - [isDuplicate]：相邻问题 LCS 去重（>0.8 判重），命中时**不**追加滚动窗口，
+///     避免相邻同问反复触发改写。
 class ConversationStrategy {
   final List<String> _recentQuestions = [];
 
-  /// 判断 [input] 是否与最近一次提问重复。
-  ///
-  /// 规则（与原 StrategistPrompter 一致）：
-  ///   - 与上一问完全相同 → 重复；
-  ///   - 与上一问 LCS 相似度 > 0.8 → 重复；
-  ///   - 否则记入窗口（容量 5，FIFO）并返回 false。
+  /// 与上一问完全相同或 LCS 相似度 > 0.8 → 重复；
+  /// 否则记入窗口（容量 5，FIFO）并返回 false。
   bool isDuplicate(String input) {
     final trimmed = input.trim();
     if (_recentQuestions.isEmpty) {
@@ -53,16 +44,13 @@ class ConversationStrategy {
     return lcsLen / (m > n ? m : n);
   }
 
-  /// 助手系统提示词
-  ///
-  /// [existingGoals] 非空时追加「用户已有目标」段，引导 LLM 关联话题、
-  /// 相似目标建议合并而非新建。
+  /// [existingGoals] 非空时追加「用户已有目标」段，引导相似目标建议合并而非新建。
   String buildSystemPrompt({List<Goal> existingGoals = const []}) {
     final goalContext = existingGoals.isEmpty
         ? ''
         : '\n## 用户已有目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n\n如果用户聊到与已有目标相关的话题，可以主动关联。如果新想法与已有目标相似，建议合并而非新建。\n';
 
-    return '''你是助手。用户来找你商量事情，你的职责是：
+    return '''你是知行AI——一个个人目标管理助手。请用简体中文回答用户，可使用 Markdown（如列表、粗体、代码块）组织内容，让回答清晰易读。你的职责是：
 
 1. 先理解用户的真实处境和核心诉求
 2. 帮用户把模糊的问题拆解成清晰的子问题

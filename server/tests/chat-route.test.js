@@ -263,3 +263,140 @@ test('chat 路由：客户端断开 → 上游请求被中断（取消传播）'
     process.env.DEEPSEEK_API_KEY = savedKey;
   }
 });
+
+// 可捕获上游请求体的 mock：断言 systemPrompt 透传行为
+function startMockUpstreamCapture() {
+  return new Promise((resolve) => {
+    const captured = [];
+    const mock = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/chat/completions') {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          captured.push(JSON.parse(body));
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          });
+          res.write('data: {"choices":[{"delta":{"content":"好"}}]}\n\n');
+          res.write('data: [DONE]\n\n');
+          res.end();
+        });
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    mock.listen(0, () => resolve({ mock, port: mock.address().port, captured }));
+  });
+}
+
+async function startChatApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/chat', chatRouter);
+  const server = app.listen(0);
+  return { server, port: server.address().port };
+}
+
+test('chat 路由：systemPrompt 透传给上游，作为 messages[0] 的 system 内容', async () => {
+  const { mock, port, captured } = await startMockUpstreamCapture();
+  const savedBase = process.env.DEEPSEEK_BASE_URL;
+  const savedKey = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${port}`;
+  process.env.DEEPSEEK_API_KEY = 'test-key';
+  const { server, port: appPort } = await startChatApp();
+
+  try {
+    const resp = await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hi' }],
+        systemPrompt: '你是测试人设。包含用户已有目标上下文。',
+      }),
+    });
+    assert.equal(resp.status, 200);
+    await collectFrames(resp.body);
+
+    assert.equal(captured.length, 1);
+    const upstream = captured[0];
+    assert.equal(upstream.messages[0].role, 'system');
+    assert.equal(upstream.messages[0].content, '你是测试人设。包含用户已有目标上下文。');
+    assert.equal(upstream.messages[1].role, 'user');
+    assert.equal(upstream.messages[1].content, 'hi');
+  } finally {
+    server.close();
+    mock.close();
+    process.env.DEEPSEEK_BASE_URL = savedBase;
+    process.env.DEEPSEEK_API_KEY = savedKey;
+  }
+});
+
+test('chat 路由：未带 systemPrompt → 回落内置兜底提示词', async () => {
+  const { mock, port, captured } = await startMockUpstreamCapture();
+  const savedBase = process.env.DEEPSEEK_BASE_URL;
+  const savedKey = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${port}`;
+  process.env.DEEPSEEK_API_KEY = 'test-key';
+  const { server, port: appPort } = await startChatApp();
+
+  try {
+    const resp = await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    assert.equal(resp.status, 200);
+    await collectFrames(resp.body);
+
+    const upstream = captured[0];
+    assert.equal(upstream.messages[0].role, 'system');
+    // 兜底文案含「知行AI」标识（不硬编码全文，避免文案微调碎测试）
+    assert.ok(upstream.messages[0].content.includes('知行AI'));
+  } finally {
+    server.close();
+    mock.close();
+    process.env.DEEPSEEK_BASE_URL = savedBase;
+    process.env.DEEPSEEK_API_KEY = savedKey;
+  }
+});
+
+test('chat 路由：systemPrompt 非法（非字符串 / 超长）→ 400', async () => {
+  const { mock, port } = await startMockUpstreamCapture();
+  const savedBase = process.env.DEEPSEEK_BASE_URL;
+  const savedKey = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${port}`;
+  process.env.DEEPSEEK_API_KEY = 'test-key';
+  const { server, port: appPort } = await startChatApp();
+
+  try {
+    // 非字符串 → 400
+    const r1 = await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hi' }],
+        systemPrompt: 123,
+      }),
+    });
+    assert.equal(r1.status, 400);
+
+    // 超长（>4000）→ 400
+    const r2 = await fetch(`http://127.0.0.1:${appPort}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hi' }],
+        systemPrompt: 'a'.repeat(4001),
+      }),
+    });
+    assert.equal(r2.status, 400);
+  } finally {
+    server.close();
+    mock.close();
+    process.env.DEEPSEEK_BASE_URL = savedBase;
+    process.env.DEEPSEEK_API_KEY = savedKey;
+  }
+});
