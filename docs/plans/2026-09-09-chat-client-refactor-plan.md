@@ -26,8 +26,8 @@
 - 新增 `test/local_chat_client_test.dart`（fake Session）
 
 **验证**
-- [ ] 单测绿：增量 append（二次调用只加新增）、消费条数推进、去重改写仅影响 session 侧、截断后 session 重建且 mirror 保留最近 12 条、think 标签剥离、取消时不登记 assistant 轮
-- [ ] 旧 `StrategistPrompter` 未动，Provider 仍走旧路径，全量测试不回归
+- [x] 单测绿：增量 append（二次调用只加新增）、消费条数推进、去重改写仅影响 session 侧、截断后 session 重建且 mirror 保留最近 12 条、think 标签剥离、取消时不登记 assistant 轮
+- [x] 旧 `StrategistPrompter` 未动，Provider 仍走旧路径，全量测试不回归（93 过 / 6 失败，失败均为已知 Task 4 范围）
 
 ## Task 3：CloudChatClient 签名对齐
 
