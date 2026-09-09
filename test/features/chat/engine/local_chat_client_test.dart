@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/local_chat_client.dart';
@@ -6,8 +8,8 @@ import 'package:zhixing_ai/features/chat/engine/local_chat_client.dart';
 /// LocalChatClient 单元测试（fake Session 注入，不触碰真实 llama）
 ///
 /// 覆盖：增量 diff append、消费条数推进、去重改写仅 session 侧、
-/// 截断重建（mirror 保留最近 12 条）、think 标签剥离、
-/// 取消/失败时不登记 assistant 且下一轮 diff 跳过。
+/// 截断重建（预算窗口）、think 标签剥离、
+/// 取消/失败时不登记 assistant 且下一轮 diff 跳过、context-full 自愈。
 
 class _FakeSession implements ChatSession {
   final List<String> ops = [];
@@ -74,6 +76,14 @@ Future<void> _settle() async {
 
 void main() {
   group('LocalChatClient', () {
+    test('默认阈值 = nCtx − maxTokens − margin（给生成预留空间）', () {
+      final client = LocalChatClient();
+      expect(
+        client.truncateThreshold,
+        AppConstants.modelContextSize - 2048 - 384,
+      );
+    });
+
     test('未初始化时 generateResponse 返回回退文案', () async {
       final client = LocalChatClient();
       expect(client.isReady, isFalse);
@@ -326,6 +336,54 @@ void main() {
         isFalse,
       );
       expect(session.ops.contains('assistant:恢复'), isTrue);
+    });
+
+    test('context-full 自愈：强制重建只留最后 4 条，下一轮可用', () async {
+      final factory = _SessionFactory();
+      final client = LocalChatClient(sessionFactory: factory.call);
+      await client.initialize();
+
+      // 造 6 轮完整问答（mirror 12 条：欢迎语 + 5.5 组）
+      final history = <ChatMessage>[_welcome];
+      for (var r = 1; r <= 5; r++) {
+        history
+          ..add(_user('问题$r', r))
+          ..add(_ai('回复$r', r));
+      }
+      history.add(_user('问题6', 6));
+
+      final session = factory.created.single;
+      session.throwOnGenerate = const LlamaDecodeException(
+        0,
+        'context full at pos=4095 / nCtx=4096; '
+        'set Request.shiftPolicy = ContextShiftPolicy.auto to shift or stop earlier',
+      );
+
+      final out = await client.generateResponse(history).join();
+      expect(out, '\n\n[助手暂时无法回应，请稍后再试]');
+
+      // 自愈重建：旧 session dispose，新 session 只含最后 4 条（回复4..问题6）
+      expect(factory.created.length, 2);
+      expect(factory.created.first.ops.last, 'dispose');
+      final healed = factory.created.last;
+      final chatOps = healed.ops
+          .where((op) => op.startsWith('user:') || op.startsWith('assistant:'))
+          .toList();
+      expect(chatOps, [
+        'assistant:回复4',
+        'user:问题5',
+        'assistant:回复5',
+        'user:问题6',
+      ]);
+
+      // 下一轮在新 session 上正常生成
+      healed.tokens = ['恢复'];
+      final out2 = await client
+          .generateResponse(
+              [...history, _ai('\n\n[助手暂时无法回应，请稍后再试]', 6), _user('问题7', 7)])
+          .join();
+      expect(out2, '恢复');
+      expect(healed.ops.contains('user:问题7'), isTrue);
     });
 
     test('dispose：session 释放且不可再生成', () async {

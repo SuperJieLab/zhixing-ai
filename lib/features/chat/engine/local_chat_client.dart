@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/engine/llama_service.dart';
@@ -83,6 +84,13 @@ class LocalChatClient implements ChatClient {
 
   static const _maxTokens = 2048;
 
+  /// 整体余量：chat template 包装 + 估算误差。阈值 = nCtx − maxTokens − margin，
+  /// 保证「阈值处的会话 + 一整轮生成」仍在窗口内（75% 系数在 4K 下会溢出）。
+  static const _contextMargin = 384;
+
+  /// 每条消息的 template 包装开销（角色标记等），估算时逐条累加。
+  static const _perMessageOverhead = 16;
+
   /// [engine] 与 [sessionFactory] 至少给一个，都缺省时建 session 抛 [StateError]。
   LocalChatClient({
     LlamaEngine? engine,
@@ -100,7 +108,11 @@ class LocalChatClient implements ChatClient {
               return e.createChat().then(LlamaChatSession.new);
             }),
         _truncateThreshold = truncateThreshold ??
-            (AppConstants.modelContextSize * 0.75).round();
+            AppConstants.modelContextSize - _maxTokens - _contextMargin;
+
+  /// 当前截断阈值（测试观测用：默认值 = nCtx − maxTokens − margin）。
+  @visibleForTesting
+  int get truncateThreshold => _truncateThreshold;
 
   @override
   bool get isReady => _session != null;
@@ -115,7 +127,8 @@ class LocalChatClient implements ChatClient {
       _mirror.clear();
       _consumed = 0;
       _skipNextHistoryAi = false;
-      _estimatedTokens = LlamaService.estimateTokens(_systemPrompt);
+      _estimatedTokens =
+          LlamaService.estimateTokens(_systemPrompt) + _perMessageOverhead;
       return true;
     } catch (e) {
       AppLogger.error('LocalChatClient', '初始化失败', e);
@@ -160,7 +173,8 @@ class LocalChatClient implements ChatClient {
         }
       }
       _mirror.add((role: msg.role.name, content: content));
-      _estimatedTokens += LlamaService.estimateTokens(content);
+      _estimatedTokens +=
+          LlamaService.estimateTokens(content) + _perMessageOverhead;
       _consumed++;
     }
 
@@ -225,11 +239,21 @@ class LocalChatClient implements ChatClient {
       }
       if (fullReply.isNotEmpty) {
         session.addAssistant(fullReply);
-        _estimatedTokens += LlamaService.estimateTokens(fullReply);
+        _estimatedTokens +=
+            LlamaService.estimateTokens(fullReply) + _perMessageOverhead;
         _mirror.add((role: 'assistant', content: fullReply));
       }
     } catch (e) {
       AppLogger.error('LocalChatClient', '生成回复失败', e);
+      // context full = 真实上下文先于估算撑爆（估算漂移）。插件每次 generate
+      // 都全量重渲染 prompt，重建不减内容则依旧撑爆——必须真正减少保留条数。
+      if (_isContextFullError(e)) {
+        try {
+          await _truncateContext(force: true);
+        } catch (re) {
+          AppLogger.error('LocalChatClient', '自愈重建失败', re);
+        }
+      }
       yield '\n\n[助手暂时无法回应，请稍后再试]';
     } finally {
       // 正常完成（已登记，防重复）与取消/失败（有意缺席）都需跳过下一条 AI 历史。
@@ -249,17 +273,28 @@ class LocalChatClient implements ChatClient {
     _session = null;
   }
 
-  Future<void> _truncateContext() async {
-    // 保留最近 6 组问答（12 条）
-    const keepCount = 12;
-    if (_mirror.length <= keepCount) return;
+  /// llama 上下文撑爆的特征异常（插件 Generator 在 decode 前置检查抛出）。
+  bool _isContextFullError(Object e) =>
+      e is LlamaDecodeException || e.toString().contains('context full');
 
-    _mirror.removeRange(0, _mirror.length - keepCount);
+  Future<void> _truncateContext({bool force = false}) async {
+    // 常规：保留最近 6 组问答（12 条）；自愈（force）：只留 4 条，
+    // 保证重建后的 prompt 真正变小。
+    final keepCount = force ? 4 : 12;
+    if (!force && _mirror.length <= keepCount) return;
+
+    final kept = _mirror.length > keepCount
+        ? _mirror.sublist(_mirror.length - keepCount)
+        : List.of(_mirror);
+    _mirror
+      ..clear()
+      ..addAll(kept);
 
     _session?.dispose();
     _session = await _createSession();
     _session!.addSystem(_systemPrompt);
-    _estimatedTokens = LlamaService.estimateTokens(_systemPrompt);
+    _estimatedTokens =
+        LlamaService.estimateTokens(_systemPrompt) + _perMessageOverhead;
 
     for (final msg in _mirror) {
       if (msg.content.isEmpty) continue;
@@ -268,7 +303,8 @@ class LocalChatClient implements ChatClient {
       } else {
         _session!.addAssistant(msg.content);
       }
-      _estimatedTokens += LlamaService.estimateTokens(msg.content);
+      _estimatedTokens +=
+          LlamaService.estimateTokens(msg.content) + _perMessageOverhead;
     }
 
     AppLogger.info('LocalChatClient',
