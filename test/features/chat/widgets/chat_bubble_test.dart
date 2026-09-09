@@ -29,8 +29,10 @@ void main() {
       ),
     );
 
-    // 断言：消息文字可见
-    expect(find.text('你好，你想聊什么？'), findsOneWidget);
+    // 断言：消息文字可见（AI 消息经 MarkdownMessageView 渲染，文字在
+    // Markdown 的 RichText 内，须 findRichText: true 才能匹配）
+    expect(find.textContaining('你好，你想聊什么？', findRichText: true),
+        findsOneWidget);
   });
 
   // ============================================================

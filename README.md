@@ -93,7 +93,8 @@ test/                       # 测试
 │   ├── dashboard/          # Dashboard 渲染测试
 │   ├── history/            # History 页面测试
 │   └── model_manager/      # 模型下载测试
-└── llama_integration_test.dart
+tool/
+└── llama_integration_test.dart   # 端侧推理集成测试（dart run 独立运行）
 ```
 
 > 完整架构、数据模型、设计决策见 [`docs/PROJECT.md`](docs/PROJECT.md)

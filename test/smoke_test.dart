@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/model_manager.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 
@@ -26,6 +28,12 @@ Widget buildTestApp() {
 }
 
 void main() {
+  // ChatPage / SyncService 等依赖 SettingsRepository 已初始化
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await SettingsRepository.instance.initialize();
+  });
+
   // ============================================================
   // 测试 1：App 根组件渲染
   // ============================================================

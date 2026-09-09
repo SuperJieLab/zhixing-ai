@@ -1,3 +1,5 @@
+// 独立运行的集成测试脚本：print 是其输出方式，顶层 main 即库入口
+// ignore_for_file: avoid_print, dangling_library_doc_comments
 /// llama.cpp + Qwen 1.5B 端到端集成测试
 ///
 /// 验证：
@@ -8,10 +10,11 @@
 /// 运行方式（macOS 开发环境）：
 /// ```bash
 /// cd /Users/superjie-mac/projects/socratic-ai
-/// dart run test/llama_integration_test.dart
+/// dart run tool/llama_integration_test.dart
 /// ```
 ///
-/// 注意：此测试不通过 `flutter test` 运行，而是作为独立脚本。
+/// 注意：此测试不通过 `flutter test` 运行（依赖真实 FFI dylib 与模型文件），
+/// 放在 tool/ 下避免被 `flutter test` 收割导致加载失败。
 
 import 'dart:io';
 

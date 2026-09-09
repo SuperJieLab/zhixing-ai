@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zhixing_ai/core/engine/conversation_service.dart';
 import 'package:zhixing_ai/core/models/chat_models.dart';
 import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatProvider 错误状态 API 的单元测试
@@ -8,18 +11,41 @@ import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 /// 需要调用 sendMessage 的测试传入 dummy Conversation(id: 1)，
 /// 使 _activeConversationId 不为 null，跳过 startConversation() → DB 操作。
 /// 其他测试不传 conversation，正常验证初始状态。
+///
+/// 注意：每次 makeProvider 新建 Conversation——ChatProvider 会把
+/// conversation.messages 当作内部列表就地变更，共享实例会泄漏状态到后续测试。
 
-final _dummyConv = Conversation(
-  id: 1,
-  topic: '测试',
-  createdAt: DateTime.now(),
-  updatedAt: DateTime.now(),
-);
+Conversation _dummyConv() => Conversation(
+      id: 1,
+      topic: '测试',
+      // 显式给可增长列表：默认值是 const []（不可变），
+      // ChatProvider 会把它当作内部消息列表就地 add，会抛 UnsupportedError
+      messages: <ChatMessage>[],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
 
-ChatProvider makeProvider({String topic = '测试', bool skipDb = true}) =>
-    ChatProvider(topic: topic, conversation: skipDb ? _dummyConv : null);
+/// no-op 持久化：跳过 sendMessage finally 里的 saveMessages → DB 落库
+class _NoopConversationService extends ConversationService {
+  @override
+  Future<void> saveMessages(
+      int conversationId, List<ChatMessage> messages) async {}
+}
 
 void main() {
+  // ChatProvider 构造时读取 chatCloudMode，须先初始化 SettingsRepository
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await SettingsRepository.instance.initialize();
+  });
+
+  ChatProvider makeProvider({String topic = '测试', bool skipDb = true}) =>
+      ChatProvider(
+        topic: topic,
+        conversation: skipDb ? _dummyConv() : null,
+        conversationService: _NoopConversationService(),
+      );
+
   group('ChatProvider error state', () {
     test('hasModelError 初始为 false', () {
       final provider = makeProvider(skipDb: false);

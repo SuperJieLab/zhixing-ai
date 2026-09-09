@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zhixing_ai/core/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 
 /// ChatPage 的 Widget 测试
@@ -10,6 +12,13 @@ import 'package:zhixing_ai/features/chat/chat_page.dart';
 ///
 /// ChatPage 内部创建 ChatProvider，通过 ChangeNotifierProvider 管理状态。
 void main() {
+  // ChatPage 内部创建 ChatProvider，构造时读取 chatCloudMode，
+  // 须先初始化 SettingsRepository
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await SettingsRepository.instance.initialize();
+  });
+
   /// 构建测试用的 ChatPage
   Widget buildTestWidget({String topic = '职业发展'}) {
     return MaterialApp(home: ChatPage(topic: topic));
