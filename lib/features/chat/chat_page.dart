@@ -8,23 +8,17 @@ import 'package:zhixing_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:zhixing_ai/features/chat/widgets/chat_input.dart';
 import 'package:zhixing_ai/features/strategy_brief/strategy_brief_page.dart';
 
-/// 自定义 [ChatProvider] 构造工厂（测试注入 fake client / fake repo 用；
-/// 缺省走内部默认构造 + loadModel）。
+/// 自定义 [ChatProvider] 构造工厂（测试注入缝；缺省走内部默认构造 + loadModel）。
 typedef ChatProviderFactory = ChatProvider Function({
   required String topic,
   Conversation? conversation,
 });
 
-/// 对话页面
-///
-/// 两种模式通过 [conversation] 参数区分：
-/// - null → 新对话，Provider 内部加欢迎语，首次发言时创建 DB 记录
-/// - 有值 → 恢复已有对话，Provider 加载消息/ID/轮次
+/// 对话页面。[conversation] null → 新对话；有值 → 恢复已有对话。
 class ChatPage extends StatefulWidget {
   final String topic;
   final Conversation? conversation;
 
-  /// 可选的 Provider 构造工厂；null 时使用默认构造（真实 client + 真实仓库）。
   final ChatProviderFactory? providerFactory;
 
   const ChatPage({

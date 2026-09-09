@@ -8,11 +8,7 @@ import 'package:zhixing_ai/core/think_tag_stripper.dart';
 import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
 
-/// llama 会话的最小抽象（窄接口）
-///
-/// [LocalChatClient] 只依赖这五个操作，单测用 fake 注入即可覆盖增量 diff、
-/// 截断重建、去重改写等逻辑，无需真实模型。默认实现 [LlamaChatSession]
-/// 包装 llama_cpp_dart 的 [EngineChat]。
+/// llama 会话窄接口：单测以 fake 注入，无需真实模型。
 abstract class ChatSession {
   void addSystem(String content);
 
@@ -20,16 +16,12 @@ abstract class ChatSession {
 
   void addAssistant(String content);
 
-  /// 流式生成回复 token 文本。
   Stream<String> generate({int maxTokens});
 
   void dispose();
 }
 
-/// [EngineChat] → [ChatSession] 适配器
-///
-/// 把 llama 的事件流收敛为纯 token 文本流（只透传 [TokenEvent]），
-/// 采样参数在此固定（与原 StrategistPrompter 一致）。
+/// [EngineChat] → [ChatSession] 适配器：事件流收敛为纯 token 文本流。
 class LlamaChatSession implements ChatSession {
   final EngineChat _inner;
 
@@ -62,24 +54,15 @@ class LlamaChatSession implements ChatSession {
   void dispose() => _inner.dispose();
 }
 
-/// 会话工厂：生产环境包 [LlamaEngine.createChat]，测试注入 fake。
+/// 生产包 [LlamaEngine.createChat]，测试注入 fake。
 typedef SessionFactory = Future<ChatSession> Function();
 
-/// 本地（端侧 llama）对话客户端，实现 [ChatClient]
+/// 本地（端侧 llama）对话客户端。
 ///
-/// 从 StrategistPrompter 拆出的传输层职责：
-///   - 收完整历史自行 diff（[_consumed]），只把新增消息 append 进 session
-///     （增量 prefill，不整段重放；恢复会话时首调自然完成全量 seed，
-///     欢迎语也入 session，与旧 seedHistory 等价）
-///   - 尾部用户消息过 [ConversationStrategy.isDuplicate] 决定 session 侧改写
-///     （mirror 只存原文，与旧行为一致）
-///   - 超上下文估算阈值自动截断：session 重建，mirror 保留最近 12 条
-///   - think 标签剥离流式输出（逐行搬自原实现）
-///   - 取消/失败轮的 assistant 不登记 session 与 mirror（与旧实现一致）；
-///     生成结束后（无论成败）下一轮 diff 都跳过历史中紧接着的那条 AI 消息
-///     ——正常完成时它已由生成流程登记，跳过以防重复（[_skipNextHistoryAi]）
-///
-/// 消费方：ChatProvider（唯一），不跨 feature 共享。
+/// 收完整历史自行 diff（[_consumed] 计数），只把新增消息 append 进 session
+/// （增量 prefill；恢复会话时首调自然完成全量 seed，欢迎语也入 session）。
+/// 尾部用户消息过 [ConversationStrategy.isDuplicate] 决定 session 侧改写
+/// （mirror 只存原文）；超阈值时重建 session，mirror 保留最近 12 条。
 class LocalChatClient implements ChatClient {
   final ConversationStrategy _strategy;
   final SessionFactory _createSession;
@@ -93,18 +76,14 @@ class LocalChatClient implements ChatClient {
   int _consumed = 0;
   int _estimatedTokens = 0;
 
-  /// 上一轮生成结束后，历史中紧接着的那条 AI 消息已"结算"：
-  ///   - 正常完成 → 回复已由生成流程登记进 session/mirror（addAssistant），
-  ///     下一轮 diff 再遇到它会重复登记 → 需跳过；
-  ///   - 取消/失败 → assistant 有意不登记，下一轮 diff 同样跳过该条。
-  /// 两种情形对 diff 的处理一致（只推进 [_consumed]，不动 session/mirror），
-  /// 故共用一个标志，在 generateResponse 的 finally 中无条件置位。
+  /// 上一轮结束后，历史中紧接着的那条 AI 消息已"结算"：
+  /// 正常完成 → 回复已登记，跳过以防重复登记；取消/失败 → 有意缺席，同样跳过。
+  /// 两种情形处理一致（只推进游标），在 generateResponse 的 finally 中无条件置位。
   bool _skipNextHistoryAi = false;
 
   static const _maxTokens = 2048;
 
-  /// [engine] 与 [sessionFactory] 至少给一个：都缺省时生成阶段抛
-  /// [StateError]（测试只注入 fake factory，不触碰真实引擎）。
+  /// [engine] 与 [sessionFactory] 至少给一个，都缺省时建 session 抛 [StateError]。
   LocalChatClient({
     LlamaEngine? engine,
     ConversationStrategy? strategy,
@@ -157,14 +136,13 @@ class LocalChatClient implements ChatClient {
     _skipNextHistoryAi = false;
     var aiSkipped = false;
 
-    // ---- diff：只 append 新增部分（恢复会话时 _consumed==0，全量 seed）----
+    // diff：只 append 新增部分（恢复会话时 _consumed==0 → 全量 seed）
     for (var i = _consumed; i < history.length; i++) {
       final msg = history[i];
       final content = msg.content;
 
       if (msg.role == MessageRole.ai && skipFirstAi && !aiSkipped) {
-        // 上一轮生成的回复：正常完成时已登记（重复 append 会让 session 出现
-        // 重复 assistant 轮），取消/失败时有意缺席——两种情形都只推进游标。
+        // 见 [_skipNextHistoryAi]：只推进游标，不动 session/mirror。
         aiSkipped = true;
         _consumed++;
         continue;
@@ -193,7 +171,7 @@ class LocalChatClient implements ChatClient {
       session = _session!;
     }
 
-    // ---- 生成（think 剥离逻辑与原 StrategistPrompter 逐行一致）----
+    // think 剥离流式输出
     final buffer = StringBuffer();
     var passedThink = false;
     var suppressWhitespace = false;
@@ -221,9 +199,8 @@ class LocalChatClient implements ChatClient {
             buffer.clear();
             buffer.write(after);
           }
-          // else: still in think section, suppress output
         } else if (suppressWhitespace) {
-          // Still absorbing whitespace after </think>
+          // 吸收 </think> 之后的空白
           buffer.write(token);
           final text = buffer.toString();
           final trimmed = text.trimLeft();
@@ -234,9 +211,8 @@ class LocalChatClient implements ChatClient {
             yield trimmed;
           }
         } else {
-          // 注意：token 需同步写入 buffer——结束时 addAssistant 登记的
-          // fullReply 依赖 buffer 的完整性（原 StrategistPrompter 此分支
-          // 不写 buffer，导致 session 登记的回复丢失闭合标签后的主体）。
+          // token 必须同步写 buffer：结束时的 addAssistant 依赖其完整性，
+          // 否则 session 登记的回复丢失闭合标签后的主体。
           buffer.write(token);
           yield token;
         }
@@ -244,8 +220,7 @@ class LocalChatClient implements ChatClient {
 
       final fullReply = stripThinkTags(buffer.toString());
       if (!passedThink && fullReply.isNotEmpty) {
-        // 兜底：模型未输出 think 闭合标签（非思考模式）时，缓冲内容即正文。
-        // 原 StrategistPrompter 此场景整段静默丢弃（流为空 → UI 空气泡）。
+        // 兜底：非思考模式（无闭合标签）时缓冲内容即正文，不 yield 会空气泡。
         yield fullReply;
       }
       if (fullReply.isNotEmpty) {
@@ -257,8 +232,7 @@ class LocalChatClient implements ChatClient {
       AppLogger.error('LocalChatClient', '生成回复失败', e);
       yield '\n\n[助手暂时无法回应，请稍后再试]';
     } finally {
-      // 无论正常完成（回复已登记，防重复）还是取消/失败（有意缺席），
-      // 下一轮 diff 都要跳过历史中紧接着的那条 AI 消息。
+      // 正常完成（已登记，防重复）与取消/失败（有意缺席）都需跳过下一条 AI 历史。
       // （流被取消时 async* 生成器的 finally 保证执行。）
       _skipNextHistoryAi = true;
     }
@@ -266,8 +240,7 @@ class LocalChatClient implements ChatClient {
 
   @override
   void stop() {
-    // 本地流的中断由 Provider 取消订阅完成（async* 生成器随之终止并跳过
-    // assistant 登记），此处无需额外动作。
+    // 本地流中断由 Provider 取消订阅完成，finally 里的 skip 标志随之生效。
   }
 
   @override
@@ -276,12 +249,8 @@ class LocalChatClient implements ChatClient {
     _session = null;
   }
 
-  // ================================================================
-  // 上下文截断
-  // ================================================================
-
   Future<void> _truncateContext() async {
-    // Keep only the last 6 exchanges (12 messages: user-assistant pairs)
+    // 保留最近 6 组问答（12 条）
     const keepCount = 12;
     if (_mirror.length <= keepCount) return;
 

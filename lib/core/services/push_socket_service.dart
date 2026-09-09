@@ -28,16 +28,8 @@ class PushMessage {
 
 typedef PushHandler = void Function(String title, String body);
 
-/// 客户端 WS 连接服务：连接 / 监听 / 重连 / 派发
-///
-/// 【职责】维护一条到服务端的 WebSocket 长连接，接收服务端主动下发的站内推送
-/// （{type:'push',title,body,ts}），并派发给注册的 handler（UI 层据此弹应用内横幅）。
-///
-/// 【在架构中的位置】
-///   main.dart → PushSocketService.instance.connect()（App 启动后调用）
-///   handler（main.dart 注册）→ 弹 SnackBar 横幅
-///
-/// 【容错】连接失败/断开自动指数退避重连（5s 起、×2、封顶 60s，连上后重置）；
+/// 客户端 WS 长连接：接收服务端站内推送（{type:'push',...}）并派发给 handler。
+/// 连接失败/断开自动指数退避重连（5s 起 ×2 封顶 60s，连上重置）；
 /// connect 有重入守卫避免重复 socket 泄漏。
 class PushSocketService {
   static final PushSocketService instance = PushSocketService._();

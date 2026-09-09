@@ -13,40 +13,23 @@ import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/local_chat_client.dart';
 
-/// 异步构造 [ChatClient] 的工厂（生产环境按 [_mode] 选实现，测试注入 fake）。
+/// 异步构造 [ChatClient] 的工厂（生产按模式选实现，测试注入 fake）。
 typedef ChatClientFactory = Future<ChatClient> Function();
 
-/// 对话状态管理
+/// 对话状态管理。模式分支收在 [ChatClient] 实现内部（本地 diff 增量 /
+/// 云端窗口裁剪），Provider 只面向接口，收发均不含模式判断。
 ///
-/// 管理一次助手对话的完整生命周期：
-///   1. 初始化客户端 → [loadModel] 构造 [ChatClient]（本地/云端）并注入已有目标
-///   2. 对话交互 → [sendMessage] 驱动流式生成回复
-///   3. 持久化 → 每轮保存 messages 到 DB，通过 [ConversationService]
-///   4. 结束 → ChatPage 调用 _endConversation，跳转 Brief 页
-///
-/// ## 两种模式
-/// - 新对话：只传 [topic]，Provider 内部加欢迎语，首次发言时创建 DB 记录
-/// - 恢复：传 [conversation]，Provider 加载其消息 / ID / 轮次
-///
-/// 模式分支收在 [ChatClient] 实现内部（本地 diff 增量 append / 云端窗口裁剪），
-/// Provider 只面向接口：单 [_client] 字段，收发均不含模式判断。
+/// 两种生命周期：新对话只传 [topic]（内部加欢迎语，首次发言建 DB 记录）；
+/// 恢复对话传 [conversation]（加载其消息 / ID / 轮次）。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
   final ChatMode _mode;
 
-  /// 测试/页面注入的客户端实例；非空时 [loadModel] 直接复用，不走工厂。
+  /// 测试/页面注入缝：客户端实例（非空时 loadModel 直接复用）、工厂、目标仓库。
   final ChatClient? _injectedClient;
-
-  /// 测试注入的客户端工厂；非空时优先于 [_defaultClientFactory]。
   final ChatClientFactory? _clientFactory;
-
-  /// 测试注入的目标仓库；缺省 [DashboardRepository]（测试环境无 DB 会抛错）。
   final DashboardRepository _dashboardRepo;
-
-  // ================================================================
-  // 客户端状态
-  // ================================================================
 
   ChatClient? _client;
   bool _isModelLoading = false;
@@ -56,10 +39,6 @@ class ChatProvider extends ChangeNotifier {
   bool get isModelLoading => _isModelLoading;
   String? get modelError => _modelError;
   bool get hasModelError => _modelError != null;
-
-  // ================================================================
-  // 对话状态
-  // ================================================================
 
   int _round;
   bool _isThinking = false;
@@ -77,10 +56,6 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ================================================================
-  // 持久化
-  // ================================================================
-
   int? _activeConversationId;
 
   int? get activeConversationId => _activeConversationId;
@@ -89,10 +64,6 @@ class ChatProvider extends ChangeNotifier {
   Future<void> startConversation() async {
     _activeConversationId = await _conversationService.createConversation(_topic);
   }
-
-  // ================================================================
-  // 生命周期
-  // ================================================================
 
   ChatProvider({
     required String topic,
@@ -127,10 +98,6 @@ class ChatProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  // ================================================================
-  // 欢迎语
-  // ================================================================
-
   static List<ChatMessage> _buildWelcome(String topic) {
     final opening = topic.isNotEmpty
         ? '用户提到想聊聊$topic——请详细说说你的想法，我来帮你分析。'
@@ -139,16 +106,8 @@ class ChatProvider extends ChangeNotifier {
     return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
   }
 
-  // ================================================================
-  // 客户端初始化
-  // ================================================================
-
-  /// 初始化对话客户端。
-  ///
-  /// 云端模式不再加载本地模型（CloudChatClient.initialize 为 no-op），
-  /// 输入解锁更快；本地模式经 [LlamaService.ensureReady] 加载引擎。
-  /// 两者都会读取 Dashboard 已有目标注入上下文（本地进系统提示词，
-  /// 云端暂存待 ② 随请求发送）。
+  /// 云端模式不加载本地模型（输入解锁更快）；本地经 [LlamaService.ensureReady]。
+  /// 两者都读取 Dashboard 已有目标注入上下文。
   Future<void> loadModel() async {
     _isModelLoading = true;
     notifyListeners();
@@ -172,7 +131,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// 默认客户端工厂：按模式选实现。
   Future<ChatClient> _defaultClientFactory() async {
     switch (_mode) {
       case ChatMode.cloud:
@@ -188,10 +146,6 @@ class ChatProvider extends ChangeNotifier {
     _modelError = null;
     await loadModel();
   }
-
-  // ================================================================
-  // 对话
-  // ================================================================
 
   Future<void> sendMessage(String content) async {
     if (_activeConversationId == null) {
@@ -225,15 +179,13 @@ class ChatProvider extends ChangeNotifier {
         return;
       }
 
-      // 历史去掉尾部空 AI 占位符 → 尾部恰为本轮用户消息。
-      // 本地 client 对此历史做 diff 增量 append；云端 client 取窗口裁剪。
+      // 去掉尾部空 AI 占位符 → 尾部恰为本轮用户消息。
       final history = _messages.sublist(0, _messages.length - 1);
       await _consume(client.generateResponse(history), aiMessageIndex);
     } catch (e, stack) {
       AppLogger.error('ChatProvider', '推理失败', e, stack);
       if (e is TimeoutException) {
-        // 帧间空闲超时（云端 SSE 特有，本地生成不抛超时）：
-        // 丢弃可能残缺的半截 markdown（截断渲染异常），提示用户重试。
+        // 云端帧间空闲超时：半截 markdown 可能残缺（截断渲染异常），丢弃并提示重试。
         final partialLen = _messages[aiMessageIndex].content.length;
         AppLogger.warn(
             'ChatProvider', '连接超时，丢弃 $partialLen 字符的半成品内容');
@@ -244,7 +196,7 @@ class ChatProvider extends ChangeNotifier {
           round: _round,
         );
       } else if (_messages[aiMessageIndex].content.isEmpty) {
-        // 完全无产出（云端连接失败等）：降级为本地 Mock 回复，给出友好提示。
+        // 完全无产出：降级 Mock。
         AppLogger.warn('ChatProvider', '对话失败，降级为本地回复');
         _error = '连接失败，已使用本地回复';
         _messages[aiMessageIndex] = ChatMessage(
@@ -253,7 +205,7 @@ class ChatProvider extends ChangeNotifier {
           round: _round,
         );
       } else {
-        // 已流出部分内容（非超时异常）：保留半成品，仅记录错误。
+        // 已流出部分内容（非超时）：保留半成品，仅记录错误。
         _error = e.toString();
       }
     } finally {
@@ -264,15 +216,8 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  // ================================================================
-  // 私有
-  // ================================================================
-
-  /// 统一消费一段流式回复，边收边写回 AI 消息并通知监听者。
-  ///
-  /// 手动 [StreamSubscription] 管理，使 [stopGeneration] 能中途取消订阅。
-  /// 正常完成（onDone）或中断（stopGeneration）后清空 [_activeSubscription] /
-  /// [_generationCompleter]，避免悬挂引用。
+  /// 统一消费流式回复，边收边写回 AI 消息。手动 [StreamSubscription]，
+  /// 供 [stopGeneration] 中途取消。
   Future<void> _consume(Stream<String> stream, int aiMessageIndex) {
     final completer = Completer<void>();
     _generationCompleter = completer;
@@ -304,18 +249,12 @@ class ChatProvider extends ChangeNotifier {
     return completer.future;
   }
 
-  /// 与本轮流式消费对应的完成器，[stopGeneration] 通过它把中断标记为正常完成。
   Completer<void>? _generationCompleter;
-
-  /// 当前进行中的流式订阅，供 [stopGeneration] 取消。
-  /// 自然结束或中断后清空。
   StreamSubscription<String>? _activeSubscription;
 
-  /// 中断当前正在进行的生成
-  ///
-  /// 用于输入栏停止按钮：调 [_client.stop()]（云端中断 socket → 服务端感知断开；
-  /// 本地为 no-op）并取消消费订阅（已生成文本保留）。完成器标记为「正常完成」，
-  /// 使 sendMessage 的 finally 正常推进轮次并保存半截内容，不进 catch 降级分支。
+  /// 停止按钮：[_client.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
+  /// 已生成文本保留。完成器标记为「正常完成」→ 走 sendMessage 的 finally
+  /// 正常推进轮次并保存半截内容，不进 catch 降级分支。
   void stopGeneration() {
     final sub = _activeSubscription;
     if (sub == null) return;
@@ -325,7 +264,7 @@ class ChatProvider extends ChangeNotifier {
     sub.cancel();
 
     if (_generationCompleter != null && !_generationCompleter!.isCompleted) {
-      _generationCompleter!.complete(); // 视为正常结束：走 finally，不进 catch。
+      _generationCompleter!.complete();
     }
     _generationCompleter = null;
   }

@@ -1,17 +1,11 @@
 /// SSE 帧缓冲状态机：处理半包/粘包，吐出完整帧的 data 载荷。
-///
-/// 调用方（CloudChatClient）负责把网络字节 utf8 解码成 String 后再喂入 [feed]，
-/// 并自行对返回的 raw 载荷做 JSON 解析（{delta}/{error}）。本类只负责按 SSE 帧
-/// 边界切分、剥离 `data:` 前缀、识别 [DONE]。
-///
-/// 帧以 `\n\n`（或容忍的 `\r\n\r\n`）分隔；最后一个可能不完整的片段留在内部缓冲，
-/// 等后续 chunk 补齐。收到 `data: [DONE]` 后置位 [done]（粘性），该载荷不进返回列表，
-/// 之后 [feed] 恒返回空。
+/// 帧以 `\n\n` 分隔（容忍 `\r\n`），残帧留内部缓冲等后续 chunk 补齐；
+/// `data: [DONE]` 置粘性 [done]，之后 [feed] 恒返回空。
 class SseBuffer {
   var _done = false;
   var _rest = '';
 
-  /// 收到 [DONE] 后为 true（粘性，之后 feed 恒返回空）。
+  /// 收到 [DONE] 后为 true（粘性）。
   bool get done => _done;
 
   /// 喂入一个（已 utf8 解码的）chunk，返回其中完整帧的 data 载荷列表。
@@ -24,12 +18,11 @@ class SseBuffer {
 
     _rest = _rest + normalized;
     final pieces = _rest.split('\n\n');
-    // split 后最后一个元素要么为空（结尾恰好是两换行），要么是未完成的残帧。
-    // 残帧留在 rest；末尾的空字符串片段（代表两换行后的“下一帧开头”）也丢弃。
+    // split 后最后一个元素要么为空，要么是未完成的残帧 → 残帧留在 rest。
     final complete = pieces.length - 1;
     final frames = pieces.sublist(0, complete);
     _rest = pieces.last;
-    // 纯空白残片（来自空白/注释段）丢弃，避免污染下一帧的 data: 行（规则7：不残留致 corruption）。
+    // 纯空白残片丢弃，避免污染下一帧。
     if (_rest.trim().isEmpty) _rest = '';
 
     final out = <String>[];

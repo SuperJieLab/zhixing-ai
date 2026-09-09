@@ -86,10 +86,16 @@ server/                     # 服务端推送
 ├── .env.example
 └── package.json
 
-test/                       # 测试
-├── smoke_test.dart         # 全流程冒烟测试
+test/                       # 测试（目录结构与 lib/ 一一对应）
+├── smoke_test.dart         # 全流程冒烟测试（app 级，留根目录）
+├── core/
+│   └── services/           # PushSocketService 等核心服务测试
 ├── features/
-│   ├── chat/               # ChatPage + ChatProvider 测试
+│   ├── chat/
+│   │   ├── engine/         # ChatClient/策略/SSE/Markdown 块切分测试
+│   │   ├── providers/      # ChatProvider 测试
+│   │   ├── widgets/        # 气泡/输入框渲染测试
+│   │   └── *_page_test.dart
 │   ├── dashboard/          # Dashboard 渲染测试
 │   ├── history/            # History 页面测试
 │   └── model_manager/      # 模型下载测试

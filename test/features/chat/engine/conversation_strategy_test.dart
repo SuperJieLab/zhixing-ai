@@ -11,9 +11,11 @@ Goal _goal(String title, [GoalStatus status = GoalStatus.active]) => Goal(
 
 void main() {
   group('buildSystemPrompt', () {
-    test('无 goals → 纯人设，不含目标段', () {
+    test('无 goals → 统一人设（含知行AI/中文/Markdown），不含目标段', () {
       final prompt = ConversationStrategy().buildSystemPrompt();
-      expect(prompt, contains('你是助手'));
+      expect(prompt, contains('你是知行AI'));
+      expect(prompt, contains('简体中文'));
+      expect(prompt, contains('Markdown'));
       expect(prompt, contains('1. 先理解用户的真实处境和核心诉求'));
       expect(prompt, isNot(contains('## 用户已有目标')));
     });

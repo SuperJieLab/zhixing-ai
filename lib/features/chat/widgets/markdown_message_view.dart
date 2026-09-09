@@ -3,15 +3,9 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:zhixing_ai/core/theme.dart';
 import 'package:zhixing_ai/features/chat/engine/markdown_blocks.dart';
 
-/// 流式 Markdown 渲染视图。
-///
-/// [content] 是随生成 delta 持续增长的全量文本；[isComplete] 表示生成流是否已
-/// 结束（false 即流式中）。通过 [splitBlocks] 把全量文本切成「已闭合块」与
-/// 「尾块」：已闭合块内容不可变，用 [_cache] 按文本缓存 Widget，每次 delta
-/// 重建只重新创建尾块纯文本，从而做到 O(n) 抗闪烁（已渲染内容不重绘）。
-///
-/// 尾块在流式中始终以纯文本渲染（即便里面含 `**` 等未闭合内联语法），
-/// 这符合「无闪烁」设计：内联语法只有在整块闭合后才会升级为富文本。
+/// 流式 Markdown 渲染视图（抗闪烁核心）：
+/// 已闭合块经 [splitBlocks] 切出后按文本缓存 Widget，delta 重建只重画尾块；
+/// 尾块流式中始终以纯文本渲染，内联语法在整块闭合后才升级为富文本。
 class MarkdownMessageView extends StatefulWidget {
   /// 全量文本，随 delta 增长
   final String content;
@@ -19,7 +13,6 @@ class MarkdownMessageView extends StatefulWidget {
   /// 生成流是否已结束（false = 流式中）
   final bool isComplete;
 
-  /// 与气泡正文一致的基础样式
   final TextStyle? baseStyle;
 
   const MarkdownMessageView({
@@ -93,7 +86,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     );
   }
 
-  /// 分派单个顶层块节点到具体渲染器。
   Widget _buildNode(md.Node node, [TextStyle? base]) {
     if (node is! md.Element) {
       final t = node.textContent;
@@ -138,7 +130,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     }
   }
 
-  /// 段落：内联节点拼成富文本。
   Widget _buildParagraph(md.Element e, [TextStyle? base]) {
     final b = base ?? _base;
     return RichText(
@@ -146,7 +137,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     );
   }
 
-  /// 标题：加粗 + 指定字号 + 少量上下内边距。
   Widget _buildHeading(md.Element e, double size, [TextStyle? base]) {
     final b = (base ?? _base).copyWith(
       fontSize: size,
@@ -170,7 +160,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
       }
       code = child.textContent;
     }
-    // 去掉围栏代码常见的尾随换行，避免多出一个空行
     code = code.replaceAll(RegExp(r'\n$'), '');
 
     const bg = Color(0xFFF6F6F8);
@@ -237,7 +226,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
           flush();
           itemWidgets.add(_buildParagraph(c, b));
         } else {
-          // 直接内联内容（紧凑列表），攒进缓冲区统一渲染
           inlineBuffer.add(c);
         }
       }
@@ -396,7 +384,6 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     return spans;
   }
 
-  /// 有序列表的起始序号（支持 `start` 属性）。
   int _listStart(md.Element list) {
     final s = list.attributes['start'];
     return s == null ? 1 : (int.tryParse(s) ?? 1);
