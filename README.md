@@ -40,7 +40,7 @@
 | 加速 | CoreML (iOS) / Metal (macOS) / NNAPI (Android) |
 | 本地存储 | sqflite (SQLite) |
 | 服务端 | Node.js + Express + node-cron |
-| 推送通道 | Firebase Cloud Messaging (APNs + FCM) |
+| 推送通道 | 服务端触发 + WebSocket 站内横幅（不走系统推送） |
 | 服务端 LLM | DeepSeek Chat API（用户可选开启） |
 
 ## 快速开始

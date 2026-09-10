@@ -74,7 +74,7 @@
 │    ├── 用户未开「AI 优化推送」→ 规则模式：deadline 到期前推送       │
 │    └── 用户开启「AI 优化推送」→ LLM 模式：DeepSeek 分析上下文推送   │
 │                                                                  │
-│  推送通道：Firebase Cloud Messaging（APNs + FCM 统一）            │
+│  推送通道：WebSocket 站内横幅（服务端触发，不走系统推送）          │
 │  隐私保护：不传对话原文，仅传结构化摘要，服务端不持久化用户数据       │
 │                                                                  │
 │  详见 §十二 服务端推送方案                                         │
@@ -187,7 +187,7 @@ Strategy:
 │  │ (node-cron)  │  │ (LLM 模式，用户可选开启)     │   │
 │  └──────────────┘  └────────────────────────────┘   │
 │                         ↓                            │
-│              APNs / FCM → 用户设备                    │
+│              WebSocket → 客户端站内横幅             │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -220,7 +220,7 @@ lib/
 │   │   ├── models/                     # chat_models/conversation/dashboard_models/available_model
 │   │   └── repository/                 # conversation/dashboard/settings 仓库 (sqflite/prefs)
 │   ├── platform/                       # 平台基建
-│   │   ├── push_service.dart           # FCM token
+│   │   ├── push_service.dart           # 设备标识 token（FCM，未配 Firebase 则 mock）
 │   │   ├── push_socket_service.dart    # WS 站内推送连接
 │   │   └── sync_service.dart           # 服务端数据同步
 │   └── ui/                             # 跨 feature UI 基建
@@ -399,15 +399,13 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 
 服务端：
   └── 收到 data → node-cron 定时扫描
-        ├── 规则模式 → deadline 在3天内且未完成 → APNs/FCM 推送
+        ├── 规则模式 → deadline 在3天内且未完成 → WS 站内推送
         └── LLM 模式 → DeepSeek 分析上下文
-              ├── should_push=true → 生成个性化推送内容 → APNs/FCM
+              ├── should_push=true → 生成个性化推送内容 → WS 站内推送
               └── should_push=false → 跳过
 
 推送到达 App：
-  └── onMessage / onNotificationOpened
-        ├── 策略提醒 → 跳转对应 GoalDetailPage
-        └── 目标到期 → 跳转 DashboardPage
+  └── PushSocketService（WS）收到 {type:push} → 顶部 Overlay 站内横幅（InAppBanner）
 ```
 
 ---
@@ -427,7 +425,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 模型下载 | dio (HTTP Range) | HuggingFace 断点续传 |
 | 模型托管 | HuggingFace | GGUF 分发 |
 | 服务端 | Node.js + Express | 推送决策、定时任务 |
-| 推送通道 | Firebase Cloud Messaging | iOS APNs + Android FCM 统一 |
+| 推送通道 | 服务端触发 + WebSocket 站内横幅 | App 在线即可达，不依赖系统推送通道 |
 | 服务端 LLM | DeepSeek Chat API | 推送内容智能生成（用户可选） |
 
 ---
@@ -450,7 +448,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 提取频率 | 每次对话结束都提取 |
 | 洞察定义 | 跨对话自我认知：性格矛盾、行为模式、价值观，面向自我而非行动 |
 | 策略查看 | Brief 页点击目标箭头 → 二级页查看策略明细 |
-| 提醒 | 端侧不自行发推送（App 被杀死后失效），推送通过服务端 APNs/FCM 通道实现 |
+| 提醒 | 端侧不自行决策推送；服务端 cron 触发，经 WebSocket 下发，客户端顶部站内横幅展示 |
 | 推送模式 | 两级控制：默认规则模式（title+deadline），可选开启 LLM 优化模式（DeepSeek 分析上下文） |
 | 推送隐私 | 不传对话原文，仅传结构化摘要；服务端不持久化用户数据 |
 | 服务端模型 | DeepSeek Chat API（成本低、中文优化好），MVP 用 API 验证链路 |
@@ -471,12 +469,13 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 
 ## 十二、服务端推送方案
 
-> 设计依据：本文档 §二 环节 4 + §十二 服务端推送方案
-> 实现计划：`docs/plans/2026-07-20-server-push-plan.md`
+> 设计依据：本文档 §二 环节 4
+> 实现：`docs/plans/2026-08-05-in-app-push-design.md` + `docs/plans/2026-08-05-in-app-push-plan.md`
+> （2026-08-05 决策：推送触达改为「服务端触发 + WebSocket + 客户端站内横幅」，替代旧 FCM/APNs 系统推送路线）
 
 ### 为什么需要服务端推送
 
-知行AI 的核心闭环缺少"主动触达"——用户设了目标但容易忘。端侧无法实现真正的推送（App 被杀死后失效），必须通过服务端 APNs/FCM 通道。
+知行AI 的核心闭环缺少"主动触达"——用户设了目标但容易忘。端侧无法实现真正的推送（App 被杀死后失效），必须由服务端主动触达；v2.1 采用 WebSocket 站内横幅（App 在线即可达，不依赖系统推送通道）。
 
 ### 两级推送模式
 
