@@ -59,4 +59,33 @@ class SettingsProvider extends ChangeNotifier {
     await _repo.setChatCloudConsented(value);
     notifyListeners();
   }
+
+  // ─── 云端 BYOK 直连配置 ───
+
+  String get cloudApiBaseUrl => _repo.cloudApiBaseUrl;
+
+  Future<void> setCloudApiBaseUrl(String value) async {
+    if (_repo.cloudApiBaseUrl == value) return;
+    await _repo.setCloudApiBaseUrl(value);
+    notifyListeners();
+  }
+
+  String get cloudApiKey => _repo.cloudApiKey;
+
+  Future<void> setCloudApiKey(String value) async {
+    if (_repo.cloudApiKey == value) return;
+    await _repo.setCloudApiKey(value);
+    notifyListeners();
+  }
+
+  String get cloudModelName => _repo.cloudModelName;
+
+  Future<void> setCloudModelName(String value) async {
+    if (_repo.cloudModelName == value) return;
+    await _repo.setCloudModelName(value);
+    notifyListeners();
+  }
+
+  /// 三件套齐全才允许开启云端模式（设置页门禁用）。
+  bool get isCloudApiConfigured => _repo.isCloudApiConfigured;
 }

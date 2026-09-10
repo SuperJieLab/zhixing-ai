@@ -10,6 +10,9 @@ class SettingsRepository {
   static const String _kAiPushConsented = 'ai_push_consented';
   static const String _kCloudChat = 'chat_cloud_mode';
   static const String _kCloudChatConsented = 'chat_cloud_consented';
+  static const String _kCloudApiBaseUrl = 'cloud_api_base_url';
+  static const String _kCloudApiKey = 'cloud_api_key';
+  static const String _kCloudModelName = 'cloud_model_name';
 
   static final SettingsRepository instance = SettingsRepository._();
 
@@ -100,6 +103,47 @@ class SettingsRepository {
     _assertInit();
     await _prefs.setBool(_kCloudChatConsented, value);
   }
+
+  // ─── 云端 BYOK 直连配置（三项齐全才允许开启云端模式）───
+
+  /// 模型 API 根地址（如 https://api.deepseek.com，客户端拼 /chat/completions）
+  String get cloudApiBaseUrl {
+    _assertInit();
+    return _prefs.getString(_kCloudApiBaseUrl) ?? '';
+  }
+
+  Future<void> setCloudApiBaseUrl(String value) async {
+    _assertInit();
+    await _prefs.setString(_kCloudApiBaseUrl, value.trim());
+  }
+
+  /// 模型 API Key（用户自备，仅存本机 shared_preferences）
+  String get cloudApiKey {
+    _assertInit();
+    return _prefs.getString(_kCloudApiKey) ?? '';
+  }
+
+  Future<void> setCloudApiKey(String value) async {
+    _assertInit();
+    await _prefs.setString(_kCloudApiKey, value.trim());
+  }
+
+  /// 模型名（自由文本，如 deepseek-chat；不做厂商枚举）
+  String get cloudModelName {
+    _assertInit();
+    return _prefs.getString(_kCloudModelName) ?? '';
+  }
+
+  Future<void> setCloudModelName(String value) async {
+    _assertInit();
+    await _prefs.setString(_kCloudModelName, value.trim());
+  }
+
+  /// BYOK 三件套是否齐全（开启云端模式的前提）。
+  bool get isCloudApiConfigured =>
+      cloudApiBaseUrl.trim().isNotEmpty &&
+      cloudApiKey.trim().isNotEmpty &&
+      cloudModelName.trim().isNotEmpty;
 
   void _assertInit() {
     assert(_initialized, 'SettingsRepository 未初始化，请先调用 initialize()');
