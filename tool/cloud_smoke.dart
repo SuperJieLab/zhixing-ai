@@ -50,9 +50,17 @@ Future<HttpServer> startMockServer(
 Future<void> main() async {
   // ── 测试一：正常 delta 流，验证跨 chunk UTF-8 解码 ──
   // 故意把 CJK 拆成多个字节的帧，且单帧只含半个多字节字符。
-  final server = await startMockServer(['{"delta":"你"}', '{"delta":"好"}', '[DONE]']);
+  final server = await startMockServer([
+    '{"choices":[{"delta":{"content":"你"}}]}',
+    '{"choices":[{"delta":{"content":"好"}}]}',
+    '[DONE]',
+  ]);
   final baseUrl = 'http://127.0.0.1:${server.port}';
-  final client = CloudChatClient(baseUrl: baseUrl);
+  final client = CloudChatClient(
+    baseUrl: baseUrl,
+    apiKey: 'sk-smoke',
+    modelName: 'smoke-model',
+  );
 
   final received = <String>[];
   await for (final d in client.generateResponse([
@@ -70,10 +78,13 @@ Future<void> main() async {
   stdout.writeln('✅ 测试一通过：收到 ${received.join('')}（顺序正确）');
 
   // ── 测试二：stop() 提前终止慢流 ──
-  final slowFrames = List.generate(10, (i) => '{"delta":"帧$i"}');
+  final slowFrames = List.generate(
+      10, (i) => '{"choices":[{"delta":{"content":"帧$i"}}]}');
   final slowServer = await startMockServer(slowFrames, delayMs: 50);
   final slowClient = CloudChatClient(
     baseUrl: 'http://127.0.0.1:${slowServer.port}',
+    apiKey: 'sk-smoke',
+    modelName: 'smoke-model',
   );
 
   final beforeStop = <String>[];

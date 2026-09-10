@@ -138,7 +138,16 @@ class ChatProvider extends ChangeNotifier {
   Future<ChatClient> _defaultClientFactory() async {
     switch (_resolvedMode) {
       case ChatMode.cloud:
-        return CloudChatClient();
+        // BYOK 直连：三件套齐全才可用（设置层有门禁，此处防御兜底）。
+        final repo = SettingsRepository.instance;
+        if (!repo.isCloudApiConfigured) {
+          throw StateError('云端模式未配置 API（地址/Key/模型名）');
+        }
+        return CloudChatClient(
+          baseUrl: repo.cloudApiBaseUrl,
+          apiKey: repo.cloudApiKey,
+          modelName: repo.cloudModelName,
+        );
       case ChatMode.local:
         final engine = await LlamaService.instance
             .ensureReady(gpuLayers: SettingsRepository.instance.gpuLayers);

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
@@ -15,7 +14,7 @@ enum ChatMode {
   cloud,
 }
 
-/// 云端对话客户端：HTTP SSE 对接服务端 /api/chat。
+/// 云端对话客户端：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
 ///
 /// 坑位备忘：
 ///   - 必须用 [utf8.decoder] 转换原始字节流，多字节 CJK 字符可能被 TCP 拆到两个 chunk；
@@ -23,10 +22,16 @@ enum ChatMode {
 class CloudChatClient implements ChatClient {
   late final Dio _dio;
 
+  /// API Key（Bearer 认证），仅存本机、随请求头发送。
+  final String _apiKey;
+
+  /// 模型名（自由文本，OpenAI 兼容端点按此路由）。
+  final String _modelName;
+
   /// 帧间空闲超时（非总时长）：超时抛 [TimeoutException] 交上层降级。
   final Duration _frameTimeout;
 
-  /// initialize 暂存的已有目标，请求时拼进 systemPrompt（与本地人设逐字一致）。
+  /// initialize 暂存的已有目标，请求时拼进 system 消息（与本地人设逐字一致）。
   List<Goal> _pendingGoals = const [];
 
   /// 本地/云端共享的唯一人设出处。
@@ -39,14 +44,20 @@ class CloudChatClient implements ChatClient {
   StreamSubscription<void>? _bodySubscription;
   StreamController<String>? _activeController;
 
+  /// [baseUrl] 为 OpenAI 兼容端点根地址（容忍尾斜杠），客户端拼 `/chat/completions`。
   CloudChatClient({
-    String? baseUrl,
+    required String baseUrl,
+    required String apiKey,
+    required String modelName,
     Duration frameTimeout = const Duration(seconds: 10),
     ConversationStrategy? strategy,
-  })  : _frameTimeout = frameTimeout, // ignore: prefer_initializing_formals
+  })  : _apiKey = apiKey, // ignore: prefer_initializing_formals
+        _modelName = modelName, // ignore: prefer_initializing_formals
+        _frameTimeout = frameTimeout, // ignore: prefer_initializing_formals
         _strategy = strategy ?? ConversationStrategy(),
         _dio = Dio(BaseOptions(
-          baseUrl: baseUrl ?? AppConstants.serverBaseUrl,
+          // 容忍尾斜杠：用户从厂商文档复制的根地址形态不保证无尾斜杠
+          baseUrl: baseUrl.replaceAll(RegExp(r'/+$'), ''),
           responseType: ResponseType.stream,
           connectTimeout: const Duration(seconds: 10),
         ));
@@ -62,7 +73,7 @@ class CloudChatClient implements ChatClient {
 
   /// [history] 为完整历史（尾部为本轮新用户消息）。
   /// 窗口：尾部消息之外滤 round==0 欢迎语、取尾 [_windowSize] 条，再附尾部消息。
-  /// `error` 帧或网络异常原样上抛，由上层决定降级策略。
+  /// HTTP 非 200 或网络异常原样上抛，由上层决定降级策略。
   @override
   Stream<String> generateResponse(List<ChatMessage> history) {
     if (history.isEmpty) {
@@ -109,23 +120,35 @@ class CloudChatClient implements ChatClient {
     StreamController<String> controller,
   ) async {
     final body = {
-      'messages': messages
-          .map((m) => {'role': m.role, 'content': m.content})
-          .toList(),
-      // 客户端拼装人设（含 goals）；服务端有则用之，缺省回落内置兜底。
-      'systemPrompt': _strategy.buildSystemPrompt(existingGoals: _pendingGoals),
+      'model': _modelName,
+      'messages': [
+        // 人设唯一出处：与本地模式共享同一份 system 提示词（含 goals 注入）。
+        {
+          'role': 'system',
+          'content': _strategy.buildSystemPrompt(existingGoals: _pendingGoals),
+        },
+        ...messages.map((m) => {'role': m.role, 'content': m.content}),
+      ],
+      'stream': true,
+      // temperature/max_tokens 等参数 MVP 不下发，用厂商默认。
     };
 
     Response<ResponseBody> resp;
     try {
       resp = await _dio.post<ResponseBody>(
-        '/api/chat',
+        '/chat/completions',
         data: body,
         cancelToken: cancelToken,
+        options: Options(headers: {'Authorization': 'Bearer $_apiKey'}),
       );
     } on DioException catch (e) {
-      // stop() 可能已关 controller，addError 会抛 StateError，故走 _safeError。
-      _safeError(controller, e);
+      // 非 2xx 也走 DioException：带上 status 便于用户定位（401/429/欠费等）。
+      final status = e.response?.statusCode;
+      _safeError(
+        controller,
+        Exception('云端 API 请求失败${status != null ? '（HTTP $status）' : ''}'
+            ': ${e.message ?? e.type.name}'),
+      );
       await controller.close();
       _clearActive();
       return;
@@ -150,16 +173,8 @@ class CloudChatClient implements ChatClient {
         try {
           for (final data in buffer.feed(chunkText)) {
             final json = jsonDecode(data) as Map<String, dynamic>;
-
-            final error = json['error'];
-            if (error != null) {
-              _safeError(controller, Exception('云端对话失败: $error'));
-              controller.close();
-              return;
-            }
-
-            final delta = json['delta'];
-            if (delta is String && delta.isNotEmpty) {
+            final delta = _extractDelta(json);
+            if (delta != null && delta.isNotEmpty) {
               controller.add(delta);
             }
           }
@@ -180,6 +195,19 @@ class CloudChatClient implements ChatClient {
     _bodySubscription = subscription;
   }
 
+  /// 取 OpenAI 流式增量：`choices[0].delta.content`。
+  /// 缺 choices / delta 只有 role / finish_reason 帧等一律返回 null（跳过）。
+  static String? _extractDelta(Map<String, dynamic> json) {
+    final choices = json['choices'];
+    if (choices is! List || choices.isEmpty) return null;
+    final first = choices.first;
+    if (first is! Map<String, dynamic>) return null;
+    final delta = first['delta'];
+    if (delta is! Map<String, dynamic>) return null;
+    final content = delta['content'];
+    return content is String ? content : null;
+  }
+
   void _clearActive() {
     _bodySubscription = null;
     if (_activeController != null && _activeController!.isClosed) {
@@ -194,7 +222,7 @@ class CloudChatClient implements ChatClient {
     }
   }
 
-  /// 中止进行中请求：取消响应体订阅（服务端感知断开 → 中止上游）+ CancelToken。
+  /// 中止进行中请求：取消响应体订阅（直连下即断开厂商 socket）+ CancelToken。
   @override
   void stop() {
     final sub = _bodySubscription;

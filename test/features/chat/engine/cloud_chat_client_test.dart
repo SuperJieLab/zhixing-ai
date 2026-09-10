@@ -7,27 +7,36 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 
-// 云端对话客户端真实集成测试
+// 云端对话客户端（BYOK 直连）真实集成测试
 //
-// 用真实 dart:io HttpServer 起本地 mock SSE 服务端（127.0.0.1 直连），验证
-// [CloudChatClient] 的关键行为：
+// 用真实 dart:io HttpServer 起本地 mock OpenAI 兼容 SSE 服务端（127.0.0.1
+// 直连），验证 [CloudChatClient] 的关键行为：
 //   A. 正常 delta 流按序产出并正常结束；
 //   B. [CloudChatClient.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
-//      断开（客户端取消 → 连接销毁 → 服务端中断，对应 Task 3 的取消传播链）；
+//      断开（客户端取消 → 连接销毁 → 厂商侧中断）；
 //   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）；
-//   D. 窗口构造：round==0 欢迎语被过滤、尾部用户消息随请求发送（Task 3 签名对齐）；
-//   E. 窗口裁剪：尾部消息之外超过 10 条时取尾部 10 条。
+//   D. 窗口构造：round==0 欢迎语被过滤、system 首条、尾部用户消息随请求发送；
+//   E. 窗口裁剪：尾部消息之外超过 10 条时取尾部 10 条；
+//   F. isReady 恒真、initialize 暂存 goals；
+//   G. 请求体：system 人设（含 goals）+ model + Authorization 头；
+//   H. 无 goals 时 system 不含目标段；
+//   I. HTTP 非 200（401）→ 抛错且含状态码；
+//   J. 无 delta.content 的帧（role/finish_reason）被跳过。
 //
 // 关键：服务端必须设 `bufferOutput = false`——dart:io HttpResponse 默认缓冲输出，
 // 小写入会攒到连接关闭才上线，SSE 增量投递完全失效（曾由此误判为环境代理缓冲）。
-//
-// 运行：dart test test/cloud_chat_client_test.dart（纯 Dart，flutter test 在本沙箱不可用）。
 
-/// mock SSE 服务端句柄：端口 + 客户端提前断开的感知信号。
+const _dummyKey = 'sk-test';
+const _dummyModel = 'test-model';
+
+/// mock SSE 服务端句柄：端口 + 客户端提前断开的感知信号 + 最近一次请求。
 class _MockServer {
   _MockServer(this.server, this.clientDisconnected);
   final HttpServer server;
   final Completer<void> clientDisconnected;
+
+  /// 最近一次收到的请求（供断言 Authorization 等请求头）。
+  HttpRequest? lastRequest;
 
   String get baseUrl => 'http://127.0.0.1:${server.port}';
 
@@ -74,7 +83,9 @@ Future<_MockServer> _startMock(
           ContentType('text', 'event-stream', charset: 'utf-8')
       ..headers.add('Cache-Control', 'no-cache')
       ..headers.add('Connection', 'keep-alive');
-    await onConnected(req.response, _MockServer(server, disconnected), body);
+    final s = _MockServer(server, disconnected);
+    s.lastRequest = req;
+    await onConnected(req.response, s, body);
   });
   return _MockServer(server, disconnected);
 }
@@ -95,8 +106,20 @@ Future<void> _writeFrame(
   }
 }
 
+/// OpenAI 格式增量帧：`{"choices":[{"delta":{"content":...}}]}`。
+String _openAiDelta(String content) =>
+    '{"choices":[{"delta":{"content":${jsonEncode(content)}}}]}';
+
+CloudChatClient _client(String baseUrl, {Duration? frameTimeout}) =>
+    CloudChatClient(
+      baseUrl: baseUrl,
+      apiKey: _dummyKey,
+      modelName: _dummyModel,
+      frameTimeout: frameTimeout ?? const Duration(seconds: 10),
+    );
+
 void main() {
-  /// 回显服务端收到的 messages（role:content| 逐帧），供窗口断言。
+  /// 回显服务端收到的 messages（跳过 system，role:content| 逐帧），供窗口断言。
   Future<void> echoMessages(
     HttpResponse resp,
     _MockServer s,
@@ -105,9 +128,10 @@ void main() {
     final msgs =
         (jsonDecode(body) as Map<String, dynamic>)['messages'] as List;
     for (final m in msgs) {
+      if (m['role'] == 'system') continue;
       await _writeFrame(
         resp,
-        '{"delta":"${m['role']}:${m['content']}|"}',
+        _openAiDelta('${m['role']}:${m['content']}|'),
         s.clientDisconnected,
       );
     }
@@ -118,14 +142,14 @@ void main() {
   // ── 测试 A：正常 delta 流，按序产出并正常结束 ──
   test('A. 正常 delta 流按序产出并正常结束', () async {
     final s = await _startMock((resp, s, body) async {
-      await _writeFrame(resp, '{"delta":"你"}', s.clientDisconnected);
+      await _writeFrame(resp, _openAiDelta('你'), s.clientDisconnected);
       await Future<void>.delayed(const Duration(milliseconds: 30));
-      await _writeFrame(resp, '{"delta":"好"}', s.clientDisconnected);
+      await _writeFrame(resp, _openAiDelta('好'), s.clientDisconnected);
       await Future<void>.delayed(const Duration(milliseconds: 30));
       await _writeFrame(resp, '[DONE]', s.clientDisconnected);
       await resp.close();
     });
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
 
     final received = <String>[];
     await for (final d in client.generateResponse([
@@ -145,7 +169,7 @@ void main() {
       try {
         for (var i = 0; i < 100; i++) {
           if (s2.clientDisconnected.isCompleted) return;
-          await _writeFrame(resp, '{"delta":"帧$i"}', s2.clientDisconnected);
+          await _writeFrame(resp, _openAiDelta('帧$i'), s2.clientDisconnected);
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
       } catch (_) {
@@ -153,7 +177,7 @@ void main() {
       }
       await resp.close().catchError((_) {});
     });
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
 
     final received = <String>[];
     await for (final d in client.generateResponse([
@@ -166,11 +190,8 @@ void main() {
 
     // 断言：仅收到首帧。bufferOutput=false 保证帧每 50ms 增量到达，因此这是
     // 真断言——若 stop() 失效，客户端会继续收到 帧1..帧N（直至 [DONE] 或发满）。
+    // 直连下客户端断开即断开厂商 socket，无服务端中继环节。
     expect(received, ['帧0']);
-    // 注：不在 dart:io 侧断言「服务端感知断开」——loopback 下客户端 abort 后，
-    // 服务端 flush 可能长期挂起且 response.done 不触发（平台行为，非被测代码
-    // 缺陷）。「客户端断开 → 服务端 abort 上游」一环由 Task 3 的 node 真实
-    // socket 测试（server/tests/chat-route.test.js）覆盖。
     await s.close();
   });
 
@@ -180,14 +201,12 @@ void main() {
   // [TimeoutException]（帧间空闲语义，非总时长）。
   test('C. 帧间空闲超时被上报为 TimeoutException', () async {
     final s = await _startMock((resp, s, body) async {
-      await _writeFrame(resp, '{"delta":"一"}', s.clientDisconnected);
+      await _writeFrame(resp, _openAiDelta('一'), s.clientDisconnected);
       // 保持打开、不再发帧：挂起一个永不完成的等待（服务端由 finally 强制关闭）。
       await Completer<void>().future;
     });
-    final client = CloudChatClient(
-      baseUrl: s.baseUrl,
-      frameTimeout: const Duration(milliseconds: 200),
-    );
+    final client = _client(s.baseUrl,
+        frameTimeout: const Duration(milliseconds: 200));
 
     final received = <String>[];
     Object? caught;
@@ -211,7 +230,7 @@ void main() {
   // ── 测试 D：窗口构造——round==0 欢迎语被过滤，尾部用户消息随请求发送 ──
   test('D. round==0 欢迎语被过滤，尾部用户消息随请求发送', () async {
     final s = await _startMock(echoMessages);
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
 
     final received = <String>[];
     await for (final d in client.generateResponse([
@@ -232,7 +251,7 @@ void main() {
   // ── 测试 E：窗口裁剪——尾部消息之外超过 10 条时取尾部 10 条 ──
   test('E. 历史超过窗口大小时取尾部 10 条', () async {
     final s = await _startMock(echoMessages);
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
 
     final history = <ChatMessage>[];
     for (var r = 1; r <= 15; r++) {
@@ -260,7 +279,7 @@ void main() {
 
   // ── 测试 F：isReady 恒真；initialize 暂存 goals 且恒成功 ──
   test('F. isReady 恒真，initialize 暂存 goals', () async {
-    final client = CloudChatClient();
+    final client = _client('https://example.com');
     expect(client.isReady, isTrue);
 
     final ok = await client.initialize(
@@ -276,17 +295,18 @@ void main() {
     expect(client.isReady, isTrue);
   });
 
-  // ── 测试 G：systemPrompt 随请求体发送，含统一人设与 initialize 的 goals ──
-  test('G. 请求体携带 systemPrompt（统一人设 + goals 上下文）', () async {
-    String? capturedSystem;
+  // ── 测试 G：请求体为 OpenAI 格式——system 人设（goals）+ model + Bearer 头 ──
+  test('G. 请求体含 system 人设/model/Authorization，goals 注入', () async {
+    Map<String, dynamic>? capturedBody;
+    String? capturedAuth;
     final s = await _startMock((resp, s2, body) async {
-      capturedSystem =
-          (jsonDecode(body) as Map<String, dynamic>)['systemPrompt'] as String?;
-      await _writeFrame(resp, '{"delta":"ok"}', s2.clientDisconnected);
+      capturedBody = jsonDecode(body) as Map<String, dynamic>;
+      capturedAuth = s2.lastRequest?.headers.value('authorization');
+      await _writeFrame(resp, _openAiDelta('ok'), s2.clientDisconnected);
       await _writeFrame(resp, '[DONE]', s2.clientDisconnected);
       await resp.close();
     });
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
     await client.initialize(
       existingGoals: [
         Goal(
@@ -307,26 +327,33 @@ void main() {
     await s.close();
 
     expect(received, ['ok']);
-    // 统一人设（与 ConversationStrategy.buildSystemPrompt 一致）+ goals 注入段
-    expect(capturedSystem, isNotNull);
-    expect(capturedSystem, contains('你是知行AI'));
-    expect(capturedSystem, contains('Markdown'));
-    expect(capturedSystem, contains('## 用户已有目标'));
-    expect(capturedSystem, contains('[active] 三个月内找到 iOS 工作'));
-    expect(capturedSystem, contains('建议合并而非新建'));
+    expect(capturedBody, isNotNull);
+    expect(capturedBody!['model'], _dummyModel);
+    expect(capturedBody!['stream'], isTrue);
+    expect(capturedAuth, 'Bearer $_dummyKey');
+
+    // system 首条：统一人设（与 ConversationStrategy.buildSystemPrompt 一致）
+    // + goals 注入段
+    final messages = capturedBody!['messages'] as List;
+    expect(messages.first['role'], 'system');
+    final system = messages.first['content'] as String;
+    expect(system, contains('你是知行AI'));
+    expect(system, contains('Markdown'));
+    expect(system, contains('## 用户已有目标'));
+    expect(system, contains('[active] 三个月内找到 iOS 工作'));
+    expect(system, contains('建议合并而非新建'));
   });
 
-  // ── 测试 H：未调 initialize（无 goals）→ systemPrompt 仍发送，不含目标段 ──
-  test('H. 无 goals 时 systemPrompt 不含目标段', () async {
-    String? capturedSystem;
+  // ── 测试 H：未调 initialize（无 goals）→ system 仍发送，不含目标段 ──
+  test('H. 无 goals 时 system 不含目标段', () async {
+    Map<String, dynamic>? capturedBody;
     final s = await _startMock((resp, s2, body) async {
-      capturedSystem =
-          (jsonDecode(body) as Map<String, dynamic>)['systemPrompt'] as String?;
-      await _writeFrame(resp, '{"delta":"ok"}', s2.clientDisconnected);
+      capturedBody = jsonDecode(body) as Map<String, dynamic>;
+      await _writeFrame(resp, _openAiDelta('ok'), s2.clientDisconnected);
       await _writeFrame(resp, '[DONE]', s2.clientDisconnected);
       await resp.close();
     });
-    final client = CloudChatClient(baseUrl: s.baseUrl);
+    final client = _client(s.baseUrl);
 
     await for (final _ in client.generateResponse([
       ChatMessage(role: MessageRole.user, content: '近况', round: 1),
@@ -334,8 +361,65 @@ void main() {
     client.dispose();
     await s.close();
 
-    expect(capturedSystem, isNotNull);
-    expect(capturedSystem, contains('你是知行AI'));
-    expect(capturedSystem, isNot(contains('## 用户已有目标')));
+    final messages = capturedBody!['messages'] as List;
+    final system = messages.first['content'] as String;
+    expect(system, contains('你是知行AI'));
+    expect(system, isNot(contains('## 用户已有目标')));
+  });
+
+  // ── 测试 I：HTTP 非 200 → 抛错且错误信息含状态码 ──
+  test('I. 上游 401 → 抛错含 HTTP 状态码', () async {
+    final s = await _startMock((resp, s2, body) async {
+      resp.statusCode = 401;
+      resp.write('{"error":{"message":"Invalid API key"}}');
+      await resp.close();
+    });
+    final client = _client(s.baseUrl);
+
+    Object? caught;
+    try {
+      await for (final _ in client.generateResponse([
+        ChatMessage(role: MessageRole.user, content: '近况', round: 1),
+      ])) {}
+    } catch (e) {
+      caught = e;
+    } finally {
+      client.dispose();
+      await s.close();
+    }
+
+    expect(caught, isNotNull);
+    expect(caught.toString(), contains('401'));
+  });
+
+  // ── 测试 J：无 delta.content 的帧（role/finish_reason）被跳过 ──
+  test('J. 无 content 的帧被跳过，不产出空 delta', () async {
+    final s = await _startMock((resp, s, body) async {
+      // role 帧（OpenAI 首帧常见）
+      await _writeFrame(
+          resp, '{"choices":[{"delta":{"role":"assistant"}}]}',
+          s.clientDisconnected);
+      // finish_reason 帧
+      await _writeFrame(
+          resp,
+          '{"choices":[{"delta":{},"finish_reason":"stop"}]}',
+          s.clientDisconnected);
+      // 正常内容帧夹在中间
+      await _writeFrame(resp, _openAiDelta('好'), s.clientDisconnected);
+      await _writeFrame(resp, '[DONE]', s.clientDisconnected);
+      await resp.close();
+    });
+    final client = _client(s.baseUrl);
+
+    final received = <String>[];
+    await for (final d in client.generateResponse([
+      ChatMessage(role: MessageRole.user, content: '近况', round: 1),
+    ])) {
+      received.add(d);
+    }
+    client.dispose();
+    await s.close();
+
+    expect(received, ['好']);
   });
 }
