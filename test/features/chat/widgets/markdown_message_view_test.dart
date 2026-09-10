@@ -54,6 +54,24 @@ void main() {
     expect(tableFinder, findsOneWidget);
     expect(tester.getSize(tableFinder).width, greaterThan(300));
   });
+
+  testWidgets('系统性 HTML 转义的引号在渲染前被解码', (tester) async {
+    await pumpTable(tester, '他说&quot;这个能用&quot;，我回&quot;那就行&quot;.');
+
+    // 渲染结果应显示解出来的引号，而不是实体原文
+    expect(find.textContaining('他说"这个能用"', findRichText: true),
+        findsOneWidget);
+    expect(find.textContaining('&quot;', findRichText: true), findsNothing);
+  });
+
+  testWidgets('裸引号经 markdown 解析后再编码的实体同样被解码', (tester) async {
+    // 根因用例：markdown 包解析时把裸 " 再编码成 &quot;，任何模型都会触发
+    await pumpTable(tester, '他说"这个能用"。');
+
+    expect(find.textContaining('他说"这个能用"', findRichText: true),
+        findsOneWidget);
+    expect(find.textContaining('&quot;', findRichText: true), findsNothing);
+  });
 }
 
   Finder findRichText(String text) => find.textContaining(text, findRichText: true);
