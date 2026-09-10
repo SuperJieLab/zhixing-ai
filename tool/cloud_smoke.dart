@@ -11,7 +11,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 
 /// 起一个 mock SSE 服务端，按 [frames] 逐帧下发，帧间延迟 [delayMs]。

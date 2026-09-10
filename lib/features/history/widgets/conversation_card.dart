@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 
 /// 历史对话卡片
 ///

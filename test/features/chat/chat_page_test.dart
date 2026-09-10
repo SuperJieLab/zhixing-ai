@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 import 'package:zhixing_ai/features/chat/engine/chat_client.dart';

@@ -1,4 +1,4 @@
-import 'package:zhixing_ai/core/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
 
 /// 将对话历史格式化为纯文本（供 Extractor 组装 LLM 输入用）
 String buildConversationText(String topic, List<ChatMessage> conversation) {

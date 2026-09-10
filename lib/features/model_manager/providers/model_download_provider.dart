@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import 'package:zhixing_ai/core/model_manager.dart';
-import 'package:zhixing_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/data/models/available_model.dart';
 import 'package:zhixing_ai/features/model_manager/engine/model_download_service.dart';
 
 enum DownloadStatus { idle, downloading, completed, failed, cancelled }
@@ -32,7 +32,7 @@ class ModelDownloadState {
 /// 模型下载状态管理（feature 层）
 ///
 /// 管理下载生命周期：下载 → 进度 → 完成/失败/取消。
-/// 下载完成后通过 [ModelManager.setModelReady] 通知 core 层。
+/// 下载完成后通过 [ActiveModelManager.setModelReady] 通知 core 层。
 ///
 /// 不使用 Provider 全局注入——由 [ModelManagePage] 内部自行管理，
 /// 通过 [ChangeNotifierProvider] 在页面 widget tree 内注入。
@@ -46,9 +46,9 @@ class ModelDownloadProvider extends ChangeNotifier {
 
   final Map<String, ModelDownloadState> _states = {};
 
-  /// 从 ModelManager 同步已下载模型的状态，避免已下载的模型显示"下载"按钮
+  /// 从 ActiveModelManager 同步已下载模型的状态，避免已下载的模型显示"下载"按钮
   void _initStates() {
-    final manager = ModelManager.instance;
+    final manager = ActiveModelManager.instance;
     for (final model in AvailableModel.available) {
       if (manager.isDownloaded(model.id)) {
         _states[model.id] = const ModelDownloadState(
@@ -67,7 +67,7 @@ class ModelDownloadProvider extends ChangeNotifier {
       _states[modelId] ?? const ModelDownloadState();
 
   Future<void> startDownload(AvailableModel model) async {
-    final savePath = await ModelManager.instance.savePath(model);
+    final savePath = await ActiveModelManager.instance.savePath(model);
 
     _states[model.id] = const ModelDownloadState(status: DownloadStatus.downloading);
     notifyListeners();
@@ -88,7 +88,7 @@ class ModelDownloadProvider extends ChangeNotifier {
           totalBytes: model.sizeBytes,
         );
         // 通知 core 层：模型就绪
-        ModelManager.instance.setModelReady(model.id, savePath);
+        ActiveModelManager.instance.setModelReady(model.id, savePath);
       } else {
         _states[model.id] = const ModelDownloadState(status: DownloadStatus.cancelled);
       }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/features/chat/snackbar_throttle.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 import 'package:zhixing_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:zhixing_ai/features/chat/widgets/chat_input.dart';

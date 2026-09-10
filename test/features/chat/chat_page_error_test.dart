@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zhixing_ai/core/engine/conversation_service.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/data/conversation_service.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatProvider 错误状态 API 的单元测试

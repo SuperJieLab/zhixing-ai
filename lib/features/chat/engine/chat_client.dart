@@ -1,5 +1,5 @@
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 
 /// 对话客户端统一接口：本地（llama session）与云端（SSE）双实现，
 /// ChatProvider 只面向此接口，无模式分支。

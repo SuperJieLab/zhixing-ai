@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 
 // 云端对话客户端真实集成测试

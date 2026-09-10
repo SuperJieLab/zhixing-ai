@@ -1,7 +1,7 @@
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/services/sync_service.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/platform/sync_service.dart';
 
 /// Dashboard 状态管理
 ///

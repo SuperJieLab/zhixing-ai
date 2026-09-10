@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 
 class GoalCard extends StatelessWidget {
   final Goal goal;

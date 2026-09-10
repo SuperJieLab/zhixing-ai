@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:zhixing_ai/core/route_observer.dart';
-import 'package:zhixing_ai/core/theme.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/ui/route_observer.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/dashboard/providers/dashboard_provider.dart';
 import 'package:zhixing_ai/features/dashboard/widgets/dashboard_header.dart';

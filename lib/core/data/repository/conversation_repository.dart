@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
 
 /// 会话持久化仓库（sqflite 单例）
 ///

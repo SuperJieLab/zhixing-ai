@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/core/data/models/available_model.dart';
 
 /// 模型就绪状态管理（core 层）
 ///
@@ -14,10 +14,10 @@ import 'package:zhixing_ai/core/models/available_model.dart';
 ///
 /// 在 main() 的 MultiProvider 中全局注入，
 /// TopicSelectionPage、ChatPage 等通过 watch 消费就绪状态。
-class ModelManager extends ChangeNotifier {
-  static final ModelManager instance = ModelManager._();
+class ActiveModelManager extends ChangeNotifier {
+  static final ActiveModelManager instance = ActiveModelManager._();
 
-  ModelManager._();
+  ActiveModelManager._();
 
   String? _activeModelId;
 

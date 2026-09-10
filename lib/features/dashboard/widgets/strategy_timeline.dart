@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/dashboard/widgets/goal_card.dart';
 
 class StrategyTimeline extends StatelessWidget {

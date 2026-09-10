@@ -1,11 +1,11 @@
 import 'dart:convert';
-import 'package:zhixing_ai/core/engine/conversation_service.dart';
-import 'package:zhixing_ai/core/engine/llama_service.dart';
+import 'package:zhixing_ai/core/data/conversation_service.dart';
+import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/strategy_brief/engine/strategist_extractor.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
 

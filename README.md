@@ -63,10 +63,12 @@ cd server && cp .env.example .env && npm install && npm start
 ```
 lib/
 ├── core/
-│   ├── engine/             # LLM 引擎 + 对话管理
-│   ├── models/             # 共享数据模型
-│   ├── repository/         # 数据访问层 (sqflite)
-│   └── services/           # PushService + SyncService
+│   ├── constants.dart      # 全局常量（端侧模型参数 local* / 服务端地址）
+│   ├── logger.dart         # 统一日志
+│   ├── llm/                # 端侧 LLM 推理域（LlamaService/ActiveModelManager/think 剥离）
+│   ├── data/               # 数据域（models/ + repository/ + ConversationService）
+│   ├── platform/           # 平台基建（推送/WS/同步）
+│   └── ui/                 # 跨 feature UI 基建（主题/路由观察/横幅）
 ├── features/
 │   ├── chat/               # 助手对话
 │   ├── dashboard/          # 全局面板（三区视图）
@@ -89,7 +91,7 @@ server/                     # 服务端推送
 test/                       # 测试（目录结构与 lib/ 一一对应）
 ├── smoke_test.dart         # 全流程冒烟测试（app 级，留根目录）
 ├── core/
-│   └── services/           # PushSocketService 等核心服务测试
+│   └── platform/           # PushSocketService 等平台服务测试
 ├── features/
 │   ├── chat/
 │   │   ├── engine/         # ChatClient/策略/SSE/Markdown 块切分测试

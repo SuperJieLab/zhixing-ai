@@ -4,14 +4,14 @@ import 'dart:math' as math;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/engine/llama_service.dart';
+import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/strategy_brief/engine/chat_utils.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
-import 'package:zhixing_ai/core/think_tag_stripper.dart';
+import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 
 /// 对话提取引擎
 ///

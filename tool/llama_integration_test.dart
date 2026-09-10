@@ -20,7 +20,7 @@ import 'dart:io';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/core/data/models/available_model.dart';
 import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
 
 Future<void> main() async {

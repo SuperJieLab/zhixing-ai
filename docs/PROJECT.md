@@ -209,20 +209,24 @@ lib/
 ├── main.dart
 ├── app.dart
 ├── core/
-│   ├── engine/
-│   │   ├── llama_service.dart
-│   │   └── conversation_service.dart
-│   ├── models/
-│   │   ├── chat_models.dart
-│   │   ├── conversation.dart
-│   │   ├── dashboard_models.dart
-│   │   └── available_model.dart
-│   ├── repository/
-│   │   ├── conversation_repository.dart
-│   │   └── dashboard_repository.dart
-│   ├── theme.dart
-│   ├── constants.dart
-│   └── logger.dart
+│   ├── constants.dart                  # 全局常量（端侧模型参数 local* / 服务端地址）
+│   ├── logger.dart                     # 统一日志
+│   ├── llm/                            # 端侧 LLM 推理域
+│   │   ├── llama_service.dart          # 引擎生命周期/池化/token 估算
+│   │   ├── active_model_manager.dart   # 活跃模型状态单例（ChangeNotifier）
+│   │   └── think_tag_stripper.dart     # <think> 标签剥离
+│   ├── data/                           # 数据域
+│   │   ├── conversation_service.dart   # 会话缓存编排（Identity Map）
+│   │   ├── models/                     # chat_models/conversation/dashboard_models/available_model
+│   │   └── repository/                 # conversation/dashboard/settings 仓库 (sqflite/prefs)
+│   ├── platform/                       # 平台基建
+│   │   ├── push_service.dart           # FCM token
+│   │   ├── push_socket_service.dart    # WS 站内推送连接
+│   │   └── sync_service.dart           # 服务端数据同步
+│   └── ui/                             # 跨 feature UI 基建
+│       ├── theme.dart
+│       ├── route_observer.dart
+│       └── in_app_banner.dart          # 站内推送横幅
 │
 ├── features/
 │   ├── chat/
@@ -262,13 +266,13 @@ lib/
 │   │   ├── widgets/conversation_card.dart
 │   │   └── history_page.dart
 │   │
+│   ├── settings/
+│   │   └── settings_page.dart          # 偏好设置（云端模式/GPU 加速等）
+│   │
 │   └── model_manager/
 │       ├── engine/model_download_service.dart
 │       ├── providers/model_download_provider.dart
 │       └── model_manage_page.dart
-│
-└── services/
-    └── sync_service.dart              # 服务端数据同步
 
 server/                                # 服务端（独立于 Flutter 工程）
 ├── src/

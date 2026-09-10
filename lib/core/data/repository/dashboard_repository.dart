@@ -1,6 +1,6 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
 
 /// 首页数据仓库（sqflite）
 ///

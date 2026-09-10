@@ -3,14 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/app.dart';
-import 'package:zhixing_ai/core/engine/conversation_service.dart';
-import 'package:zhixing_ai/core/model_manager.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/services/sync_service.dart';
+import 'package:zhixing_ai/core/data/conversation_service.dart';
+import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/platform/sync_service.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
@@ -33,7 +33,7 @@ import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 Widget buildTestApp() {
   return MultiProvider(
     providers: [
-      ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
+      ChangeNotifierProvider<ActiveModelManager>.value(value: ActiveModelManager.instance),
     ],
     child: const ZhixingApp(),
   );

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/services/push_service.dart';
+import 'package:zhixing_ai/core/platform/push_service.dart';
 
 /// 解析服务端推送消息（纯函数，便于单测）
 PushMessage? parsePushMessage(String raw) {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/engine/markdown_blocks.dart';
 
 /// 流式 Markdown 渲染视图（抗闪烁核心）：

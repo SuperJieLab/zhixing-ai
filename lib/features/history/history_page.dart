@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/history/providers/history_provider.dart';
 import 'package:zhixing_ai/features/history/widgets/conversation_card.dart';

@@ -1,6 +1,6 @@
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/conversation.dart';
-import 'package:zhixing_ai/core/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
 
 /// 会话数据服务（带 Identity Map 缓存）
 ///

@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 
 /// 设置页状态（feature 层）
 ///

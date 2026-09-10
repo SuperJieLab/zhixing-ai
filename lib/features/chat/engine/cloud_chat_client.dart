@@ -3,8 +3,8 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
 import 'package:zhixing_ai/features/chat/engine/sse_parser.dart';

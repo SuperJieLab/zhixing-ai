@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/services/push_service.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/platform/push_service.dart';
 
 // ============================================================
 // SyncService — 数据同步服务（端侧 → 服务端）

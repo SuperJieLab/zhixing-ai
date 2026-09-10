@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/app.dart';
-import 'package:zhixing_ai/core/repository/conversation_repository.dart';
-import 'package:zhixing_ai/core/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/model_manager.dart';
-import 'package:zhixing_ai/core/services/push_service.dart';
-import 'package:zhixing_ai/core/services/push_socket_service.dart';
+import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
+import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/platform/push_service.dart';
+import 'package:zhixing_ai/core/platform/push_socket_service.dart';
 import 'package:zhixing_ai/core/ui/in_app_banner.dart';
 
 /// 全局 Navigator key
@@ -22,10 +22,10 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 /// main() 中完成：
 /// 1. 初始化 sqflite（ConversationRepository）
 /// 2. 初始化 Firebase（未配置时 catch 忽略，不影响 App 运行）
-/// 3. 注入全局 Provider（ModelManager）
+/// 3. 注入全局 Provider（ActiveModelManager）
 /// 4. 启动 App（runApp）
 ///
-/// ModelManager 是单例 ChangeNotifier，使用 .value 注入。
+/// ActiveModelManager 是单例 ChangeNotifier，使用 .value 注入。
 /// checkLocalModels() 异步扫描本地模型，不 await，完成后自动 notify。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,12 +63,12 @@ Future<void> main() async {
   PushService().initialize();
 
   // 触发本地模型扫描（异步，不影响启动速度）
-  ModelManager.instance.checkLocalModels();
+  ActiveModelManager.instance.checkLocalModels();
 
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider<ModelManager>.value(value: ModelManager.instance),
+        ChangeNotifierProvider<ActiveModelManager>.value(value: ActiveModelManager.instance),
       ],
       child: ZhixingApp(navigatorKey: navigatorKey),
     ),

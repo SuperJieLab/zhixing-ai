@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:zhixing_ai/core/models/chat_models.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/widgets/markdown_message_view.dart';
 
 /// 聊天气泡组件

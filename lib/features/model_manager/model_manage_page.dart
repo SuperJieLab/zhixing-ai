@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:zhixing_ai/core/model_manager.dart';
-import 'package:zhixing_ai/core/models/available_model.dart';
-import 'package:zhixing_ai/core/theme.dart';
+import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/data/models/available_model.dart';
+import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/model_manager/providers/model_download_provider.dart';
 
 /// 模型管理页
 ///
 /// 展示可用模型列表 + 下载交互。
 /// 页面内部通过 ChangeNotifierProvider 管理 DownloadProvider 生命周期。
-/// 模型就绪状态从全局 ModelManager 读取。
+/// 模型就绪状态从全局 ActiveModelManager 读取。
 class ModelManagePage extends StatelessWidget {
   const ModelManagePage({super.key});
 
@@ -55,7 +55,7 @@ class _ModelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final downloadProvider = context.watch<ModelDownloadProvider>();
     final downloadState = downloadProvider.stateOf(model.id);
-    final manager = context.watch<ModelManager>();
+    final manager = context.watch<ActiveModelManager>();
     final isActive = manager.activeModelId == model.id;
     final isDownloaded = manager.isDownloaded(model.id);
 
@@ -179,7 +179,7 @@ class _ModelCard extends StatelessWidget {
     bool isActive,
     bool isDownloaded,
   ) {
-    final manager = context.read<ModelManager>();
+    final manager = context.read<ActiveModelManager>();
 
     // 正在下载
     if (state.status == DownloadStatus.downloading) {

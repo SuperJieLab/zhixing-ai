@@ -1,4 +1,4 @@
-import 'package:zhixing_ai/core/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 
 /// 对话策略（本地/云端共享，无引擎/IO 依赖）：
 ///   - [buildSystemPrompt]：本地/云端共享的唯一人设出处；
