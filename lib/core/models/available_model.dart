@@ -21,9 +21,6 @@ class AvailableModel {
     required this.hfRepo,
   });
 
-  String get downloadUrl =>
-      'https://huggingface.co/$hfRepo/resolve/main/$fileName';
-
   String get mirrorUrl =>
       'https://hf-mirror.com/$hfRepo/resolve/main/$fileName';
 

@@ -38,14 +38,6 @@ class DashboardRepository {
     return rows.map((row) => Goal.fromMap(row)).toList();
   }
 
-  Future<Goal?> getGoalByTitle(String title) async {
-    final db = await _db();
-    final rows = await db.query('goals',
-        where: 'title = ?', whereArgs: [title]);
-    if (rows.isEmpty) return null;
-    return Goal.fromMap(rows.first);
-  }
-
   Future<void> updateGoal(Goal goal) async {
     final db = await _db();
     await db.update('goals', goal.toMap(),
@@ -67,13 +59,6 @@ class DashboardRepository {
   Future<int> insertStrategy(Strategy strategy) async {
     final db = await _db();
     return db.insert('strategies', strategy.toMap());
-  }
-
-  Future<List<Strategy>> getStrategiesByGoal(int goalId) async {
-    final db = await _db();
-    final rows = await db.query('strategies',
-        where: 'goal_id = ?', whereArgs: [goalId], orderBy: 'created_at ASC');
-    return rows.map((row) => Strategy.fromMap(row)).toList();
   }
 
   Future<List<Strategy>> getAllStrategies() async {

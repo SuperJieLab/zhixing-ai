@@ -24,9 +24,6 @@ class ModelManager extends ChangeNotifier {
   /// 已下载到本地的模型 ID 集合（所有，不只是当前活跃的）
   final Set<String> _downloadedModelIds = {};
 
-  /// 是否有可用模型
-  bool get hasModel => _activeModelId != null;
-
   /// 当前活跃模型的 ID
   String? get activeModelId => _activeModelId;
 

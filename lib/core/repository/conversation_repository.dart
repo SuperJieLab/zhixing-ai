@@ -186,17 +186,6 @@ class ConversationRepository {
     return rows.map((r) => Conversation.fromMap(r)).toList();
   }
 
-  /// 按 id 获取单条会话
-  Future<Conversation?> getById(int id) async {
-    final rows = await _ensureDb.query(
-      'conversations',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (rows.isEmpty) return null;
-    return Conversation.fromMap(rows.first);
-  }
-
   /// 删除会话
   Future<void> delete(int id) async {
     await _ensureDb.delete('conversations', where: 'id = ?', whereArgs: [id]);

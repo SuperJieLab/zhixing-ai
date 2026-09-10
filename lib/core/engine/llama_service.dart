@@ -50,9 +50,6 @@ class LlamaService {
   // 用 Future 而非 LlamaEngine —— 同 config 并发调用自动排队
   final Map<LlamaConfig, Future<LlamaEngine>> _pool = {};
 
-  /// 缓存池大小（仅供调试）
-  int get poolSize => _pool.length;
-
   // ================================================================
   // 三层 API
   // ================================================================

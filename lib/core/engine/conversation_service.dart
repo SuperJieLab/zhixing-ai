@@ -16,13 +16,6 @@ class ConversationService {
   // 获取
   // ================================================================
 
-  Future<Conversation?> loadConversation(int id) async {
-    if (_cache.containsKey(id)) return _cache[id];
-    final conv = await _repo.getById(id);
-    if (conv != null) _cache[id] = conv;
-    return conv;
-  }
-
   /// 加载全部会话列表
   ///
   /// 返回的是缓存实例，已缓存的会话对象在内存中就地被 DB 数据更新。

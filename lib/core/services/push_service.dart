@@ -33,7 +33,6 @@ class PushService {
   PushService._();
 
   String? _token;
-  String? get token => _token;
 
   bool _initialized = false;
 
