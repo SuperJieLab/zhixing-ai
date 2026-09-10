@@ -24,9 +24,10 @@ typedef ChatClientFactory = Future<ChatClient> Function();
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
-  final ChatMode _mode;
 
-  /// 测试/页面注入缝：客户端实例（非空时 loadModel 直接复用）、工厂、目标仓库。
+  /// 显式指定的模式；null 时延迟到 [_defaultClientFactory] 读取
+  /// [SettingsRepository]（构造期不碰单例，测试免初始化）。
+  final ChatMode? _explicitMode;
   final ChatClient? _injectedClient;
   final ChatClientFactory? _clientFactory;
   final DashboardRepository _dashboardRepo;
@@ -73,10 +74,7 @@ class ChatProvider extends ChangeNotifier {
     ChatClient? client,
     ChatClientFactory? clientFactory,
     DashboardRepository? dashboardRepo,
-  })  : _mode = mode ??
-            (SettingsRepository.instance.chatCloudMode
-                ? ChatMode.cloud
-                : ChatMode.local),
+  })  : _explicitMode = mode,
         _injectedClient = client,
         // ignore: prefer_initializing_formals
         _clientFactory = clientFactory,
@@ -131,8 +129,14 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  ChatMode get _resolvedMode =>
+      _explicitMode ??
+      (SettingsRepository.instance.chatCloudMode
+          ? ChatMode.cloud
+          : ChatMode.local);
+
   Future<ChatClient> _defaultClientFactory() async {
-    switch (_mode) {
+    switch (_resolvedMode) {
       case ChatMode.cloud:
         return CloudChatClient();
       case ChatMode.local:

@@ -94,7 +94,7 @@ Future<void> _settle() async {
 void main() {
   group('LocalChatClient', () {
     test('默认阈值 = nCtx − maxTokens − margin（给生成预留空间）', () {
-      final client = LocalChatClient();
+      final client = LocalChatClient(sessionFactory: _SessionFactory().call);
       expect(
         client.truncateThreshold,
         AppConstants.modelContextSize - 2048 - 384,
@@ -102,7 +102,7 @@ void main() {
     });
 
     test('未初始化时 generateResponse 返回回退文案', () async {
-      final client = LocalChatClient();
+      final client = LocalChatClient(sessionFactory: _SessionFactory().call);
       expect(client.isReady, isFalse);
 
       final out = await client.generateResponse([_welcome]).join();
@@ -500,6 +500,38 @@ void main() {
       client.dispose();
       expect(client.isReady, isFalse);
       expect(factory.created.single.ops.contains('dispose'), isTrue);
+    });
+
+    test('构造期校验：engine 与 sessionFactory 均缺省时抛 ArgumentError', () {
+      expect(() => LocalChatClient(), throwsArgumentError);
+    });
+
+    test('sessionFactory-only（无摘要引擎）：压缩回落纯丢弃，生成不受阻', () async {
+      final factory = _SessionFactory();
+      // threshold=0 强制每轮触发压缩；不注入 summarizer/engine
+      final client = LocalChatClient(
+        sessionFactory: factory.call,
+        truncateThreshold: 0,
+      );
+      await client.initialize();
+
+      factory.tokensForNew = ['新回复'];
+      final out = await client
+          .generateResponse([_welcome, _user('问题1', 1)])
+          .join();
+      expect(out, '新回复');
+
+      // 压缩仍发生（session 重建），只是 dropped 被纯丢弃（无摘要卡）
+      expect(factory.created.length, 2);
+      expect(factory.created.first.ops.last, 'dispose');
+      final rebuilt = factory.created.last;
+      expect(
+        rebuilt.ops
+            .where((op) => op.startsWith('system:') || op.startsWith('摘要'))
+            .toList()
+            .length,
+        1, // 只有原 system 提示词，无摘要卡
+      );
     });
   });
 }

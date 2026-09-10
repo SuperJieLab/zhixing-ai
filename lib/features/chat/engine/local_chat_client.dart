@@ -99,7 +99,10 @@ Future<String> llamaSummarizer(
 class LocalChatClient implements ChatClient {
   final ConversationStrategy _strategy;
   final SessionFactory _createSession;
-  final Summarizer _summarizer;
+
+  /// 为 null 表示无可用摘要引擎（sessionFactory-only 注入）：
+  /// 压缩时明确回落纯丢弃并 warn，不静默装作有摘要能力。
+  final Summarizer? _summarizer;
 
   /// 截断阈值（token 估算），默认 75% 上下文窗口；测试可注入小值强制触发。
   final int _truncateThreshold;
@@ -127,7 +130,8 @@ class LocalChatClient implements ChatClient {
   /// 每条消息的 template 包装开销（角色标记等），估算时逐条累加。
   static const _perMessageOverhead = 16;
 
-  /// [engine] 与 [sessionFactory] 至少给一个，都缺省时建 session 抛 [StateError]。
+  /// [engine] 与 [sessionFactory] 必须给其一（构造期 [ArgumentError]）。
+  /// 只注入 [sessionFactory]（无 [engine]）时摘要引擎不可用：压缩回落纯丢弃。
   LocalChatClient({
     LlamaEngine? engine,
     ConversationStrategy? strategy,
@@ -135,26 +139,16 @@ class LocalChatClient implements ChatClient {
     int? truncateThreshold,
     Summarizer? summarizer,
   })  : _strategy = strategy ?? ConversationStrategy(),
-        _createSession = sessionFactory ??
-            (() {
-              final e = engine;
-              if (e == null) {
-                throw StateError(
-                    'LocalChatClient 需要 engine 或 sessionFactory 之一');
-              }
-              return e.createChat().then(LlamaChatSession.new);
-            }),
+        _createSession =
+            sessionFactory ?? (() => engine!.createChat().then(LlamaChatSession.new)),
         _summarizer = summarizer ??
-            ((previousSummary, dropped) {
-              final e = engine;
-              if (e == null) {
-                throw StateError(
-                    'LocalChatClient 需要 engine 或 sessionFactory 之一');
-              }
-              return llamaSummarizer(e, previousSummary, dropped);
-            }),
+            (engine == null ? null : ((p, d) => llamaSummarizer(engine, p, d))),
         _truncateThreshold = truncateThreshold ??
-            AppConstants.modelContextSize - _maxTokens - _contextMargin;
+            AppConstants.modelContextSize - _maxTokens - _contextMargin {
+    if (engine == null && sessionFactory == null) {
+      throw ArgumentError('LocalChatClient 需要 engine 或 sessionFactory 之一');
+    }
+  }
 
   /// 当前截断阈值（测试观测用：默认值 = nCtx − maxTokens − margin）。
   @visibleForTesting
@@ -362,12 +356,17 @@ class LocalChatClient implements ChatClient {
     // 2) 摘要压实
     var newSummary = _summary;
     if (!force && dropped.isNotEmpty) {
-      try {
-        final compressed = await _summarizer(_summary, dropped);
-        if (compressed.isNotEmpty) newSummary = _capSummary(compressed);
-      } catch (e) {
-        // 回落：丢弃 dropped，保留旧摘要（若有的话）作为背景
-        AppLogger.warn('LocalChatClient', '摘要生成失败，回落纯丢弃截断: $e');
+      final summarizer = _summarizer;
+      if (summarizer == null) {
+        AppLogger.warn('LocalChatClient', '无可用摘要引擎，回落纯丢弃截断');
+      } else {
+        try {
+          final compressed = await summarizer(_summary, dropped);
+          if (compressed.isNotEmpty) newSummary = _capSummary(compressed);
+        } catch (e) {
+          // 回落：丢弃 dropped，保留旧摘要（若有的话）作为背景
+          AppLogger.warn('LocalChatClient', '摘要生成失败，回落纯丢弃截断: $e');
+        }
       }
     }
 

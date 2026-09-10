@@ -32,12 +32,13 @@
 
 ## 二、设计问题（待逐个处理）
 
-### D1. LocalChatClient 构造不 fail-fast ⭐ 建议优先（bug 级）
+### D1. LocalChatClient 构造不 fail-fast ⭐ 已修复
 
 - 位置：`lib/features/chat/engine/local_chat_client.dart` 构造函数
-- 问题：只注入 `sessionFactory` 而无 `engine` 时，默认 summarizer 闭包在**首次触发压缩时**才抛 `StateError`，构造期无感知
-- 建议：构造期校验「sessionFactory 与 engine 至少其一 + summarizer 可用性」的组合合法性，非法组合直接抛
-- 状态：[ ]
+- 问题：只注入 `sessionFactory` 而无 `engine` 时，默认 summarizer 闭包在**首次触发压缩时**才抛 `StateError`
+- 修正认知：该异常实际被 `_compactContext` try/catch 接住回落纯丢弃——真实故障面是「静默质量降级」而非崩溃
+- 落地：构造期校验 engine/sessionFactory 至少其一（`ArgumentError`）；summarizer 改为**显式可空**（sessionFactory-only 时为 null，压缩时明确 warn 回落），不再用抛异常闭包伪装能力
+- 状态：[x]
 
 ### D2. 本地 stop() 无法真中断引擎
 
@@ -53,12 +54,12 @@
 - 建议：v1 已拍板接受；后续可优化为「轮次结束后台预压缩」
 - 状态：[ ]（低优先级，已拍板 v1 接受）
 
-### D4. 单例测试耦合
+### D4. 单例测试耦合 ⭐ 已修复
 
-- 位置：`ChatProvider` 构造直接读 `SettingsRepository.instance` / `LlamaService.instance`
-- 问题：测试被迫 `setUpAll` 初始化单例；已有 `_clientFactory` 注入缝可顺势扩展
-- 建议：把两个单例也变成可注入依赖
-- 状态：[ ]
+- 位置：`ChatProvider` 构造直接读 `SettingsRepository.instance.chatCloudMode`
+- 问题：测试被迫 `setUpAll` 初始化单例才能构造 Provider
+- 落地：构造期不再碰单例——`mode` 显式传入时直接用；缺省时延迟到 `_defaultClientFactory`（即 `loadModel` 时）读取。`LlamaService.instance` 本就只在默认工厂内被触达，注入 `clientFactory` 的测试全程零单例依赖
+- 状态：[x]
 
 ---
 
