@@ -45,7 +45,8 @@ async function streamChatCompletion(messages, { onDelta, signal, systemPrompt } 
       ],
       stream: true,
       temperature: 0.7,
-      max_tokens: 1024,
+      // 与客户端 AppConstants.modelMaxTokens 对齐（本地/云端生成长度一致）
+      max_tokens: 2048,
     }),
     signal,
   });

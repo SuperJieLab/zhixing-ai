@@ -27,6 +27,7 @@ require('dotenv').config();
 const express = require('express');
 
 const app = express();
+// 端口须与客户端 lib/core/constants.dart 的 serverBaseUrl（默认 localhost:3000）一致
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());

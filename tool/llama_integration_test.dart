@@ -1,16 +1,16 @@
 // 独立运行的集成测试脚本：print 是其输出方式，顶层 main 即库入口
 // ignore_for_file: avoid_print, dangling_library_doc_comments
-/// llama.cpp + Qwen 1.5B 端到端集成测试
+/// llama.cpp + Qwen3.5-2B 端到端集成测试
 ///
 /// 验证：
 /// 1. libllama.dylib 能正确加载
-/// 2. Qwen 1.5B Q4_K_M 模型能载入
-/// 3. 苏格拉底式对话能正常生成
+/// 2. 模型能载入
+/// 3. 知行AI 人设（ConversationStrategy）下对话能正常生成
 ///
 /// 运行方式（macOS 开发环境）：
 /// ```bash
 /// cd /Users/superjie-mac/projects/socratic-ai
-/// dart run tool/llama_integration_test.dart
+/// flutter pub get && dart run tool/llama_integration_test.dart
 /// ```
 ///
 /// 注意：此测试不通过 `flutter test` 运行（依赖真实 FFI dylib 与模型文件），
@@ -19,14 +19,18 @@
 import 'dart:io';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import 'package:zhixing_ai/core/constants.dart';
+import 'package:zhixing_ai/core/models/available_model.dart';
+import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
 
 Future<void> main() async {
   final projectRoot = Directory.current.path;
-  final modelPath = '$projectRoot/assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf';
+  final modelPath =
+      '$projectRoot/assets/models/Qwen3.5-2B-Q4_K_M.gguf';
   final libPath = '$projectRoot/macos/Runner/libs/libllama.dylib';
 
   print('╔══════════════════════════════════════════╗');
-  print('║   Socratic AI — 端侧推理集成测试         ║');
+  print('║   知行AI — 端侧推理集成测试              ║');
   print('╚══════════════════════════════════════════╝');
   print('');
   print('项目根目录: $projectRoot');
@@ -36,8 +40,9 @@ Future<void> main() async {
   // ── 检查文件存在 ──
   if (!File(modelPath).existsSync()) {
     print('\n❌ 模型文件不存在: $modelPath');
-    print('   请先下载模型: curl -L -o $modelPath \\');
-    print('     https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf');
+    print('   请先从 App 内模型管理下载，或手动放置：');
+    print('     curl -L -o $modelPath \\');
+    print('       https://hf-mirror.com/${AvailableModel.available.first.hfRepo}/resolve/main/${AvailableModel.available.first.fileName}');
     exit(1);
   }
 
@@ -62,8 +67,8 @@ Future<void> main() async {
         gpuLayers: -1, // 全部使用 Metal GPU
       ),
       contextParams: ContextParams(
-        nCtx: 2048,
-        nThreads: 4,
+        nCtx: AppConstants.modelContextSize,
+        nThreads: AppConstants.modelThreads,
         typeK: KvCacheType.q8_0,
         typeV: KvCacheType.q8_0,
       ),
@@ -85,12 +90,9 @@ Future<void> main() async {
   }
 
   // ── 创建对话 ──
-  print('\n⏳ 创建苏格拉底式对话...');
+  print('\n⏳ 创建知行AI 对话（人设与 App 同源）...');
   final chat = await engine.createChat();
-  chat.addSystem(
-    '你是一位苏格拉底式教练。通过提问帮助用户深入思考，'
-    '每次只问一个核心问题，回复控制在150字以内，使用中文。',
-  );
+  chat.addSystem(ConversationStrategy().buildSystemPrompt());
   print('✅ 对话创建成功');
 
   // ── 测试推理 ──
@@ -108,7 +110,7 @@ Future<void> main() async {
         temperature: 0.7,
         topP: 0.9,
       ),
-      maxTokens: 200,
+      maxTokens: 200, // 烟测用小上限，非 AppConstants.modelMaxTokens
     )) {
       if (event is TokenEvent) {
         stdout.write(event.text);

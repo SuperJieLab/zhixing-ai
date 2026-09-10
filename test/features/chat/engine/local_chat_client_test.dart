@@ -93,12 +93,9 @@ Future<void> _settle() async {
 
 void main() {
   group('LocalChatClient', () {
-    test('默认阈值 = nCtx − maxTokens − margin（给生成预留空间）', () {
+    test('默认阈值 = contextInputBudget（nCtx − 生成上限 − 余量）', () {
       final client = LocalChatClient(sessionFactory: _SessionFactory().call);
-      expect(
-        client.truncateThreshold,
-        AppConstants.modelContextSize - 2048 - 384,
-      );
+      expect(client.truncateThreshold, AppConstants.contextInputBudget);
     });
 
     test('未初始化时 generateResponse 返回回退文案', () async {

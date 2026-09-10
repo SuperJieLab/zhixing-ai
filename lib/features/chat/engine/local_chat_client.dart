@@ -38,7 +38,7 @@ class LlamaChatSession implements ChatSession {
   void addAssistant(String content) => _inner.addAssistant(content);
 
   @override
-  Stream<String> generate({int maxTokens = 2048}) async* {
+  Stream<String> generate({int maxTokens = AppConstants.modelMaxTokens}) async* {
     await for (final event in _inner.generate(
       sampler: const SamplerParams(
         temperature: 0.7,
@@ -121,12 +121,6 @@ class LocalChatClient implements ChatClient {
   /// 两种情形处理一致（只推进游标），在 generateResponse 的 finally 中无条件置位。
   bool _skipNextHistoryAi = false;
 
-  static const _maxTokens = 2048;
-
-  /// 整体余量：chat template 包装 + 估算误差。阈值 = nCtx − maxTokens − margin，
-  /// 保证「阈值处的会话 + 一整轮生成」仍在窗口内（75% 系数在 4K 下会溢出）。
-  static const _contextMargin = 384;
-
   /// 每条消息的 template 包装开销（角色标记等），估算时逐条累加。
   static const _perMessageOverhead = 16;
 
@@ -143,8 +137,7 @@ class LocalChatClient implements ChatClient {
             sessionFactory ?? (() => engine!.createChat().then(LlamaChatSession.new)),
         _summarizer = summarizer ??
             (engine == null ? null : ((p, d) => llamaSummarizer(engine, p, d))),
-        _truncateThreshold = truncateThreshold ??
-            AppConstants.modelContextSize - _maxTokens - _contextMargin {
+        _truncateThreshold = truncateThreshold ?? AppConstants.contextInputBudget {
     if (engine == null && sessionFactory == null) {
       throw ArgumentError('LocalChatClient 需要 engine 或 sessionFactory 之一');
     }
@@ -231,7 +224,7 @@ class LocalChatClient implements ChatClient {
     var passedThink = false;
     var suppressWhitespace = false;
     try {
-      await for (final token in session.generate(maxTokens: _maxTokens)) {
+      await for (final token in session.generate(maxTokens: AppConstants.modelMaxTokens)) {
         if (!passedThink) {
           buffer.write(token);
           final text = buffer.toString();

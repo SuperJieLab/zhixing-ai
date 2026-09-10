@@ -63,15 +63,15 @@
 
 ---
 
-## 三、重复与漂移（待逐个处理）
+## 三、重复与漂移（已全部修复）
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| P1 | `maxTokens: 2048` 两处不同源 | `strategist_extractor.dart:111` 裸字面量 vs `local_chat_client.dart` `_maxTokens` 常量 | [ ] |
-| P2 | 上下文预算公式两套口径 | extractor `nCtx*0.85` vs client `nCtx−max−margin` | [ ] |
-| P3 | 服务端端口 3000 两端各定义 | 客户端 `constants.dart` `serverBaseUrl` vs 服务端 `index.js` | [ ]（跨端常量，可能只能注释互指） |
-| P4 | 生成长度上限不齐 | 服务端 `max_tokens: 1024` vs 客户端 2048 | [ ] |
-| P5 | `tool/llama_integration_test.dart` 漂移 | 仍用旧「苏格拉底教练」人设 + `nCtx: 2048`，与现行 `ConversationStrategy` 不一致 | [ ] |
+| P1 | `maxTokens: 2048` 两处不同源 | 收口为 `AppConstants.modelMaxTokens`，客户端/提取器/服务端共用 | [x] |
+| P2 | 上下文预算公式两套口径 | 统一为 `AppConstants.contextInputBudget`（nCtx−生成上限−余量）；extractor 旧公式 `nCtx*0.85−overhead−200` 存在溢出隐患（输入最满时 + 2048 生成 > nCtx），已修复 | [x] |
+| P3 | 服务端端口 3000 两端各定义 | 跨端无法真正单源，两侧注释互指（client `serverBaseUrl` ↔ server `index.js PORT`） | [x] |
+| P4 | 生成长度上限不齐 | 服务端 chat 回复 `max_tokens` 1024 → 2048，注释标注与客户端对齐（推送决策的 200 为独立语义，保留） | [x] |
+| P5 | `tool/llama_integration_test.dart` 漂移 | 人设改用 `ConversationStrategy().buildSystemPrompt()`，`nCtx`/`nThreads` 引用常量，模型路径对齐 `AvailableModel.available.first`（Qwen3.5-2B） | [x] |
 
 ---
 
