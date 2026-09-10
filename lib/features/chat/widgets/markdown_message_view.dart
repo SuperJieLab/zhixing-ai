@@ -316,10 +316,18 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
       inHeader = false;
     }
 
+    // 列宽必须用 IntrinsicColumnWidth：Table 包在水平滚动里是无界宽度，
+    // 默认 FlexColumnWidth 分不到空间会塌缩成最小列宽（每个字换行竖排）。
+    // IntrinsicColumnWidth 按内容自然宽度撑开，超宽表格由外层水平滚动兜底。
+    final columnCount = rows.fold<int>(0, (n, r) => r.children.length > n ? r.children.length : n);
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Table(
         border: TableBorder.all(color: Colors.grey.shade300, width: 1),
+        columnWidths: {
+          for (var i = 0; i < columnCount; i++) i: const IntrinsicColumnWidth(),
+        },
         children: rows,
       ),
     );
