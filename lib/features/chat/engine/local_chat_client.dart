@@ -38,7 +38,7 @@ class LlamaChatSession implements ChatSession {
   void addAssistant(String content) => _inner.addAssistant(content);
 
   @override
-  Stream<String> generate({int maxTokens = AppConstants.modelMaxTokens}) async* {
+  Stream<String> generate({int maxTokens = AppConstants.localMaxTokens}) async* {
     await for (final event in _inner.generate(
       sampler: const SamplerParams(
         temperature: 0.7,
@@ -137,7 +137,7 @@ class LocalChatClient implements ChatClient {
             sessionFactory ?? (() => engine!.createChat().then(LlamaChatSession.new)),
         _summarizer = summarizer ??
             (engine == null ? null : ((p, d) => llamaSummarizer(engine, p, d))),
-        _truncateThreshold = truncateThreshold ?? AppConstants.contextInputBudget {
+        _truncateThreshold = truncateThreshold ?? AppConstants.localInputBudget {
     if (engine == null && sessionFactory == null) {
       throw ArgumentError('LocalChatClient 需要 engine 或 sessionFactory 之一');
     }
@@ -224,7 +224,7 @@ class LocalChatClient implements ChatClient {
     var passedThink = false;
     var suppressWhitespace = false;
     try {
-      await for (final token in session.generate(maxTokens: AppConstants.modelMaxTokens)) {
+      await for (final token in session.generate(maxTokens: AppConstants.localMaxTokens)) {
         if (!passedThink) {
           buffer.write(token);
           final text = buffer.toString();

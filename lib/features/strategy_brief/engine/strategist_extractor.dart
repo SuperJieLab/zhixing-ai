@@ -21,9 +21,9 @@ import 'package:zhixing_ai/core/think_tag_stripper.dart';
 ///   - strategies：每个目标的执行步骤（关联 goal_title）
 ///   - cross_patterns：跨对话自我认知模式
 ///
-/// 上下文保护：输入封顶 [AppConstants.contextInputBudget]（nCtx − 生成上限 − 余量），
+/// 上下文保护：输入封顶 [AppConstants.localInputBudget]（nCtx − 生成上限 − 余量），
 /// 与对话客户端同一口径，保证预算内输入 + 一整轮生成仍在窗口内。
-/// 输出保护：maxTokens=[AppConstants.modelMaxTokens]，足够丰富的 JSON 提取结果。
+/// 输出保护：maxTokens=[AppConstants.localMaxTokens]，足够丰富的 JSON 提取结果。
 /// 依赖：LlamaEngine + chat_utils + think_tag_stripper
 /// 消费方：StrategyBriefProvider（唯一）
 
@@ -89,7 +89,7 @@ cross_patterns 格式：
 
     final overheadTokens = LlamaService.estimateTokens(_systemPrompt) +
         LlamaService.estimateTokens(existingGoalsText);
-    final budget = AppConstants.contextInputBudget - overheadTokens;
+    final budget = AppConstants.localInputBudget - overheadTokens;
     final messages = _truncateMessages(conversation.messages, budget);
 
     final conversationText =
@@ -109,7 +109,7 @@ cross_patterns 格式：
           topP: 0.8,
           repeatPenalty: 1.1,
         ),
-        maxTokens: AppConstants.modelMaxTokens,
+        maxTokens: AppConstants.localMaxTokens,
       )) {
         if (event is TokenEvent) {
           buffer.write(event.text);

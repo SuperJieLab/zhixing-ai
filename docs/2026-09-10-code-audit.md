@@ -67,11 +67,13 @@
 
 | # | 问题 | 位置 | 状态 |
 |---|---|---|---|
-| P1 | `maxTokens: 2048` 两处不同源 | 收口为 `AppConstants.modelMaxTokens`，客户端/提取器/服务端共用 | [x] |
-| P2 | 上下文预算公式两套口径 | 统一为 `AppConstants.contextInputBudget`（nCtx−生成上限−余量）；extractor 旧公式 `nCtx*0.85−overhead−200` 存在溢出隐患（输入最满时 + 2048 生成 > nCtx），已修复 | [x] |
+| P1 | `maxTokens: 2048` 两处不同源 | 收口为 `AppConstants.localMaxTokens`（端侧专用），客户端/提取器共用；云端**不共享**（见 P4 修订） | [x] |
+| P2 | 上下文预算公式两套口径 | 统一为 `AppConstants.localInputBudget`（nCtx−生成上限−余量）；extractor 旧公式 `nCtx*0.85−overhead−200` 存在溢出隐患（输入最满时 + 2048 生成 > nCtx），已修复 | [x] |
 | P3 | 服务端端口 3000 两端各定义 | 跨端无法真正单源，两侧注释互指（client `serverBaseUrl` ↔ server `index.js PORT`） | [x] |
-| P4 | 生成长度上限不齐 | 服务端 chat 回复 `max_tokens` 1024 → 2048，注释标注与客户端对齐（推送决策的 200 为独立语义，保留） | [x] |
+| P4 | 生成长度上限不齐 | ~~对齐 2048~~ → **修订**：云端约束独立于端侧，服务端自定义 `CHAT_MAX_OUTPUT_TOKENS = 4096`（DeepSeek 默认档，API 最高 8192）；推送决策的 200 为独立语义，保留 | [x] |
 | P5 | `tool/llama_integration_test.dart` 漂移 | 人设改用 `ConversationStrategy().buildSystemPrompt()`，`nCtx`/`nThreads` 引用常量，模型路径对齐 `AvailableModel.available.first`（Qwen3.5-2B） | [x] |
+
+> **P1/P4 后续修订（同日）**：用户指出云端模型能力更强，参数限制不应与本地共享。全部 LLM 常量更名 `local*` 前缀（`localContextSize`/`localMaxTokens`/`localInputBudget` 等）并注明端侧专用；云端输出上限由服务端 `CHAT_MAX_OUTPUT_TOKENS` 独立定义。跨端「对齐」仅适用于端口这类连接配置，不适用于模型能力参数。
 
 ---
 

@@ -57,7 +57,7 @@ class LlamaService {
   /// 默认模型 + 默认配置（99% 的使用场景）
   ///
   /// 使用 [AppConstants.defaultModelPath]，搭配默认 contextSize / threads。
-  /// [gpuLayers] 不传时回退 [AppConstants.modelGpuLayers]（一般应传
+  /// [gpuLayers] 不传时回退 [AppConstants.localGpuLayers]（一般应传
   /// [SettingsRepository.gpuLayers]，由用户设置决定 GPU / CPU）。
   Future<LlamaEngine> ensureReady({int? gpuLayers}) async {
     return ensureReadyWithModel(
@@ -69,16 +69,16 @@ class LlamaService {
   /// 指定模型路径（配置用默认值）
   ///
   /// [modelPath] 模型文件的绝对路径。
-  /// [gpuLayers] 不传时回退 [AppConstants.modelGpuLayers]。
+  /// [gpuLayers] 不传时回退 [AppConstants.localGpuLayers]。
   Future<LlamaEngine> ensureReadyWithModel(
     String modelPath, {
     int? gpuLayers,
   }) async {
     return ensureReadyWithConfig(LlamaConfig(
       modelPath: modelPath,
-      contextSize: AppConstants.modelContextSize,
-      gpuLayers: gpuLayers ?? AppConstants.modelGpuLayers,
-      threads: AppConstants.modelThreads,
+      contextSize: AppConstants.localContextSize,
+      gpuLayers: gpuLayers ?? AppConstants.localGpuLayers,
+      threads: AppConstants.localThreads,
     ));
   }
 

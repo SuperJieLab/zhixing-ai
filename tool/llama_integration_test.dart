@@ -67,8 +67,8 @@ Future<void> main() async {
         gpuLayers: -1, // 全部使用 Metal GPU
       ),
       contextParams: ContextParams(
-        nCtx: AppConstants.modelContextSize,
-        nThreads: AppConstants.modelThreads,
+        nCtx: AppConstants.localContextSize,
+        nThreads: AppConstants.localThreads,
         typeK: KvCacheType.q8_0,
         typeV: KvCacheType.q8_0,
       ),
@@ -110,7 +110,7 @@ Future<void> main() async {
         temperature: 0.7,
         topP: 0.9,
       ),
-      maxTokens: 200, // 烟测用小上限，非 AppConstants.modelMaxTokens
+      maxTokens: 200, // 烟测用小上限，非 AppConstants.localMaxTokens
     )) {
       if (event is TokenEvent) {
         stdout.write(event.text);

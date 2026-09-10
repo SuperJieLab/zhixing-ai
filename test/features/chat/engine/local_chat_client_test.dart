@@ -95,7 +95,7 @@ void main() {
   group('LocalChatClient', () {
     test('默认阈值 = contextInputBudget（nCtx − 生成上限 − 余量）', () {
       final client = LocalChatClient(sessionFactory: _SessionFactory().call);
-      expect(client.truncateThreshold, AppConstants.contextInputBudget);
+      expect(client.truncateThreshold, AppConstants.localInputBudget);
     });
 
     test('未初始化时 generateResponse 返回回退文案', () async {

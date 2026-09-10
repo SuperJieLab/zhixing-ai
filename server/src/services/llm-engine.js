@@ -16,6 +16,11 @@ const CHAT_SYSTEM_PROMPT =
   '你是"知行AI"——一个个人目标管理助手。请用简体中文回答用户，' +
   '可以合理使用 Markdown（如列表、加粗、代码块）来组织内容，让回答清晰易读。';
 
+// 云端单次输出上限（DeepSeek 默认档 4096，API 最高 8192）。
+// 云端与端侧约束来源不同（API 配额 vs 端侧 nCtx 窗口），不与客户端
+// AppConstants.localMaxTokens 共享——云模型能力更强，按自身配额设定。
+const CHAT_MAX_OUTPUT_TOKENS = 4096;
+
 // 上游基础地址：测试时可用 DEEPSEEK_BASE_URL 指向本地 mock（懒读取，覆盖 require 顺序）
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
 
@@ -45,8 +50,7 @@ async function streamChatCompletion(messages, { onDelta, signal, systemPrompt } 
       ],
       stream: true,
       temperature: 0.7,
-      // 与客户端 AppConstants.modelMaxTokens 对齐（本地/云端生成长度一致）
-      max_tokens: 2048,
+      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
     }),
     signal,
   });
