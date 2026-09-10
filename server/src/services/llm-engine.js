@@ -1,88 +1,19 @@
 /**
- * services/llm-engine.js — DeepSeek API 封装
+ * services/llm-engine.js — DeepSeek API 封装（推送决策专用）
  *
- *   streamChatCompletion(): 对话流式补全（chat 路由使用），SSE 增量经 onDelta 回调
  *   analyzePushDecision(): 推送决策（push 定时任务使用），返回 { should_push, title, body }
  *
- * 容错约定：调用失败一律由调用方决定降级（路由 500 / push 跳过），引擎内不抛出未处理异常。
+ * 对话转发链路已随 BYOK 直连改造移除（客户端直连用户自配的模型 API），
+ * 服务端 LLM 仅剩推送决策这一自有业务。
+ *
+ * 容错约定：调用失败一律由调用方决定降级（push 跳过），引擎内不抛出未处理异常。
  * API 文档：https://platform.deepseek.com/api-docs
  */
 
-const { extractDeltas } = require('./sse-parse');
-
-// 聊天系统提示词——兜底：客户端随请求体发送其拼装的 systemPrompt（人设唯一出处
-// 在客户端，与本地模式共享），仅旧客户端/独立调用未带时使用。
-const CHAT_SYSTEM_PROMPT =
-  '你是"知行AI"——一个个人目标管理助手。请用简体中文回答用户，' +
-  '可以合理使用 Markdown（如列表、加粗、代码块）来组织内容，让回答清晰易读。';
-
-// 云端单次输出上限（DeepSeek 默认档 4096，API 最高 8192）。
-// 云端与端侧约束来源不同（API 配额 vs 端侧 nCtx 窗口），不与客户端
-// AppConstants.localMaxTokens 共享——云模型能力更强，按自身配额设定。
-const CHAT_MAX_OUTPUT_TOKENS = 4096;
-
-// 上游基础地址：测试时可用 DEEPSEEK_BASE_URL 指向本地 mock（懒读取，覆盖 require 顺序）
-const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
-
 /**
- * 流式聊天补全（DeepSeek chat/completions，stream=true）
- *   systemPrompt 可选：客户端拼装的系统提示词，缺省回落 CHAT_SYSTEM_PROMPT。
- *   不校验 API Key（路由层负责 501）；onDelta(text) 每段增量回调一次。
+ * 推送决策（非流式，temperature 0.3 / max_tokens 200——小 JSON 决策输出）
+ * 无 API Key 或调用失败均返回 null，由调用方跳过 LLM 推送。
  */
-async function streamChatCompletion(messages, { onDelta, signal, systemPrompt } = {}) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  // 懒读取上游地址：测试时可通过 DEEPSEEK_BASE_URL 指向本地 mock，覆盖 require 顺序
-  const baseUrl = process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL;
-
-  const response = await fetch(baseUrl + '/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'Accept': 'text/event-stream',
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      // 客户端 systemPrompt 优先（人设唯一出处），缺省回落内置文案
-      messages: [
-        { role: 'system', content: systemPrompt || CHAT_SYSTEM_PROMPT },
-        ...messages,
-      ],
-      stream: true,
-      temperature: 0.7,
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
-    }),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`upstream ${response.status}`);
-  }
-
-  let rest = '';
-  let done = false; // 必须提到循环外：截断检查在 loop 结束后仍需读取此flag
-  for await (const chunk of response.body) {
-    // fetch chunk 是 Uint8Array，toString('utf8') 不解码，须经 Buffer.from。
-    const text = Buffer.from(chunk).toString('utf8');
-    const result = extractDeltas(text, rest);
-    rest = result.rest;
-    for (const d of result.deltas) {
-      if (typeof onDelta === 'function') onDelta(d);
-    }
-    if (result.done) {
-      done = true;
-      break;
-    }
-  }
-
-  // 上游「干净地」中途断开（没发 [DONE] 且还有半帧数据没吐完）时，
-  // 静默 resolve 会让客户端误以为回答完整 → 必须抛错，路由层转成 error 帧。
-  // 正常结束（done=true）或 rest 只剩空白时不算截断。
-  if (!done && rest.trim().length > 0) {
-    throw new Error('upstream closed mid-stream, answer truncated');
-  }
-}
-
 async function analyzePushDecision(goals, strategies) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
@@ -156,7 +87,4 @@ ${strategiesSummary || '(无)'}
 
 module.exports = {
   analyzePushDecision,
-  streamChatCompletion,
-  DEEPSEEK_BASE_URL,
-  CHAT_SYSTEM_PROMPT,
 };
