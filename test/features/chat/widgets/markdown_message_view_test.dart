@@ -55,17 +55,17 @@ void main() {
     expect(tester.getSize(tableFinder).width, greaterThan(300));
   });
 
-  testWidgets('系统性 HTML 转义的引号在渲染前被解码', (tester) async {
+  testWidgets('端点转义的引号实体按 CommonMark 规范解码', (tester) async {
     await pumpTable(tester, '他说&quot;这个能用&quot;，我回&quot;那就行&quot;.');
 
-    // 渲染结果应显示解出来的引号，而不是实体原文
+    // 包内 DecodeHtmlSyntax 解码（encodeHtml:false 下不再编码回去）
     expect(find.textContaining('他说"这个能用"', findRichText: true),
         findsOneWidget);
     expect(find.textContaining('&quot;', findRichText: true), findsNothing);
   });
 
-  testWidgets('裸引号经 markdown 解析后再编码的实体同样被解码', (tester) async {
-    // 根因用例：markdown 包解析时把裸 " 再编码成 &quot;，任何模型都会触发
+  testWidgets('裸引号原样显示（AST 不经编码）', (tester) async {
+    // encodeHtml:false 下裸 " 直通 AST，任何模型都不会再触发实体乱码
     await pumpTable(tester, '他说"这个能用"。');
 
     expect(find.textContaining('他说"这个能用"', findRichText: true),
@@ -73,7 +73,7 @@ void main() {
     expect(find.textContaining('&quot;', findRichText: true), findsNothing);
   });
 
-  testWidgets('代码块里的 HTML 源码保真还原（模型输出 HTML 场景）', (tester) async {
+  testWidgets('代码块里的 HTML 源码逐字保真（模型输出 HTML 场景）', (tester) async {
     const htmlDemo = '''
 ```html
 <a href="x">&lt;p&gt;&nbsp;</a>
@@ -81,17 +81,16 @@ void main() {
 ''';
     await pumpTable(tester, htmlDemo);
 
-    // 代码块经包整体转义后应精确还原为模型原始代码
+    // encodeHtml:false 下代码内容不经任何编码，AST 即模型原始代码
     expect(find.textContaining('<a href="x">&lt;p&gt;&nbsp;</a>'),
         findsOneWidget);
   });
 
-  testWidgets('正文里模型故意写的实体字面量不被误伤', (tester) async {
+  testWidgets('正文实体按 CommonMark 规范解码（代码域外不保留字面）', (tester) async {
     await pumpTable(tester, '用 &lt;b&gt; 标签加粗，用 &amp;amp; 表示与号');
 
-    // 正文域只反解包转义的 &quot;/&amp;（此处 &amp;amp; 解一层为 &amp;），
-    // 模型写的 &lt;b&gt; 字面量保留
-    expect(find.textContaining('用 &lt;b&gt; 标签加粗，用 &amp; 表示与号',
+    // 规范行为：&lt; 解码为 <，&amp;amp; 解一层为 &amp;（与浏览器一致）
+    expect(find.textContaining('用 <b> 标签加粗，用 &amp; 表示与号',
         findRichText: true), findsOneWidget);
   });
 }

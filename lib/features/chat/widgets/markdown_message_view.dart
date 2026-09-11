@@ -32,8 +32,14 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
   final Map<String, Widget> _cache = {};
 
   /// 复用同一个 Document 实例（扩展集固定），避免每次重建。
-  static final md.Document _document =
-      md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);
+  ///
+  /// encodeHtml:false 关闭包内置的 HTML 实体编码——AST 文本保持模型原始
+  /// 字符（裸引号/裸 & 原样，代码域逐字保真），无需下游做逆变换；正文里
+  /// 的标准实体（&quot;/&lt; 等）仍按 CommonMark 规范在包内解码。
+  static final md.Document _document = md.Document(
+    extensionSet: md.ExtensionSet.gitHubFlavored,
+    encodeHtml: false,
+  );
 
   /// 解析内联内容时使用的基础样式；外部未提供时退化为默认正文样式。
   TextStyle get _base =>
@@ -60,7 +66,9 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     }
 
     if (split.tail.isNotEmpty) {
-      // 尾块始终是纯文本（即便内含未闭合内联语法），避免闪烁
+      // 尾块始终是纯文本（即便内含未闭合内联语法），避免闪烁。
+      // 尾块是未解析的原始文本，实体预解码保持与闭合块（包内按规范解码）
+      // 的显示一致；门禁在该域生效（原始文本可能同时含裸引号与实体）。
       children.add(Text(decodeProseEntities(split.tail), style: widget.baseStyle));
     }
 
@@ -89,7 +97,8 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
 
   Widget _buildNode(md.Node node, [TextStyle? base]) {
     if (node is! md.Element) {
-      final t = decodeProseEntities(node.textContent);
+      // encodeHtml:false 下 AST 文本即模型原始字符，直接渲染
+      final t = node.textContent;
       if (t.isEmpty) return const SizedBox.shrink();
       return Text(t, style: base ?? _base);
     }
@@ -126,7 +135,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
         return _buildTable(node, base);
       default:
         // 未知块标签：降级为纯文本
-        final t = decodeProseEntities(node.textContent);
+        final t = node.textContent;
         return t.isEmpty ? const SizedBox.shrink() : Text(t, style: base ?? _base);
     }
   }
@@ -162,8 +171,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
       code = child.textContent;
     }
     code = code.replaceAll(RegExp(r'\n$'), '');
-    // markdown 包不处理实体但会再编码裸引号，模型/网关转义的引号也在这里兜底
-    code = decodeCodeEntities(code);
+    // encodeHtml:false 下代码内容不经任何编码，逐字保真
 
     const bg = Color(0xFFF6F6F8);
     const fg = AppTheme.textPrimary;
@@ -341,7 +349,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     final spans = <InlineSpan>[];
     for (final node in nodes) {
       if (node is md.Text) {
-        spans.add(TextSpan(text: decodeProseEntities(node.text), style: base));
+        spans.add(TextSpan(text: node.text, style: base));
       } else if (node is md.Element) {
         switch (node.tag) {
           case 'strong':
@@ -363,7 +371,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
             // 内联代码：等宽 + 浅灰底（用 Paint 背景，避免 WidgetSpan 基线问题）
             spans.add(
               TextSpan(
-                text: decodeCodeEntities(node.textContent),
+                text: node.textContent,
                 style: base.copyWith(
                   fontFamily: 'monospace',
                   fontSize: (base.fontSize ?? 14) - 2,
