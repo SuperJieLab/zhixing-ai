@@ -165,6 +165,7 @@ Strategy:
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Engine 层                                    │   │
 │  │  ConversationStrategy  StrategistExtractor    │   │
+│  │  ContextPolicy（双端对等）              │   │
 │  │  LocalChatClient  CloudChatClient             │   │
 │  │  ConversationService  LlamaService            │   │
 │  └──────────────────────────────────────────────┘   │

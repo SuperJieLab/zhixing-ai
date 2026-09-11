@@ -64,7 +64,7 @@ cd server && cp .env.example .env && npm install && npm start
 ```
 lib/
 ├── core/
-│   ├── constants.dart      # 全局常量（端侧模型参数 local* / 服务端地址）
+│   ├── constants.dart      # 全局常量（端侧模型参数 local* / 云端输入预算 cloud* / 服务端地址）
 │   ├── logger.dart         # 统一日志
 │   ├── llm/                # 端侧 LLM 推理域（LlamaService/ActiveModelManager/think 剥离）
 │   ├── data/               # 数据域（models/ + repository/ + ConversationService）

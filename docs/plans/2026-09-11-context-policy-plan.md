@@ -1,6 +1,6 @@
 # 知行AI — ContextPolicy 抽象实施计划
 
-> 状态：进行中（Task 1/2/3 已完成，Task 4 待执行）
+> 状态：已完成（Task 1–4 全部交付；Task 4 仅余「用户侧冒烟」待执行）
 > 设计：`docs/plans/2026-09-11-context-policy-design.md`（能力对等 / 双端各一份策略 / 云端摘要用云端模型）
 > 时机：**排在 BYOK 真机冒烟之后**（本重构覆盖两个 client 的装配路径，不与未验证变更混提）
 > 纪律：每 Task 实现 → 自查 → 全量回归 → 改动留工作区，由用户确认后提交（不自动 commit）
@@ -71,10 +71,16 @@
 
 ## Task 4：收尾
 
-- [ ] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿 + `server npm test`（应无波及）
-- [ ] 文档：`docs/PROJECT.md` 架构图/决策表补充 ContextPolicy 层；README 若涉云端对话描述同步
-- [ ] 更新 `.workbuddy/memory/MEMORY.md`：ContextPolicy 落地记录（能力拆解、双端策略参数、红线）
-- [ ] 冒烟项（用户侧）：本地长对话触发压缩（摘要卡生效、触发轮延迟）；云端配置后正常对话（窗口内历史携带、无异常）；云端人为构造超长对话验证压缩路径可走通
+- [x] 全量回归：`flutter analyze` 0 + 全量 `flutter test` **175/175** 绿 + `server npm test` **4/4** 绿（未波及：服务端不参与对话链路）
+- [x] 文档：
+  - `docs/PROJECT.md`：engine 目录树补 `cloud_context_policy.dart` / `cloud_summarizer.dart`，`cloud_chat_client.dart` 说明改为「装配交策略」；架构图 Engine 层补 `ContextPolicy`；设计决策表补「上下文管理」「云端摘要」两行并更新「传输层」行
+  - `README.md`：`constants.dart` 说明补云端输入预算（云端对话/BYOK 描述原本已准确，无需改）
+  - `docs/plans/2026-09-11-context-policy-design.md` §5 回填预算结论（原「待定」）
+- [x] 更新 `.workbuddy/memory/MEMORY.md`：ContextPolicy 落地记录（能力拆解、双端策略参数、红线、测试命令）
+- [ ] 冒烟项（**用户侧**，需真机/模拟器执行）：
+  - 本地长对话触发压缩（摘要卡生效、触发轮延迟可接受）
+  - 云端配置后正常对话（预算内历史全量携带、无异常）
+  - 云端人为构造超长对话验证压缩路径可走通（并确认 `cloudInputBudget` 对所选模型是否合适）
 - [ ] 范围外备忘：异步预压缩、摘要持久化仍为后续候选
 
 ## 依赖关系
