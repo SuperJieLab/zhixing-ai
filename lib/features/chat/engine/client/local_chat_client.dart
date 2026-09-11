@@ -4,10 +4,10 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
-import 'package:zhixing_ai/features/chat/engine/local_context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
 
 /// 端侧推理会话窄接口：KV 缓存句柄，单测以 fake 注入、无需真实模型。
 ///

@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:zhixing_ai/features/chat/engine/markdown_blocks.dart';
+import 'package:zhixing_ai/features/chat/utils/markdown_blocks.dart';
 
 void main() {
   test('空输入 → ([], \'\')', () {

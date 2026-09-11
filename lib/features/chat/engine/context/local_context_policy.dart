@@ -3,8 +3,8 @@ import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
-import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
 
 /// 端侧度量（策略位②）：token 估算 + 每条消息的 chat template 包装开销。
 ///

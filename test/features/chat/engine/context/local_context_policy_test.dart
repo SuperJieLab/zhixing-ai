@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
-import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/local_context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
 
 /// 端侧策略装配测试：度量单位（token + 模板开销）、预算/保底/溢出口径。
 ///

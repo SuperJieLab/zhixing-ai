@@ -14,7 +14,7 @@ import 'package:zhixing_ai/core/platform/sync_service.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 
 /// v2 冒烟测试
 ///

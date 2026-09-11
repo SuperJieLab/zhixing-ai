@@ -201,6 +201,15 @@ engine         → models / core
 repository     → models / core
 ```
 
+目录准入（按**文件性质**分桶，避免「能跑就行」式摆放）：
+
+| 目录 | 准入标准 | 反例 |
+|---|---|---|
+| `widgets/` | 只放 Widget 组件（`StatelessWidget` / `StatefulWidget`） | 纯函数、mixin、常量 |
+| `engine/` | 纯逻辑（无 UI / IO 依赖）；**widgets 不得依赖 engine** | 直接碰 `BuildContext` 的东西 |
+| `providers/` | 状态与编排（`ChangeNotifier`） | 无状态纯函数 |
+| `utils/` | 非 Widget 的辅助件（非引擎逻辑、非状态、非组件） | 可归类到上面三桶的东西 |
+
 ---
 
 ## 六、目录结构
@@ -231,21 +240,24 @@ lib/
 │
 ├── features/
 │   ├── chat/
-│   │   ├── engine/
-│   │   │   ├── chat_client.dart          # abstract ChatClient 接口
-│   │   │   ├── context_policy.dart       # 上下文管理抽象（过滤/度量/装窗/压缩）+ 共享装配骨架
-│   │   │   ├── local_context_policy.dart # 端侧策略：token 度量 + 端侧摘要器 + 溢出硬收缩
-│   │   │   ├── cloud_context_policy.dart # 云端策略：字符数近似度量 + 云端摘要器 + 无收缩
-│   │   │   ├── cloud_summarizer.dart     # 云端摘要器（复用 BYOK 端点，非流式小请求）
-│   │   │   ├── conversation_strategy.dart # 系统提示词(含goals) + LCS 去重
-│   │   │   ├── local_chat_client.dart    # 本地 llama 传输（KV 会话同步 + diff 增量 append）
-│   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE；装配交策略）
-│   │   │   ├── sse_parser.dart           # SSE 半包/畸形 JSON 容错
-│   │   │   └── markdown_blocks.dart      # fence 感知流式块切分
+│   │   ├── engine/                       # 对话引擎（按职责分二级子目录）
+│   │   │   ├── client/                   # 传输：接口 + 双实现 + SSE 帧解析
+│   │   │   │   ├── chat_client.dart          # abstract ChatClient 接口
+│   │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（KV 会话同步 + diff 增量 append）
+│   │   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE；装配交策略）
+│   │   │   │   └── sse_parser.dart           # SSE 半包/畸形 JSON 容错
+│   │   │   ├── context/                  # 上下文管理：抽象 + 共享算法 + 双端策略
+│   │   │   │   ├── context_policy.dart       # 上下文管理抽象（过滤/度量/装窗/压缩）+ 共享装配骨架
+│   │   │   │   ├── local_context_policy.dart # 端侧策略自足单元（度量+摘要+装配）
+│   │   │   │   └── cloud_context_policy.dart # 云端策略自足单元（度量+摘要+装配，与端侧逐位对称）
+│   │   │   └── prompt/                   # 双端共享提示词
+│   │   │       └── conversation_strategy.dart # 系统提示词(含goals) + LCS 去重
 │   │   ├── providers/chat_provider.dart  # 单 ChatClient，无模式分支
 │   │   ├── widgets/chat_bubble.dart, chat_input.dart,
-│   │   │        markdown_message_view.dart
-│   │   ├── snackbar_throttle.dart
+│   │   │        markdown_message_view.dart    # 只放 Widget 组件
+│   │   ├── utils/                        # 非 Widget 的辅助件（准入：非引擎逻辑、非状态、非 Widget）
+│   │   │   ├── markdown_blocks.dart      # fence 感知流式块切分（纯函数，零 import）
+│   │   │   └── snackbar_throttle.dart    # SnackBar 按文本防抖
 │   │   └── chat_page.dart
 │   │
 │   ├── dashboard/

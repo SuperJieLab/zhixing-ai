@@ -9,9 +9,9 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/local_chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/local_chat_client.dart';
 
 /// 异步构造 [ChatClient] 的工厂（生产按模式选实现，测试注入 fake）。
 typedef ChatClientFactory = Future<ChatClient> Function();

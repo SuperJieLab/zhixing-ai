@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 
 /// ContextPolicy 共享层单测：过滤 / 装窗 / 装配骨架（fake 度量与摘要器）。
 ///

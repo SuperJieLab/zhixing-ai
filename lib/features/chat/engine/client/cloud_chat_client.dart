@@ -4,11 +4,11 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/cloud_context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/conversation_strategy.dart';
-import 'package:zhixing_ai/features/chat/engine/sse_parser.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/context/cloud_context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
+import 'package:zhixing_ai/features/chat/engine/client/sse_parser.dart';
 
 /// 云端对话模式
 enum ChatMode {

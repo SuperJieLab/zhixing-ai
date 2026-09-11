@@ -7,7 +7,7 @@ import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 
 /// ChatPage 的 Widget 测试
 ///

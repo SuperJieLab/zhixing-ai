@@ -8,7 +8,7 @@ import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/features/chat/engine/chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
 /// ChatProvider 单元测试
