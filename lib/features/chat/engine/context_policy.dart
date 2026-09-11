@@ -13,11 +13,22 @@ class AssembledContext {
   /// system 消息注入）；null 表示本会话尚无摘要。
   final String? summaryCard;
 
-  const AssembledContext({required this.messages, this.summaryCard});
+  /// 本次装配是否发生了**窗口收缩**（有消息被移出、压缩进摘要卡）。
+  ///
+  /// client 据此决定：true 必须按 [messages] 重建会话；
+  /// false 说明 [messages] 只是在上一轮结果上追加，可增量续接。
+  final bool evicted;
+
+  const AssembledContext({
+    required this.messages,
+    this.summaryCard,
+    this.evicted = false,
+  });
 
   @override
   String toString() => 'AssembledContext(messages: ${messages.length}, '
-      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'})';
+      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'}, '
+      'evicted: $evicted)';
 }
 
 /// 装窗结果。
@@ -62,6 +73,9 @@ abstract class ContextPolicy {
 
   /// 传输层溢出自愈钩子（如端侧 context full）：请求强制收缩，下次装配生效。
   Future<void> handleOverflow();
+
+  /// 会话生命周期重置（新对话 / 重新初始化时调用）：清空摘要与保留窗口。
+  void reset();
 }
 
 /// 度量能力（策略位）：把消息 / 文本换算成预算单位。
@@ -155,20 +169,26 @@ PackResult packKeepLast(
 /// - 预算大小 → [budget]（本地为物理硬上限，云端可设得远大于需求）
 /// - 摘要实现 → [summarizer]（策略位④；null = 无摘要能力，移出即丢弃）
 /// - 保底条数 → [minKeep]；溢出收缩 → [overflowKeep]（null = 不收缩）
+///
+/// **窗口是有状态的**：[assemble] 只把新增的合格消息纳入保留窗口，
+/// 超预算时把窗口前端挤出（压缩）。这样一次压缩后窗口重新落到预算内，
+/// 后续若干轮都不再触发压缩——与"每轮从全量历史重算切点"相比，既避免
+/// 每轮重建会话，也避免每轮都调一次摘要器。
 abstract class BaseContextPolicy implements ContextPolicy {
   BaseContextPolicy({
     required ContextEstimator estimator,
-    required int budget,
+    required this.budget,
     ConversationSummarizer? summarizer,
     this.minKeep = 2,
     this.overflowKeep,
   })  : _estimator = estimator, // ignore: prefer_initializing_formals
-        _budget = budget, // ignore: prefer_initializing_formals
         _summarizer = summarizer; // ignore: prefer_initializing_formals
 
   final ContextEstimator _estimator;
-  final int _budget;
   final ConversationSummarizer? _summarizer;
+
+  /// 输入预算（度量单位由 [estimator] 决定）：历史 + 摘要卡 + 人设都不得超出。
+  final int budget;
 
   /// 装窗保底条数（最近消息，不因预算不足被移出）。
   final int minKeep;
@@ -182,8 +202,11 @@ abstract class BaseContextPolicy implements ContextPolicy {
   /// 滚动摘要正文（会话态，随对话生命周期）。
   String _summary = '';
 
-  /// 已被折叠进 [_summary] 的 eligible 前缀长度（避免重复摘要）。
-  int _summarizedUpto = 0;
+  /// 当前保留窗口（会话态；只增不减地纳入新消息，超预算时挤出前端）。
+  final List<ChatMessage> _retained = [];
+
+  /// 已纳入窗口的 eligible 前缀长度（eligible 为 append-only）。
+  int _consumed = 0;
 
   /// 待执行的强制收缩条数（[handleOverflow] 置位，下次 [assemble] 生效）。
   int? _pendingForceKeep;
@@ -192,12 +215,33 @@ abstract class BaseContextPolicy implements ContextPolicy {
   @visibleForTesting
   String get summary => _summary;
 
+  /// 当前保留窗口长度（观测用）。
+  @visibleForTesting
+  int get retainedCount => _retained.length;
+
+  @override
+  void reset() {
+    _summary = '';
+    _retained.clear();
+    _consumed = 0;
+    _pendingForceKeep = null;
+  }
+
   @override
   Future<AssembledContext> assemble(
     List<ChatMessage> history, {
     String systemPrompt = '',
   }) async {
     final eligible = filterEligible(history);
+
+    // 历史回退（换会话 / 异常）：重置游标，避免窗口与历史错位
+    if (_consumed > eligible.length) reset();
+
+    // 增量纳入新增的合格消息
+    for (var i = _consumed; i < eligible.length; i++) {
+      _retained.add(eligible[i]);
+    }
+    _consumed = eligible.length;
 
     // 预算核算：人设与上轮摘要卡都要占位
     var baseCost =
@@ -210,37 +254,40 @@ abstract class BaseContextPolicy implements ContextPolicy {
     final forced = forceKeep != null;
 
     final pack = forced
-        ? packKeepLast(eligible,
+        ? packKeepLast(_retained,
             keep: forceKeep, estimator: _estimator, baseCost: baseCost)
         : packTailWithinBudget(
-            eligible,
-            budget: _budget,
+            _retained,
+            budget: budget,
             estimator: _estimator,
             baseCost: baseCost,
             minKeep: minKeep,
           );
 
-    if (forced) {
-      // 自愈路径：硬丢不摘要（估算已不可信），仅推进游标
-      _summarizedUpto = pack.evicted.length;
-    } else if (pack.evicted.length > _summarizedUpto) {
-      final newlyEvicted = pack.evicted.sublist(_summarizedUpto);
-      _summarizedUpto = pack.evicted.length;
+    final evicted = pack.evicted.isNotEmpty;
+    if (evicted) {
+      // 挤出后窗口回到预算内：后续若干轮不再触发压缩
+      _retained
+        ..clear()
+        ..addAll(pack.kept);
+
+      // 自愈路径（forced）硬丢不摘要：真实上下文已撑爆，估算不可信
       final summarizer = _summarizer;
-      if (summarizer != null && newlyEvicted.isNotEmpty) {
+      if (!forced && summarizer != null) {
         try {
-          final capped = _capSummary(
-              await summarizer.summarize(_summary, newlyEvicted));
+          final capped =
+              _capSummary(await summarizer.summarize(_summary, pack.evicted));
           if (capped.isNotEmpty) _summary = capped;
         } catch (_) {
-          // 回落：保留旧摘要，新移出的消息静默丢弃（与既有本地语义一致）
+          // 回落：保留旧摘要，移出的消息静默丢弃（与既有端侧语义一致）
         }
       }
     }
 
     return AssembledContext(
-      messages: pack.kept,
+      messages: List.unmodifiable(pack.kept),
       summaryCard: _card(_summary),
+      evicted: evicted,
     );
   }
 

@@ -24,23 +24,30 @@
 - [x] 单测 20：过滤剔 round==0；装窗（长消息少留/短消息多留）；`minKeep` 保底；预算充足全量透传；evicted 前缀切分；baseCost 占预算；强制收缩（overflowKeep 非 null / null）；摘要游标不重复摘要；摘要失败回落；无摘要器；摘要截断
 - [x] 不接任何 client，`flutter analyze` 0；全量 `flutter test` **153/153** 绿（新增 20，既有 133 无回归）
 
-## Task 2：LocalChatClient 委托 LocalContextPolicy
+## Task 2：LocalChatClient 委托 LocalContextPolicy ✅ 已完成
 
 **文件**
 - 新增 `lib/features/chat/engine/local_context_policy.dart`：
-  - `LocalContextPolicy extends BaseContextPolicy`：**只做配置装配**（estimator / budget / summarizer / minKeep=2 / overflowKeep=4），编排逻辑由共享骨架承接，不再迁移状态机
-  - `LlamaTemplateEstimator extends ContextEstimator`：`LlamaService.estimateTokens` + 每条 `+16` overhead（沿用现有常数）
-  - `LlamaSummarizer implements ConversationSummarizer`：包一层现有 `llamaSummarizer`
+  - `LocalContextPolicy extends BaseContextPolicy`：**只做配置装配**（`LlamaTemplateEstimator` / `localInputBudget` / 注入的摘要器 / minKeep=2 / overflowKeep=4）
+  - `LlamaTemplateEstimator extends ContextEstimator`：`LlamaService.estimateTokens` + 每条 `+16` overhead（`perMessageOverhead`）
+  - `LlamaSummarizer implements ConversationSummarizer`：`llamaSummarizer` 逻辑迁入（一次性独立 KV 会话 + think 剥离），入参由 `ChatMessage` 转 records
 - 改 `lib/features/chat/engine/local_chat_client.dart`：
-  - 客户端**保留**会话增量态（`_mirror` / `_consumed` / `_skipNextHistoryAi`，属 diff 语义非本抽象职责）；**移除** `_compactContext` / `_summary` / `_estimatedTokens` / `_truncateThreshold`（迁入 policy/骨架）
-  - `generateResponse`：先 `policy.assemble(history)`，按 `AssembledContext` 重建/补齐 session（`addSystem(persona)` → 摘要卡 → append kept）；捕获 `LlamaDecodeException` → `policy.handleOverflow()` → 本轮降级文案、下轮恢复
-  - 构造缝：`ContextPolicy? policy`（测试注入 fake policy）；`engine` 存在时默认构造 `LocalContextPolicy`
-- 改 `test/features/chat/engine/local_chat_client_test.dart`：原 compact 相关用例迁移/改造为 policy 注入路径；client 保留断言 diff 增量、`_skipNextHistoryAi`、去重改写、think 剥离、溢出降级
+  - 删除内嵌的 `_compactContext` / `_summary` / `_estimatedTokens` / `_truncateThreshold` 与 `Summarizer` typedef / `llamaSummarizer`
+  - 保留会话增量态：`_consumed`（diff 游标）、`_skipNextHistoryAi`
+  - `generateResponse`：`policy.assemble(history, systemPrompt:)` → `evicted` 则按 `AssembledContext` 重建 KV 会话（persona → 摘要卡 → kept），否则从游标增量 append
+  - context full 自愈：捕获 → `policy.handleOverflow()` → 立即重新装配并重建（下一轮直接可用）
+  - 构造缝：`ContextPolicy? policy` + `ConversationSummarizer? summarizer`
+- 改 `test/features/chat/engine/local_chat_client_test.dart`：摘要器 fake 改为 `ConversationSummarizer`；`truncateThreshold: 0` 改为 `policy: LocalContextPolicy(budget: 0, …)`
+- 新增 `test/features/chat/engine/local_context_policy_test.dart`：度量单位 + 参数装配（6 用例）
+
+**⚠️ 计划内的行为变更（由共享过滤带来）**
+- 端侧不再把**第 0 轮欢迎语**当对话上下文送进 KV 会话（此前 diff 全量 → 现在与云端统一走 `filterEligible`）。省 ~百 token 预算且消除双端不一致。
+- 因此 `welcome` 相关断言与「压缩移出条数」（18 → 17）已按新语义更新；`消息数 ≤ 保底` 的旧用例语义变为「不触发压缩、不重建」。
 
 **验证**
-- [ ] 单测：assembled 结果驱动 session 重建（persona → 摘要卡 → kept 顺序）；溢出 → 当轮降级文案 + policy 收到 `handleOverflow`
-- [ ] 既有本地语义零回归（diff/去重/think/恢复会话全量 seed）
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] 单测：assembled 驱动 KV 会话重建（persona → 摘要卡 → kept 顺序）；溢出 → 当轮降级文案 + 策略收到 `handleOverflow` + 立即重建
+- [x] 既有本地语义零回归（diff/去重/think/取消跳过/失败跳过/恢复会话 seed）
+- [x] `flutter analyze` 0；全量 `flutter test` **162/162** 绿
 
 ## Task 3：CloudContextPolicy + CloudSummarizer
 
@@ -79,7 +86,7 @@ Task 1 独立可交付（纯新增，零行为变更）；Task 2、3 互不依�
 
 ## 关键实现备忘
 
-- **保底最后 2 条**的原因（沿用 2026-09-09 决策）：当前用户消息已 append 进旧 session，不能只存在于摘要卡里，否则模型看不到本轮问题原文。
+- **保底最后 2 条**的原因（沿用 2026-09-09 决策）：当前用户消息已 append 进旧 KV 会话，不能只存在于摘要卡里，否则模型看不到本轮问题原文。
 - **摘要卡不伪装成 ChatMessage**：`ChatMessage` 无 system 角色，扩展模型会污染数据层；改为 `AssembledContext.summaryCard` 由 client 注入。
 - **`handleOverflow` 是中性钩子**：本地 client 捕获 `LlamaDecodeException` 后调用；cloud 侧保留空实现以维持契约对称。
 - **防泄漏红线**：共享层不得出现 `nCtx`/`llama`/`EngineChat`；端侧细节全部封装在 `LocalContextPolicy` 及其实现内。

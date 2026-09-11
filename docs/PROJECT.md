@@ -232,8 +232,10 @@ lib/
 │   ├── chat/
 │   │   ├── engine/
 │   │   │   ├── chat_client.dart          # abstract ChatClient 接口
+│   │   │   ├── context_policy.dart       # 上下文管理抽象（过滤/度量/装窗/压缩）+ 共享装配骨架
+│   │   │   ├── local_context_policy.dart # 端侧策略：token 度量 + 端侧摘要器 + 溢出硬收缩
 │   │   │   ├── conversation_strategy.dart # 系统提示词(含goals) + LCS 去重
-│   │   │   ├── local_chat_client.dart    # 本地 llama 传输（diff 增量 append）
+│   │   │   ├── local_chat_client.dart    # 本地 llama 传输（KV 会话同步 + diff 增量 append）
 │   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE + 尾部窗口）
 │   │   │   ├── sse_parser.dart           # SSE 半包/畸形 JSON 容错
 │   │   │   └── markdown_blocks.dart      # fence 感知流式块切分

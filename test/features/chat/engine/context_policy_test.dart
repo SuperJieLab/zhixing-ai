@@ -315,7 +315,7 @@ void main() {
       expect(_contents(ctx.messages), 'a,b');
     });
 
-    test('强制收缩后游标推进：已硬丢的消息不再被摘要', () async {
+    test('强制收缩后不回补：窗口已收窄，旧消息不再纳入也不再被摘要', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(
         estimator: _CharEstimator(),
@@ -326,11 +326,51 @@ void main() {
 
       await policy.handleOverflow();
       await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
-      // 再走正常路径，此时预算充裕，不应因前面硬丢的消息触发摘要
-      final ctx = await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
+      // 再走正常路径：历史虽含全部 4 条，但窗口已硬丢前 2 条
+      final ctx =
+          await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
 
       expect(summarizer.calls, isEmpty);
-      expect(ctx.messages.length, 4);
+      expect(_contents(ctx.messages), 'c,d');
+    });
+
+    test('evicted 标记：预算内为 false，发生移出为 true', () async {
+      final policy = _TestPolicy(
+        estimator: _CharEstimator(),
+        budget: 1000,
+        minKeep: 1,
+      );
+
+      final roomy = await policy.assemble([_msg('a'), _msg('b')]);
+      expect(roomy.evicted, isFalse);
+
+      final tight =
+          _TestPolicy(estimator: _CharEstimator(), budget: 1, minKeep: 1);
+      final squeezed =
+          await tight.assemble([_msg('aaaa'), _msg('bb'), _msg('cccccc')]);
+      expect(squeezed.evicted, isTrue);
+    });
+
+    test('reset：清空摘要与保留窗口，回到初始状态', () async {
+      final summarizer = _RecordingSummarizer();
+      final policy = _TestPolicy(
+        estimator: _CharEstimator(),
+        budget: 60,
+        summarizer: summarizer,
+        minKeep: 1,
+      );
+
+      await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      expect(policy.summary, isNotEmpty);
+      expect(policy.retainedCount, 1);
+
+      policy.reset();
+
+      expect(policy.summary, isEmpty);
+      expect(policy.retainedCount, 0);
+      final ctx = await policy.assemble([_msg('x'), _msg('y')]);
+      expect(_contents(ctx.messages), 'x,y');
+      expect(ctx.summaryCard, isNull);
     });
   });
 }

@@ -49,6 +49,7 @@
 class AssembledContext {
   final List<ChatMessage> messages; // 已过滤 + 装窗后的历史
   final String? summaryCard;        // 此前对话摘要卡（含前缀，滚动更新，可为 null）
+  final bool evicted;               // 本次是否发生窗口收缩（client 据此决定重建/增量续接）
 }
 
 /// 上下文策略：对话历史 → 实际发送的消息
@@ -60,6 +61,9 @@ abstract class ContextPolicy {
 
   /// 传输层溢出钩子（如本地 context full）：强制收缩，下次装配生效。
   Future<void> handleOverflow();
+
+  /// 会话生命周期重置（新对话 / 重新初始化）。
+  void reset();
 }
 
 /// 度量能力（策略位②）
@@ -102,7 +106,7 @@ abstract class BaseContextPolicy implements ContextPolicy {
 - `assemble` 为 `Future`（压缩可能触发异步摘要）。
 - 摘要卡以独立字段返回而非伪装成 `ChatMessage`——`ChatMessage` 无 system 角色，不为此扩展模型；由 client 决定注入位置。
 - `handleOverflow()` 无返回值：由 client 决定本轮降级文案与下轮重试（保持与现状一致）。
-- **已摘要游标**：`BaseContextPolicy` 记录「eligible 前缀中已折叠进摘要的长度」，历史增长时只对新移出的消息再摘要，避免重复摘要同一批内容（等价于现本地 `_mirror` 被压缩后只剩 kept 的效果）。
+- **已摘要游标 / 有状态保留窗口**：`BaseContextPolicy` 内部持有「当前保留窗口」（`_retained`）与纳入游标（`_consumed`）。`assemble` 只把**新增**的合格消息纳入窗口，超预算时把窗口**前端挤出**并压缩。这样一次压缩后窗口重新落到预算内，后续若干轮不再触发压缩——与「每轮从全量历史重算切点」相比，既避免每轮重建 KV 会话（端侧全量 re-prefill），也避免每轮都调一次摘要器。
 
 ## 5. 双端策略实现
 
@@ -141,7 +145,8 @@ class CloudContextPolicy extends BaseContextPolicy {
 | `LlamaDecodeException` 捕获与重试 | `LocalChatClient` | 传输层错误属传输层；client 捕获后调 `policy.handleOverflow()` |
 | SSE 解析、超时、取消 | 各自 client | 传输细节，与上下文策略无关 |
 | 摘要卡注入位置 | client 装配时 | policy 只产出内容，默认排在 persona 之后 |
-| 会话态（摘要卡、累计估算） | policy 实例（与对话同生命周期） | 由 provider 随 client 一起创建（`ChatPage` providerFactory 注入缝现成） |
+| 会话态（摘要卡、保留窗口、纳入游标） | policy 实例（与对话同生命周期） | 由 provider 随 client 一起创建（`ChatPage` providerFactory 注入缝现成）；`initialize()` 时 `reset()` |
+| 会话增量态（已登记消息游标、`_skipNextHistoryAi`） | LocalChatClient | diff / 结算语义，属传输侧与 Provider 历史的对齐，非上下文策略职责 |
 
 **防泄漏红线**：`ContextPolicy` / `ContextEstimator` / `ConversationSummarizer` 的签名与实现文件中不得出现 `nCtx`、`llama`、`EngineChat` 等端侧概念；端侧细节封装在 `LocalContextPolicy` 及其注入实现内。
 
@@ -154,7 +159,7 @@ class CloudContextPolicy extends BaseContextPolicy {
 ```
 
 1. 抽取共享层（接口 + 过滤 + 装窗算法 + **装配骨架 `BaseContextPolicy`** + 单测）——不接 client，零行为变更。
-2. `LocalContextPolicy`：把 `LocalChatClient` 现有 `_compactContext` / `_mirror` / `_summary` / `_estimatedTokens` 迁移进来，client 改为委托；现有测试语义保留（fake session/summarizer 注入路径改为 policy 注入）。
+2. `LocalContextPolicy`：`LocalChatClient` 的压缩状态机（`_compactContext` / `_summary` / `_estimatedTokens` / 阈值）迁入 policy；客户端保留 diff 增量态（`_mirror` 语义的 `_consumed` / `_skipNextHistoryAi`），改为「按 `AssembledContext` 同步 KV 会话」（`evicted` → 重建，否则增量 append）。
 3. `CloudContextPolicy`：替换 `_windowSize = 10` 硬编码；接入 `CloudSummarizer`。
 4. 收尾：全量回归 + 文档 + 冒烟项。
 

@@ -35,9 +35,9 @@
 ### D1. LocalChatClient 构造不 fail-fast ⭐ 已修复
 
 - 位置：`lib/features/chat/engine/local_chat_client.dart` 构造函数
-- 问题：只注入 `sessionFactory` 而无 `engine` 时，默认 summarizer 闭包在**首次触发压缩时**才抛 `StateError`
+- 问题：只注入 `kvSessionFactory` 而无 `engine` 时，默认 summarizer 闭包在**首次触发压缩时**才抛 `StateError`
 - 修正认知：该异常实际被 `_compactContext` try/catch 接住回落纯丢弃——真实故障面是「静默质量降级」而非崩溃
-- 落地：构造期校验 engine/sessionFactory 至少其一（`ArgumentError`）；summarizer 改为**显式可空**（sessionFactory-only 时为 null，压缩时明确 warn 回落），不再用抛异常闭包伪装能力
+- 落地：构造期校验 engine/kvSessionFactory 至少其一（`ArgumentError`）；summarizer 改为**显式可空**（kvSessionFactory-only 时为 null，压缩时明确 warn 回落），不再用抛异常闭包伪装能力
 - 状态：[x]
 
 ### D2. 本地 stop() 无法真中断引擎
