@@ -243,7 +243,7 @@ lib/
 │   │   ├── engine/                       # 对话引擎（按职责分二级子目录）
 │   │   │   ├── client/                   # 传输：接口 + 双实现 + SSE 帧解析
 │   │   │   │   ├── chat_client.dart          # abstract ChatClient 接口
-│   │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（KV 会话同步 + diff 增量 append）
+│   │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（ChatSession 消息同步 + 增量补差/重建）
 │   │   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE；装配交策略）
 │   │   │   │   └── sse_parser.dart           # SSE 半包/畸形 JSON 容错
 │   │   │   ├── context/                  # 上下文管理：抽象 + 共享算法 + 双端策略
@@ -445,6 +445,21 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 推送通道 | 服务端触发 + WebSocket 站内横幅 | App 在线即可达，不依赖系统推送通道 |
 | 服务端 LLM | DeepSeek Chat API | 推送内容智能生成（用户可选） |
 
+### 构建与环境要点
+
+**iOS（Flutter 3.44）**
+
+- 走 **SPM**，不写 Podfile（手写会被 Flutter 标记 non-standard）。Xcode 签名 Team 需设置；`GoogleService-Info.plist` 缺失不崩（`initializeApp` 已 try/catch）。
+- `llama_cpp_dart` 是纯 Dart FFI 插件（无 `flutter: plugin:` 段）→ 不进 SPM/CocoaPods 自动集成；`ios/Runner/llama.xcframework` 手动 vendored，纯 SPM 下必须手动在 pbxproj 里**链接 + 嵌入**进 Runner。
+- **两道坎**：① 忘写 `PBXBuildFile section` 定义 → 悬空引用被 Xcode 静默忽略（既不链接也不嵌入，App 能启动但 `spawnFromProcess` 报 symbol not found；Embed 那条需带 `settings={ATTRIBUTES=(CodeSignOnCopy,)}`）；② PBXFileReference 挂 `Runner` 组时 path 写 `llama.xcframework`，**不能**写 `Runner/llama.xcframework`。判别：能启动但 symbol not found = 没链接；报 `RuntimeRoot/Users/...` = 运行时 dlopen 路径错。改完必查产物（`Runner.app/Frameworks/` 有 llama + `otool -L ... | grep llama`），不能只看 UUID/括号。
+- **正确机制**：`LlamaEngine.spawnFromProcess()` —— 框架由 dyld 在 App 启动期加载，`@rpath` 由 App 的 `LD_RUNPATH_SEARCH_PATHS`（`@executable_path/Frameworks`，Flutter 默认有）解析；框架自身故意不带 `LC_RPATH`。**不要**改用运行时 `spawn(libraryPath:)` dlopen，也不要给框架补 rpath 构建阶段。
+
+**macOS Sandbox 调试**
+
+- errno：`1`→权限（查 entitlement）、`2`→文件不存在、`13`→文件系统权限。
+- entitlement 对应：`files.absolute-path.read-only`（读项目外模型）/ `network.client`（出站）/ `network.server`（入站）。
+- 注意：`curl` 能通 ≠ App 内能通。
+
 ---
 
 ## 十、设计决策
@@ -458,8 +473,10 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
-| 传输层 | ChatClient 接口双实现：LocalChatClient（llama KV 会话同步 + diff 增量 append）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE）；Provider 单 client 无模式分支 |
+| 传输层 | ChatClient 接口双实现：LocalChatClient（ChatSession 消息同步 + 增量补差/重建）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE）；Provider 单 client 无模式分支 |
 | 上下文管理 | ContextPolicy 抽象（过滤/度量/装窗/压缩/溢出契约），双端各一份薄装配：LocalContextPolicy（token 度量 + 端侧摘要器 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 云端摘要器 + 无收缩）；①③⑤为共享同一段代码 |
+| 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**（对应 `evicted`）。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
+| 端侧消息列表真相源 | **待决策**（登记）：`EngineChat` 自持 `_messages` 构成**第二真值源**，与我方装配结果在 assistant 条目上**必然分叉**（引擎登记 `replyBuf` 含 think 原文，我方存 `stripThinkTags` 后正文；`commitReply()` 在 Done/流结束/catch 三条路径均触发），派生三条通道与四项代价（预算系统性偏低 → `context full` 真实成因、压缩时该条语义跳变、`_skipNextHistoryAi` 位置型补丁依赖索引对齐、`trailingText` 仅引擎侧有）。根因非「必须 diff」而是「让引擎持有权威副本」；解法 = **无状态重放**（每轮 `clearHistory()` + 重放装配结果），可一并删除 `_consumed` / `_skipNextHistoryAi` / `evicted` 双分支（`addX`/`clearHistory` 均零 RPC）。代价：模型不再看到自身历史 think（与云端对齐）。见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10 |
 | 云端模型 | BYOK：用户在设置页自带 baseUrl/key/模型名，端侧直连，服务端不参与对话；三项未配齐则云端开关不可开（降级 Mock） |
 | 云端摘要 | 复用同一 BYOK 端点，非流式小请求（max_tokens 512）；预算极大（60k 字符）故实践中基本不触发，机制作超长对话兜底 |
 | 状态变更 | 仅用户操作触发，AI 不可自动修改已有目标/策略状态 |
