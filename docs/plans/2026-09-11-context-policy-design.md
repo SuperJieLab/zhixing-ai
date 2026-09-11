@@ -113,21 +113,20 @@ abstract class BaseContextPolicy implements ContextPolicy {
 ```dart
 // 双端策略均为 BaseContextPolicy 的薄装配（编排共享，只注入差异位）
 class LocalContextPolicy extends BaseContextPolicy {
-  LocalContextPolicy({required LlamaEngine engine, Summarizer? summarizer})
+  LocalContextPolicy({super.summarizer, int? budget})
       : super(
-          estimator:  LlamaTemplateEstimator(),      // 模板规则精确估算（LlamaService.estimateTokens + 每条 +16 overhead）
-          budget:     AppConstants.localInputBudget, // 1668（nCtx 4096 − maxTokens 2048 − margin 384）
-          summarizer: summarizer == null ? null : LlamaSummarizer(summarizer),
-          minKeep:    2,                             // 最后 2 条保底（当前问题原文必须可见）
-          overflowKeep: 4,                           // context full 自愈：硬留最后 4 条
+          estimator: LlamaTemplateEstimator(),      // token 估算 + 每条 +16 overhead
+          budget:    budget ?? AppConstants.localInputBudget, // 1668
+          minKeep:   2,                             // 最后 2 条保底（当前问题原文必须可见）
+          overflowKeep: 4,                          // context full 自愈：硬留最后 4 条
         );
 }
 
 class CloudContextPolicy extends BaseContextPolicy {
   CloudContextPolicy({required baseUrl, apiKey, modelName})
       : super(
-          estimator:  HeuristicEstimator(),          // 字符数近似（粗粒度，诚实不装精确）
-          budget:     <待定，量级 10 万字符>,          // 远大于装窗需求 → 基本不触发
+          estimator:  CharCountEstimator(),          // 字符数近似（粗粒度，诚实不装精确）
+          budget:     AppConstants.cloudInputBudget, // 60000 字符（见下「预算结论」）
           summarizer: CloudSummarizer(baseUrl, apiKey, modelName), // 同一 BYOK 端点，非流式小请求
           minKeep:    2,
           overflowKeep: null,                        // 契约对称，不收缩
@@ -135,7 +134,13 @@ class CloudContextPolicy extends BaseContextPolicy {
 }
 ```
 
-云端摘要器实现要点：`POST {baseUrl}/chat/completions`，`stream: false`，`max_tokens` 取小值（如 512），prompt 复用 `ConversationStrategy.buildSummaryPrompt`，返回内容同样经 `stripThinkTags` 清理；异常向上抛由 policy 兜底回落（纯窗口丢弃）。
+**预算结论（原「待定」，Task 3 回填）**：单位取**字符数近似**，`AppConstants.cloudInputBudget = 60000`。
+
+- 单位选择的理由：云端约束来自**用户所选模型**的上下文窗口，本应用无法预知；各厂商 tokenizer 不同，本地做「精确 token 估算」是伪精确，故如实取字符数（粗粒度、量级正确即可，误差由预算余量吸收）。
+- 数值选择的理由：量级参考 60k 字符 ≈ 英文 ~15k token / 中文 ~40k token；取值偏保守，避免常见 **32k 上下文模型**在纯中文长对话下触顶——云端没有「context full」这类自愈路径，超限即端点直接报错。同时它仍远大于常见对话长度（旧行为固定 10 条 ≈ 数千字符），故正常对话不触发装窗/摘要。
+- 特性：这是本抽象**唯一需要按模型调优的参数**；记为可调点而非定论。
+
+云端摘要器实现要点：`POST {baseUrl}/chat/completions`，`stream: false`，`max_tokens` 取小值（512），prompt 复用 `ConversationStrategy.buildSummaryPrompt`，返回内容同样经 `stripThinkTags` 清理；异常向上抛由 policy 兜底回落（纯窗口丢弃）。
 
 ## 6. 边界与红线
 

@@ -1,11 +1,11 @@
 # 知行AI — ContextPolicy 抽象实施计划
 
-> 状态：进行中（Task 1 已完成/待提交，Task 2/3/4 待执行）
+> 状态：进行中（Task 1/2/3 已完成，Task 4 待执行）
 > 设计：`docs/plans/2026-09-11-context-policy-design.md`（能力对等 / 双端各一份策略 / 云端摘要用云端模型）
 > 时机：**排在 BYOK 真机冒烟之后**（本重构覆盖两个 client 的装配路径，不与未验证变更混提）
 > 纪律：每 Task 实现 → 自查 → 全量回归 → 改动留工作区，由用户确认后提交（不自动 commit）
-> 测试命令（沙箱代理会拦截 flutter_tester）：
-> `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy NO_PROXY='*' no_proxy='*' flutter test`
+> 测试命令（沙箱代理会拦截 flutter_tester，须一并清 ALL_PROXY）：
+> `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy NO_PROXY='*' no_proxy='*' flutter test`
 
 ## Task 1：抽取共享层骨架（零行为变更）✅ 已完成
 
@@ -49,23 +49,25 @@
 - [x] 既有本地语义零回归（diff/去重/think/取消跳过/失败跳过/恢复会话 seed）
 - [x] `flutter analyze` 0；全量 `flutter test` **162/162** 绿
 
-## Task 3：CloudContextPolicy + CloudSummarizer
+## Task 3：CloudContextPolicy + CloudSummarizer ✅ 已完成
 
 **文件**
 - 新增 `lib/features/chat/engine/cloud_context_policy.dart`：
-  - `CloudContextPolicy extends BaseContextPolicy`：**只做配置装配**——`HeuristicEstimator`（字符数近似）+ 大预算（待定数值，见下）+ `CloudSummarizer` + `minKeep = 2` + `overflowKeep: null`
+  - `CloudContextPolicy extends BaseContextPolicy`：**只做配置装配**——`CharCountEstimator`（字符数近似 + 每条 16 包装开销）+ `AppConstants.cloudInputBudget`（60000 字符，见 design §5 预算结论）+ `CloudSummarizer` + `minKeep = 2` + `overflowKeep: null`
   - 溢出为无收缩（`overflowKeep: null`，由基类承接），云端预算充裕、契约保持一致
-- 新增 `lib/features/chat/engine/cloud_summarizer.dart`：`CloudSummarizer implements ConversationSummarizer`，复用同一 BYOK 端点，`stream: false`、`max_tokens: 512`、prompt 用 `ConversationStrategy.buildSummaryPrompt`、结果过 `stripThinkTags`；非 2xx 抛错由策略兜底
+- 新增 `lib/features/chat/engine/cloud_summarizer.dart`：`CloudSummarizer implements ConversationSummarizer`，复用同一 BYOK 端点，`stream: false`、`max_tokens: 512`、prompt 用 `ConversationStrategy.buildSummaryPrompt`、结果过 `stripThinkTags`；非 2xx / 畸形响应抛错由策略兜底
 - 改 `lib/features/chat/engine/cloud_chat_client.dart`：
-  - 删除 `_windowSize = 10` 硬编码与内联过滤，改为 `policy.assemble(history)`
-  - 请求体装配：`system(persona)` → 摘要卡（如有）→ payload
-- 新增/改测试：`cloud_context_policy_test.dart`、`cloud_summarizer_test.dart`；`cloud_chat_client_test.dart` 窗口相关用例按新语义更新
+  - 删除 `_windowSize = 10` 硬编码与内联过滤，改为 `_policy.assemble(history, systemPrompt:)`
+  - 新增 `ContextPolicy? policy` 注入缝（默认按 BYOK 三件套装配 `CloudContextPolicy`）；`initialize` 调 `_policy.reset()`
+  - `generateResponse` 拆为「同步空校验 + `_assembleAndGenerate`（async* 装配后 yield* 传输流）」，保留空历史的同步 `ArgumentError` 语义
+  - 请求体装配：`system(persona)` → 摘要卡（如有，同为 system 消息）→ payload
+- 新增 `test/.../cloud_context_policy_test.dart`（6 用例）、`cloud_summarizer_test.dart`（6 用例）；`cloud_chat_client_test.dart` 的 E 用例改为「预算内全量携带」并新增 K「小预算装窗」
 
 **验证**
-- [ ] 单测：预算内透传（历史全量携带）；构造小预算强制触发压缩路径；`handleOverflow` 不破坏后续装配
-- [ ] `CloudSummarizer`：请求体断言（非流式、model、max_tokens、Bearer）、响应解析、think 剥离、非 2xx 抛错
-- [ ] `CloudChatClient` 既有用例（A–J：系统提示词/窗口/Bearer/401/无 content 帧等）全绿
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] `CloudContextPolicy`：度量（字符数 + overhead）、预算内透传、共享过滤（round==0）、小预算压缩（留 minKeep + 摘要器收到移出消息）、`handleOverflow` 无害、`reset` 清空摘要/窗口
+- [x] `CloudSummarizer`：请求体断言（非流式 / model / max_tokens / Bearer / 摘要提示词）、递归压实（旧摘要并入）、think 剥离、401 抛错、缺 choices / 缺 content 抛错
+- [x] `CloudChatClient` 既有用例（A–J）+ 新增 K 全绿；D 语义不变（round==0 过滤后全量携带）
+- [x] `flutter analyze` 0；全量 `flutter test` **175/175** 绿（Task 2 基线 162 + 新 12 + client 新 1）
 
 ## Task 4：收尾
 

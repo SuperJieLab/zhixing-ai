@@ -234,9 +234,11 @@ lib/
 │   │   │   ├── chat_client.dart          # abstract ChatClient 接口
 │   │   │   ├── context_policy.dart       # 上下文管理抽象（过滤/度量/装窗/压缩）+ 共享装配骨架
 │   │   │   ├── local_context_policy.dart # 端侧策略：token 度量 + 端侧摘要器 + 溢出硬收缩
+│   │   │   ├── cloud_context_policy.dart # 云端策略：字符数近似度量 + 云端摘要器 + 无收缩
+│   │   │   ├── cloud_summarizer.dart     # 云端摘要器（复用 BYOK 端点，非流式小请求）
 │   │   │   ├── conversation_strategy.dart # 系统提示词(含goals) + LCS 去重
 │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（KV 会话同步 + diff 增量 append）
-│   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE + 尾部窗口）
+│   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE；装配交策略）
 │   │   │   ├── sse_parser.dart           # SSE 半包/畸形 JSON 容错
 │   │   │   └── markdown_blocks.dart      # fence 感知流式块切分
 │   │   ├── providers/chat_provider.dart  # 单 ChatClient，无模式分支
@@ -443,8 +445,10 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
-| 传输层 | ChatClient 接口双实现：LocalChatClient（llama diff 增量）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE + 尾部窗口）；Provider 单 client 无模式分支 |
+| 传输层 | ChatClient 接口双实现：LocalChatClient（llama KV 会话同步 + diff 增量 append）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE）；Provider 单 client 无模式分支 |
+| 上下文管理 | ContextPolicy 抽象（过滤/度量/装窗/压缩/溢出契约），双端各一份薄装配：LocalContextPolicy（token 度量 + 端侧摘要器 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 云端摘要器 + 无收缩）；①③⑤为共享同一段代码 |
 | 云端模型 | BYOK：用户在设置页自带 baseUrl/key/模型名，端侧直连，服务端不参与对话；三项未配齐则云端开关不可开（降级 Mock） |
+| 云端摘要 | 复用同一 BYOK 端点，非流式小请求（max_tokens 512）；预算极大（60k 字符）故实践中基本不触发，机制作超长对话兜底 |
 | 状态变更 | 仅用户操作触发，AI 不可自动修改已有目标/策略状态 |
 | Brief 页确认 | 点击即生效，无弹窗（区别于 Dashboard 的弹窗确认） |
 | 提取频率 | 每次对话结束都提取 |

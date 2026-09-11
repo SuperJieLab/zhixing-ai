@@ -6,6 +6,8 @@ import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
+import 'package:zhixing_ai/features/chat/engine/cloud_context_policy.dart';
+import 'package:zhixing_ai/features/chat/engine/context_policy.dart';
 
 // 云端对话客户端（BYOK 直连）真实集成测试
 //
@@ -15,19 +17,34 @@ import 'package:zhixing_ai/features/chat/engine/cloud_chat_client.dart';
 //   B. [CloudChatClient.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
 //      断开（客户端取消 → 连接销毁 → 厂商侧中断）；
 //   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）；
-//   D. 窗口构造：round==0 欢迎语被过滤、system 首条、尾部用户消息随请求发送；
-//   E. 窗口裁剪：尾部消息之外超过 10 条时取尾部 10 条；
+//   D. 上下文装配：round==0 欢迎语被过滤、system 首条、尾部用户消息随请求发送；
+//   E. 预算内历史全量携带（不再固定取尾 10 条）；
 //   F. isReady 恒真、initialize 暂存 goals；
 //   G. 请求体：system 人设（含 goals）+ model + Authorization 头；
 //   H. 无 goals 时 system 不含目标段；
 //   I. HTTP 非 200（401）→ 抛错且含状态码；
-//   J. 无 delta.content 的帧（role/finish_reason）被跳过。
+//   J. 无 delta.content 的帧（role/finish_reason）被跳过；
+//   K. 小预算触发装窗：仅保留保底尾部 + 移出消息进摘要器。
 //
 // 关键：服务端必须设 `bufferOutput = false`——dart:io HttpResponse 默认缓冲输出，
 // 小写入会攒到连接关闭才上线，SSE 增量投递完全失效（曾由此误判为环境代理缓冲）。
 
 const _dummyKey = 'sk-test';
 const _dummyModel = 'test-model';
+
+/// 记录调用次数的摘要器 fake：小预算用例中验证「移出消息真的进了摘要器」。
+class _FakeSummarizer implements ConversationSummarizer {
+  int calls = 0;
+  List<ChatMessage> lastEvicted = const [];
+
+  @override
+  Future<String> summarize(
+      String previousSummary, List<ChatMessage> evicted) async {
+    calls++;
+    lastEvicted = evicted;
+    return '摘要卡正文';
+  }
+}
 
 /// mock SSE 服务端句柄：端口 + 客户端提前断开的感知信号 + 最近一次请求。
 class _MockServer {
@@ -110,12 +127,17 @@ Future<void> _writeFrame(
 String _openAiDelta(String content) =>
     '{"choices":[{"delta":{"content":${jsonEncode(content)}}}]}';
 
-CloudChatClient _client(String baseUrl, {Duration? frameTimeout}) =>
+CloudChatClient _client(
+  String baseUrl, {
+  Duration? frameTimeout,
+  ContextPolicy? policy,
+}) =>
     CloudChatClient(
       baseUrl: baseUrl,
       apiKey: _dummyKey,
       modelName: _dummyModel,
       frameTimeout: frameTimeout ?? const Duration(seconds: 10),
+      policy: policy,
     );
 
 void main() {
@@ -227,7 +249,7 @@ void main() {
     expect(caught, isA<TimeoutException>());
   });
 
-  // ── 测试 D：窗口构造——round==0 欢迎语被过滤，尾部用户消息随请求发送 ──
+  // ── 测试 D：上下文装配——round==0 欢迎语被过滤，尾部用户消息随请求发送 ──
   test('D. round==0 欢迎语被过滤，尾部用户消息随请求发送', () async {
     final s = await _startMock(echoMessages);
     final client = _client(s.baseUrl);
@@ -248,8 +270,8 @@ void main() {
     expect(received.join(), 'assistant:旧回答|user:问题1|user:问题2|');
   });
 
-  // ── 测试 E：窗口裁剪——尾部消息之外超过 10 条时取尾部 10 条 ──
-  test('E. 历史超过窗口大小时取尾部 10 条', () async {
+  // ── 测试 E：预算内历史全量携带（不再固定取尾 10 条）──
+  test('E. 预算内历史全量携带', () async {
     final s = await _startMock(echoMessages);
     final client = _client(s.baseUrl);
 
@@ -271,10 +293,46 @@ void main() {
     client.dispose();
     await s.close();
 
-    // 消息1..15 中取尾部 10 条（消息6..15）+ 新问题 = 11 条
-    expect(received.length, 11);
-    expect(received.first, 'assistant:消息6|'); // 消息6 为偶数轮 → AI 角色
-    expect(received[10], 'user:新问题|');
+    // 默认预算（AppConstants.cloudInputBudget）远大于本对话 → 15 条历史 +
+    // 新问题全量携带（旧实现固定取尾 10 条，恒为 11 条）
+    expect(received.length, 16);
+    expect(received.first, 'user:消息1|'); // 消息1 为奇数轮 → 用户角色
+    expect(received.last, 'user:新问题|');
+  });
+
+  // ── 测试 K：小预算触发装窗——仅留保底尾部，移出消息进摘要器 ──
+  test('K. 小预算时仅保留保底尾部，移出消息进摘要器', () async {
+    final s = await _startMock(echoMessages);
+    final summarizer = _FakeSummarizer();
+    final client = _client(
+      s.baseUrl,
+      policy: CloudContextPolicy(
+        baseUrl: s.baseUrl,
+        apiKey: _dummyKey,
+        modelName: _dummyModel,
+        budget: 0, // 任何历史都超预算 → 只留 minKeep=2
+        summarizer: summarizer,
+      ),
+    );
+
+    final received = <String>[];
+    await for (final d in client.generateResponse([
+      ChatMessage(role: MessageRole.user, content: 'q1', round: 1),
+      ChatMessage(role: MessageRole.ai, content: 'a1', round: 1),
+      ChatMessage(role: MessageRole.user, content: 'q2', round: 2),
+      ChatMessage(role: MessageRole.ai, content: 'a2', round: 2),
+      ChatMessage(role: MessageRole.user, content: 'q3', round: 3),
+      ChatMessage(role: MessageRole.ai, content: 'a3', round: 3),
+    ])) {
+      received.add(d);
+    }
+    client.dispose();
+    await s.close();
+
+    // 预算 0 + minKeep 2 → 装窗只保留最后 2 条；被移出的 4 条进摘要器
+    expect(received, ['user:q3|', 'assistant:a3|']);
+    expect(summarizer.calls, 1);
+    expect(summarizer.lastEvicted.length, 4);
   });
 
   // ── 测试 F：isReady 恒真；initialize 暂存 goals 且恒成功 ──

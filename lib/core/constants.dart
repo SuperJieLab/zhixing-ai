@@ -39,6 +39,17 @@ class AppConstants {
   /// 沙盒内模型存储子目录
   static const String modelSubDir = 'models';
 
+  // ─── 云端（BYOK）输入预算 ───
+  //
+  // 云端约束来自「用户所选模型的上下文窗口」，本应用无法预知，故单位取
+  // **字符数近似**（各厂商 tokenizer 不同，本地精确估算是伪精确），预算设得
+  // 远大于常见对话长度——正常对话不触发装窗/摘要，机制仅作超长对话的兜底。
+  //
+  // 量级参考（粗估）：60k 字符 ≈ 英文 ~15k token / 中文 ~40k token。
+  // 取值偏保守，以免常见 32k 上下文模型在纯中文长对话下触顶（云端无
+  // 「context full」这类自愈路径，超限即端点报错）。需要时按所用模型调整。
+  static const int cloudInputBudget = 60000;
+
   // ─── 服务端地址（HTTP 与 WS 共用）───
 
   /// 服务端基地址（HTTP 与 WS 共用）。
