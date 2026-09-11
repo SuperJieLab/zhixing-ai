@@ -72,6 +72,28 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('&quot;', findRichText: true), findsNothing);
   });
+
+  testWidgets('代码块里的 HTML 源码保真还原（模型输出 HTML 场景）', (tester) async {
+    const htmlDemo = '''
+```html
+<a href="x">&lt;p&gt;&nbsp;</a>
+```
+''';
+    await pumpTable(tester, htmlDemo);
+
+    // 代码块经包整体转义后应精确还原为模型原始代码
+    expect(find.textContaining('<a href="x">&lt;p&gt;&nbsp;</a>'),
+        findsOneWidget);
+  });
+
+  testWidgets('正文里模型故意写的实体字面量不被误伤', (tester) async {
+    await pumpTable(tester, '用 &lt;b&gt; 标签加粗，用 &amp;amp; 表示与号');
+
+    // 正文域只反解包转义的 &quot;/&amp;（此处 &amp;amp; 解一层为 &amp;），
+    // 模型写的 &lt;b&gt; 字面量保留
+    expect(find.textContaining('用 &lt;b&gt; 标签加粗，用 &amp; 表示与号',
+        findRichText: true), findsOneWidget);
+  });
 }
 
   Finder findRichText(String text) => find.textContaining(text, findRichText: true);

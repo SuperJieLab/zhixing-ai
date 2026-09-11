@@ -61,7 +61,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
 
     if (split.tail.isNotEmpty) {
       // 尾块始终是纯文本（即便内含未闭合内联语法），避免闪烁
-      children.add(Text(decodeHtmlEntities(split.tail), style: widget.baseStyle));
+      children.add(Text(decodeProseEntities(split.tail), style: widget.baseStyle));
     }
 
     return Column(
@@ -89,7 +89,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
 
   Widget _buildNode(md.Node node, [TextStyle? base]) {
     if (node is! md.Element) {
-      final t = decodeHtmlEntities(node.textContent);
+      final t = decodeProseEntities(node.textContent);
       if (t.isEmpty) return const SizedBox.shrink();
       return Text(t, style: base ?? _base);
     }
@@ -126,7 +126,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
         return _buildTable(node, base);
       default:
         // 未知块标签：降级为纯文本
-        final t = decodeHtmlEntities(node.textContent);
+        final t = decodeProseEntities(node.textContent);
         return t.isEmpty ? const SizedBox.shrink() : Text(t, style: base ?? _base);
     }
   }
@@ -163,7 +163,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     }
     code = code.replaceAll(RegExp(r'\n$'), '');
     // markdown 包不处理实体但会再编码裸引号，模型/网关转义的引号也在这里兜底
-    code = decodeHtmlEntities(code);
+    code = decodeCodeEntities(code);
 
     const bg = Color(0xFFF6F6F8);
     const fg = AppTheme.textPrimary;
@@ -341,7 +341,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
     final spans = <InlineSpan>[];
     for (final node in nodes) {
       if (node is md.Text) {
-        spans.add(TextSpan(text: decodeHtmlEntities(node.text), style: base));
+        spans.add(TextSpan(text: decodeProseEntities(node.text), style: base));
       } else if (node is md.Element) {
         switch (node.tag) {
           case 'strong':
@@ -363,7 +363,7 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
             // 内联代码：等宽 + 浅灰底（用 Paint 背景，避免 WidgetSpan 基线问题）
             spans.add(
               TextSpan(
-                text: decodeHtmlEntities(node.textContent),
+                text: decodeCodeEntities(node.textContent),
                 style: base.copyWith(
                   fontFamily: 'monospace',
                   fontSize: (base.fontSize ?? 14) - 2,
