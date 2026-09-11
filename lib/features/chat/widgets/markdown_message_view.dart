@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/engine/markdown_blocks.dart';
-import 'package:zhixing_ai/features/chat/engine/tail_entity_decoder.dart';
 
 /// 流式 Markdown 渲染视图（抗闪烁核心）：
 /// 已闭合块经 [splitBlocks] 切出后按文本缓存 Widget，delta 重建只重画尾块；
@@ -67,9 +66,9 @@ class _MarkdownMessageViewState extends State<MarkdownMessageView> {
 
     if (split.tail.isNotEmpty) {
       // 尾块始终是纯文本（即便内含未闭合内联语法），避免闪烁。
-      // 尾块是未解析的原始文本，实体预解码保持与闭合块（包内按规范解码）
-      // 的显示一致；门禁在该域生效（原始文本可能同时含裸引号与实体）。
-      children.add(Text(decodeTailEntities(split.tail), style: widget.baseStyle));
+      // 尾块是原始预览：未闭合的 Markdown 符号（**、`、实体等）原样显示，
+      // 闭合后被解析器升级为对应渲染——与其他语法符号的行为保持一致。
+      children.add(Text(split.tail, style: widget.baseStyle));
     }
 
     return Column(
