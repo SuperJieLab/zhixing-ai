@@ -243,7 +243,7 @@ lib/
 │   │   ├── engine/                       # 对话引擎（按职责分二级子目录）
 │   │   │   ├── client/                   # 传输：接口 + 双实现 + SSE 帧解析
 │   │   │   │   ├── chat_client.dart          # abstract ChatClient 接口
-│   │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（ChatSession 消息同步 + 增量补差/重建）
+│   │   │   │   ├── local_chat_client.dart    # 本地 llama 传输（无状态重放：clear + 全量重放装配结果）
 │   │   │   │   ├── cloud_chat_client.dart    # 云端直连 BYOK（OpenAI 兼容 /chat/completions SSE；装配交策略）
 │   │   │   │   └── sse_parser.dart           # SSE 半包/畸形 JSON 容错
 │   │   │   ├── context/                  # 上下文管理：抽象 + 共享算法 + 双端策略
@@ -473,10 +473,10 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
-| 传输层 | ChatClient 接口双实现：LocalChatClient（ChatSession 消息同步 + 增量补差/重建）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE）；Provider 单 client 无模式分支 |
+| 传输层 | ChatClient 接口双实现：LocalChatClient（无状态重放——每轮 `clear()` + 按装配结果全量重放）/ CloudChatClient（BYOK 直连 OpenAI 兼容端点 SSE）；**两者同构：都无会话状态**；Provider 单 client 无模式分支 |
 | 上下文管理 | ContextPolicy 抽象（过滤/度量/装窗/压缩/溢出契约），双端各一份薄装配：LocalContextPolicy（token 度量 + 端侧摘要器 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 云端摘要器 + 无收缩）；①③⑤为共享同一段代码 |
-| 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**（对应 `evicted`）。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
-| 端侧消息列表真相源 | **待决策**（登记）：`EngineChat` 自持 `_messages` 构成**第二真值源**，与我方装配结果在 assistant 条目上**必然分叉**（引擎登记 `replyBuf` 含 think 原文，我方存 `stripThinkTags` 后正文；`commitReply()` 在 Done/流结束/catch 三条路径均触发），派生三条通道与四项代价（预算系统性偏低 → `context full` 真实成因、压缩时该条语义跳变、`_skipNextHistoryAi` 位置型补丁依赖索引对齐、`trailingText` 仅引擎侧有）。根因非「必须 diff」而是「让引擎持有权威副本」；解法 = **无状态重放**（每轮 `clearHistory()` + 重放装配结果），可一并删除 `_consumed` / `_skipNextHistoryAi` / `evicted` 双分支（`addX`/`clearHistory` 均零 RPC）。代价：模型不再看到自身历史 think（与云端对齐）。见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10 |
+| 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
+| 端侧消息列表真相源 | **已采纳：无状态重放**（2026-09-11 实施）。唯一真相源 = `ChatProvider._messages`；`EngineChat` 不再持有权威副本——每轮 `generateResponse` 恒为 `ChatSession.clear()` → `addSystem(人设)` → `[addSystem(摘要卡)]` → 按装配结果**全量重放** → `generate()`（`local_chat_client.dart` 的 `_syncSession`）。全生命周期只有 **1 个** `ChatSession` 实例。**已删除**的复杂度：`_consumed` diff 游标、`_skipNextHistoryAi` 位置型补丁、`evicted` 双分支（`AssembledContext.evicted` 字段一并移除）、`_rebuildSession` 的 `dispose + createSession`。**新增**：`ChatSession.clear()`；顶层纯函数 `eventsToText`（补上被丢弃的 `DoneEvent.trailingText`）。**不变量**：①引擎内消息列表 ≡ 人设 + 摘要卡 + 装配结果（逐字）；②assistant 条目均为 strip 后正文；③client 不持消息列表；④不得再引入依赖「引擎状态与我方索引对齐」的机制。行为变更：模型不再看到自身历史 think（与云端对齐）；token 预算估算变准（不再有隐形 think 占用）→ `context full` 显著减少。依据与代价核算见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10–§11，设计与计划见 `docs/plans/2026-09-11-local-stateless-replay-{design,plan}.md` |
 | 云端模型 | BYOK：用户在设置页自带 baseUrl/key/模型名，端侧直连，服务端不参与对话；三项未配齐则云端开关不可开（降级 Mock） |
 | 云端摘要 | 复用同一 BYOK 端点，非流式小请求（max_tokens 512）；预算极大（60k 字符）故实践中基本不触发，机制作超长对话兜底 |
 | 状态变更 | 仅用户操作触发，AI 不可自动修改已有目标/策略状态 |

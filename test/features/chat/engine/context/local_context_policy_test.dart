@@ -83,7 +83,6 @@ void main() {
         _user('第四问'),
       ]);
 
-      expect(ctx.evicted, isTrue);
       expect(ctx.messages.length, 2); // 保底 2 条
       expect(summarizer.calls, 1);
       expect(summarizer.lastEvicted!.length, 2);
@@ -99,7 +98,7 @@ void main() {
         _user('第三问'),
       ]);
 
-      expect(ctx.evicted, isTrue);
+      expect(ctx.messages.length, 2); // 窗口已收缩（保底 2 条）
       expect(ctx.summaryCard, isNull);
     });
   });

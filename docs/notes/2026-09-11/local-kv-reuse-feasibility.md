@@ -1,9 +1,10 @@
 # 端侧 KV 复用可行性备忘
 
 > 日期：2026-09-11
-> 状态：**暂不实施，登记为后续候选**（用户决策）
+> 状态：**§1–§9 暂不实施（登记为后续候选）**；**§10 已实施**（无状态重放，2026-09-11 落地）
 > 触发：用户质疑「本地能不能我们自己去用它的这套 EngineSession 来去实现 KV Cache 的复用」
-> 范围：§1–§9 = KV 复用可行性；**§10 = 端侧「第二真值源」问题**（同源议题——两者都源于 `EngineChat` 自持 `_messages`，均**待决策**）；**§11 = 业界职责归属对照**（公开资料调研）
+> 范围：§1–§9 = KV 复用可行性（**暂不采纳**）；**§10 = 端侧「第二真值源」问题**（同源议题——两者都源于 `EngineChat` 自持 `_messages`，**已实施无状态重放**）；**§11 = 业界职责归属对照**（公开资料调研）
+> 实施记录：`docs/plans/2026-09-11-local-stateless-replay-{design,plan}.md`
 > 关联：`lib/features/chat/engine/client/local_chat_client.dart`、`.workbuddy/memory/2026-09-11.md`
 
 ## 1. 问题
@@ -119,7 +120,7 @@ KV cache 是**前缀缓存**——只认「从头逐字相同」。而我们的�
 ## 8. 附带发现（独立于本议题）
 
 - **② 的 seqId 共用**：无论是否采纳 KV 复用，都建议单独做掉——成本极低，消除一颗定时炸弹。
-- **`local_chat_client.dart` 的「增量补差 vs 整体重建」复杂度**：既然底层每轮必 clear + 全量 re-prefill，该分支的**唯一实际收益 = 省一次 `EngineChat` 重建**（一次 worker RPC + 重塞消息），与 prefill 算力无关。是否值得维持 `_consumed` 游标 + `_skipNextHistoryAi` + 双分支，可另开一轮评估 → **已完成评估，见 §10（结论：值得删，改为无状态重放）**。
+- **`local_chat_client.dart` 的「增量补差 vs 整体重建」复杂度**：既然底层每轮必 clear + 全量 re-prefill，该分支的**唯一实际收益 = 省一次 `EngineChat` 重建**（一次 worker RPC + 重塞消息），与 prefill 算力无关。是否值得维持 `_consumed` 游标 + `_skipNextHistoryAi` + 双分支 → **已完成评估（§10）并已落地实施：值得删，改为无状态重放**。
 
 ## 9. 补充：EngineChat 为什么自己不做增量（设计取舍）
 
@@ -187,20 +188,23 @@ KV cache 是**前缀缓存**——只认「从头逐字相同」。而我们的�
 
 对照组：云端 HTTP 无状态、每轮现拼现发，**天然不存在这份隐式状态**，故无任何同步问题。端侧现状 = 「比云端多一个不受控的第二真值源」。
 
-**解法：无状态重放** —— 每轮 `clearHistory()` → `addSystem(人设)` → 可选摘要卡 → 重放 `assemble()` 结果 → `generate()`。
+**解法：无状态重放** —— 每轮 `clearHistory()` → `addSystem(人设)` → 可选摘要卡 → 重放 `assemble()` 结果 → `generate()`。**已于 2026-09-11 实施**（见下表「实施结果」列）。
 
-| 项 | 变化 |
-|---|---|
-| 引擎内列表 | = 装配结果，**逐字一致**（10.2 三通道 + 10.3 四代价全消） |
-| 删除的复杂度 | `_consumed` 游标、`_skipNextHistoryAi` + `finally` 置位、`evicted` 双分支、`_rebuildSession` 的 `dispose + createSession` |
-| 新增成本 | N 次本地 `List.add`（≈0）；每轮 `generate()` 的 RPC 次数不变 |
-| 行为变更 | 模型不再看到自己上一轮的 think 过程 —— **与云端对齐**（云端本就只发 strip 后历史），口径上属修正 |
-| 影响面 | `local_chat_client.dart` 主逻辑 + 其 **17 条**单测（依赖 skip 语义的用例需改写） |
+| 项 | 变化 | 实施结果 |
+|---|---|---|
+| 引擎内列表 | = 装配结果，**逐字一致**（10.2 三通道 + 10.3 四代价全消） | ✅ `LocalChatClient._syncSession` |
+| 删除的复杂度 | `_consumed` 游标、`_skipNextHistoryAi` + `finally` 置位、`evicted` 双分支、`_rebuildSession` 的 `dispose + createSession` | ✅ 另移除 `AssembledContext.evicted` 字段（消费方消失） |
+| 新增成本 | N 次本地 `List.add`（≈0）；每轮 `generate()` 的 RPC 次数不变 | ✅ 新增 `ChatSession.clear()`（1 行转发） |
+| 行为变更 | 模型不再看到自己上一轮的 think 过程 —— **与云端对齐**（云端本就只发 strip 后历史），口径上属修正 | ✅ 附随修复 `DoneEvent.trailingText` 被丢弃（抽 `eventsToText` 纯函数） |
+| 影响面 | `local_chat_client.dart` 主逻辑 + 其 **17 条**单测（依赖 skip 语义的用例需改写） | ✅ 7 条改写（3 条语义反转）+ 新增重放不变量与 `eventsToText` 用例；全量 177 用例绿 |
+
+**实施中新发现的坑（重要）**：尾部用户消息的去重改写走 `ConversationStrategy.isDuplicate`，而它**有状态**（会把新问题记入滚动窗口）——同一内容连续判定两次，第二次因 `_recentQuestions.last == trimmed` 直接返回 `true`。而 `context full` 自愈会在同一次 `generateResponse` 内**二次装配 + 二次重放**，若不加约束，同一尾问会被误改写为「请从不同的角度回答…」。解法：`_syncSession` 增加 `nudgeTail` 开关，自愈路径传 `false`（本轮已判定过，不得重复计入）。
 
 ### 10.5 顺带的语义澄清
 
-- `ChatSession` 不是「上下文装配层」（装配在 `ContextPolicy`），也不是「SDK 强制要求的适配层」（见 10.4）。其**唯一真实价值 = `LocalChatClient` 单测的 fake 注入点**（否则 17 条用例都需真机加载 2B 模型）。`LlamaChatSession` 5 个方法中 **4 个纯转发**，仅 `generate` 有内容（采样参数收口 + `LlamaEvent` → `String` 收敛）。
-- 若采纳 10.4，`ChatSession` 应**保留**，但注释需把定位写准：当前 `local_chat_client.dart:12-20` 只写了「它不是 KV 缓存句柄」，未写「它为何存在」，容易被误读为「SDK 强制要求的适配层」。
+- `ChatSession` 不是「上下文装配层」（装配在 `ContextPolicy`），也不是「SDK 强制要求的适配层」（见 10.4）。其**唯一真实价值 = `LocalChatClient` 单测的 fake 注入点**（否则 17 条用例都需真机加载 2B 模型）。`LlamaChatSession` 6 个方法中 **5 个纯转发**，仅 `generate` 有内容（采样参数收口 + `GenerationEvent` → `String` 收敛）。
+- 采纳 10.4 时 `ChatSession` 已**保留**，注释已改写定位：开头明确写「它是本类唯一的 SDK 依赖点 + 可替换依赖的端口（测试接缝）」，并声明「不是 SDK 强制要求的适配层」。新增的 `clear()` 也补了「零 RPC + 每轮开头调用」的说明。
+- 改造后 `ChatSession` 的接口形状回到最朴素的「列表 + 生成」：`clear / addSystem / addUser / addAssistant / generate / dispose`。
 
 ## 11. 业界对照：列表与缓存的职责归属（公开资料调研，非源码核实）
 
@@ -230,6 +234,7 @@ KV cache 是**前缀缓存**——只认「从头逐字相同」。而我们的�
 - **`ContextPolicy` 的方向与业界完全一致** —— 业界把「超窗口怎么办」归为应用层职责（截断 / 摘要），正是我们在做的事。抽象没错。
 - **唯一跑偏点是「SDK 内部持了列表」** —— 这是 `llama_cpp_dart` 相对生态主流的设计选择（把无状态函数包成了有状态对象），不是我们引入的。
 - **修法不是弃用 `EngineChat`**：SDK **没有**天然无状态入口（公开导出只有 `EngineChat` 与 `EngineSession`，前者的 `add*` 有状态、后者是 token 级会话；`_generate` / `_generateChat` 均为私有）。而 `clearHistory()` + 重放能**构造出**无状态语义，成本≈0，等价于 llama-cpp-python 的「每次传全量」。⇒ **把它当无状态执行器用，而不是换掉它**。
+- **（2026-09-11 已落地）** 端侧与 Ollama / llama-cpp-python 的模型完全对齐：`ChatClient.generateResponse(List<ChatMessage> history)` 现在是**真无状态调用**，唯一真相源在 `ChatProvider._messages`。
 
 ### 11.4 对本项目 §1–§9（KV 复用）的含义
 

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
@@ -6,19 +8,16 @@ import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 import 'package:zhixing_ai/features/chat/engine/client/local_chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
 
-/// LocalChatClient 单元测试（fake ChatSession 注入，不触碰真实 llama）
+/// LocalChatClient 单元测试（fake ChatSession 注入，不触碰真实 llama）。
 ///
-/// 覆盖：增量 diff append（合格消息不含第 0 轮欢迎语）、消费条数推进、
-/// 去重改写仅会话侧、窗口收缩后整体重建会话、
-/// think 标签剥离、取消/失败时客户端不登记 assistant 且下一轮 diff 跳过、
-/// context-full 自愈。
+/// **核心不变量**：每轮 generateResponse 都是
+/// `clear → system(人设) [→ system(摘要卡)] → 按装配结果全量重放 → generate`，
+/// 且全生命周期只创建**一个** ChatSession。fake 只记录 ops，不模拟底层
+/// `EngineChat` 的「自动登记回复」（客户端不得依赖该副作用）。
 ///
-/// **fake 不模拟底层 EngineChat 的「自动登记回复」**：真实路径下回复由引擎在
-/// 每轮收尾自动追加进其消息列表，客户端**不得**再 add。故此处统一断言
-/// 「客户端未产出任何 assistant: op」，以此锁定「不重复登记」这一不变量。
-///
-/// 上下文装配（过滤/装窗/压缩）本身由 ContextPolicy 承担，
-/// 其单测见 `context_policy_test.dart` / `local_context_policy_test.dart`。
+/// 覆盖：逐字重放、去重改写仅作用尾部、窗口收缩后重放、think 剥离、
+/// 取消/失败后的下一轮、context-full 自愈、eventsToText 转换。
+/// 装配本身的单测见 `context/*_test.dart`。
 
 class _FakeChatSession implements ChatSession {
   final List<String> ops = [];
@@ -27,6 +26,9 @@ class _FakeChatSession implements ChatSession {
 
   /// true 时每个 token 后让出一个事件循环（供取消测试在流中途稳定取消）。
   bool pauseBetweenTokens = false;
+
+  @override
+  void clear() => ops.add('clear');
 
   @override
   void addSystem(String content) => ops.add('system:$content');
@@ -57,13 +59,10 @@ class _ChatSessionFactory {
   final List<_FakeChatSession> created = [];
   Object? throwOnCreate;
 
-  /// 新建会话预置的生成 tokens（重建发生在 generateResponse 内部，
-  /// 无法在调用前拿到新会话实例逐个设置）。
-  List<String> tokensForNew = const [];
-
+  /// 全生命周期只应创建 1 个会话；断言 `created.length` 即锁定该不变量。
   Future<ChatSession> call() async {
     if (throwOnCreate != null) throw throwOnCreate!;
-    final s = _FakeChatSession()..tokens = tokensForNew;
+    final s = _FakeChatSession();
     created.add(s);
     return s;
   }
@@ -111,6 +110,11 @@ Future<void> _settle() async {
   }
 }
 
+const _think = '<think>x</think>';
+
+TokenEvent _token(String text) =>
+    TokenEvent(id: 1, bytes: Uint8List(0), text: text, position: 0);
+
 void main() {
   group('LocalChatClient', () {
     test('未初始化时 generateResponse 返回回退文案', () async {
@@ -149,55 +153,63 @@ void main() {
       expect(client.isReady, isFalse);
     });
 
-    test('首轮：合格消息入会话（第 0 轮欢迎语被过滤），回复由引擎登记', () async {
-      final factory = _ChatSessionFactory();
-      final client = LocalChatClient(sessionFactory: factory.call);
-      await client.initialize();
-
-      factory.created.single.tokens = ['回复A'];
-      final out =
-          await client.generateResponse([_welcome, _user('问题1', 1)]).join();
-
-      expect(out, '回复A');
-      expect(
-        factory.created.single.ops,
-        [
-          'system:',
-          'user:问题1',
-          'generate:2048',
-        ].map((op) => op == 'system:' ? startsWith('system:') : op),
-      );
-      // 欢迎语（round==0）不作为对话上下文进入会话；回复由引擎登记，客户端不加
-      expect(
-        factory.created.single.ops.where((op) => op.startsWith('assistant:')),
-        isEmpty,
-      );
-    });
-
-    test('二次调用只 append 新增（不重放已消费消息）', () async {
+    test('首轮：clear 开头，按装配结果全量重放（第 0 轮欢迎语被过滤）', () async {
       final factory = _ChatSessionFactory();
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
 
       final session = factory.created.single;
       session.tokens = ['回复A'];
-      await client.generateResponse([_welcome, _user('问题1', 1)]).join();
+      final out =
+          await client.generateResponse([_welcome, _user('问题1', 1)]).join();
 
-      session.tokens = ['回复B'];
-      await client
-          .generateResponse(
-              [_welcome, _user('问题1', 1), _ai('回复A', 1), _user('问题2', 2)])
-          .join();
-
-      // 已消费的消息不重复 append
-      expect(session.ops.where((op) => op == 'user:问题1').length, 1);
-      // 上一轮回复由引擎登记：历史里的 回复A 客户端不得再 append
-      expect(session.ops.where((op) => op.startsWith('assistant:')), isEmpty);
-      // 新增的用户消息被 append
-      expect(session.ops.contains('user:问题2'), isTrue);
+      expect(out, '回复A');
+      // initialize 先注入人设；本轮重放以 clear 开头并重新放入人设
+      expect(session.ops.first, startsWith('system:'));
+      expect(session.ops.sublist(1), [
+        'clear',
+        startsWith('system:'),
+        'user:问题1',
+        'generate:2048',
+      ]);
     });
 
-    test('去重：相邻相同问题在会话侧改写（mirror 不受影响）', () async {
+    test('重放不变量：每轮全量重放、全生命周期仅一个会话', () async {
+      final factory = _ChatSessionFactory();
+      final client = LocalChatClient(sessionFactory: factory.call);
+      await client.initialize();
+
+      final session = factory.created.single;
+      session.ops.clear();
+      session.tokens = ['A'];
+      await client.generateResponse([_welcome, _user('q1', 1)]).join();
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:q1',
+        'generate:2048',
+      ]);
+
+      // 二次调用：历史全量重放（不是只补 diff）
+      session.ops.clear();
+      session.tokens = ['B'];
+      await client
+          .generateResponse(
+              [_welcome, _user('q1', 1), _ai('A', 1), _user('q2', 2)])
+          .join();
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:q1',
+        'assistant:A',
+        'user:q2',
+        'generate:2048',
+      ]);
+
+      expect(factory.created.length, 1);
+    });
+
+    test('去重：仅尾部用户消息在重放时改写为换角度提示', () async {
       final factory = _ChatSessionFactory();
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
@@ -206,24 +218,31 @@ void main() {
       session.tokens = ['回复A'];
       await client.generateResponse([_welcome, _user('目标A', 1)]).join();
 
+      session.ops.clear();
       session.tokens = ['回复B'];
       await client
           .generateResponse(
               [_welcome, _user('目标A', 1), _ai('回复A', 1), _user('目标A', 2)])
           .join();
 
-      expect(
-        session.ops.contains('user:目标A（请从不同的角度回答，不要重复之前的观点）'),
-        isTrue,
-      );
-      expect(session.ops.contains('user:目标A'), isTrue); // 首次调用
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:目标A', // 非尾部 → 不改写
+        'assistant:回复A',
+        'user:目标A（请从不同的角度回答，不要重复之前的观点）',
+        'generate:2048',
+      ]);
     });
 
-    test('压缩：超预算时装窗重建，移出消息进摘要卡', () async {
+    test('压缩：超预算时窗口收缩，移出消息进摘要卡，会话按新窗口重放', () async {
       final factory = _ChatSessionFactory();
       final summarizer = _FakeSummarizer();
       final client = _tightClient(factory: factory, summarizer: summarizer);
       await client.initialize();
+
+      final session = factory.created.single;
+      session.ops.clear();
 
       final history = <ChatMessage>[_welcome];
       for (var r = 1; r <= 10; r++) {
@@ -232,41 +251,29 @@ void main() {
       }
       // 19 条合格历史（欢迎语被过滤）：9 对完整问答 + 尾部问题10
 
-      factory.tokensForNew = ['新回复']; // 重建后的新会话用
-      await client.generateResponse(history).join();
+      session.tokens = ['新回复'];
+      final out = await client.generateResponse(history).join();
 
-      expect(factory.created.length, 2); // 重建了一次会话
-      expect(factory.created.first.ops.last, 'dispose');
+      expect(out, '新回复');
+      // 不再重建会话：全生命周期仅一个实例
+      expect(factory.created.length, 1);
 
       // 摘要器被调一次：旧摘要为空，evicted = 除保底 2 条外的全部
       expect(summarizer.callCount, 1);
       expect(summarizer.lastPrevious, isEmpty);
       expect(summarizer.lastEvicted!.length, 17);
-      expect(
-        summarizer.lastEvicted!.first.content,
-        '问题1',
-      );
+      expect(summarizer.lastEvicted!.first.content, '问题1');
       expect(summarizer.lastEvicted!.first.role, MessageRole.user);
 
-      final rebuilt = factory.created.last;
-      // 两条 system：人设 + 摘要卡
-      expect(rebuilt.ops.where((op) => op.startsWith('system:')).length, 2);
-      expect(
-        rebuilt.ops.where((op) => op.startsWith('system:')).last,
+      // 人设 + 摘要卡两条 system，随后按装窗结果（保底最后 2 条）重放
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
         'system:【此前对话摘要】\n摘要内容',
-      );
-      // 预算装窗（预算 0 → 仅保底最后 2 条）；回复仍由引擎登记，客户端不加
-      expect(
-        rebuilt.ops
-            .where((op) => op.startsWith('user:') || op.startsWith('assistant:'))
-            .toList(),
-        [
-          'assistant:回复9',
-          'user:问题10',
-        ],
-      );
-      expect(rebuilt.ops.contains('generate:2048'), isTrue);
-      expect(rebuilt.ops.last, 'generate:2048');
+        'assistant:回复9',
+        'user:问题10',
+        'generate:2048',
+      ]);
     });
 
     test('压缩递归压实：第二次压缩把旧摘要并入 summarizer 入参', () async {
@@ -275,16 +282,18 @@ void main() {
       final client = _tightClient(factory: factory, summarizer: summarizer);
       await client.initialize();
 
+      final session = factory.created.single;
       final history = <ChatMessage>[_welcome];
       for (var r = 1; r <= 10; r++) {
         history.add(_user('问题$r', r));
         if (r < 10) history.add(_ai('回复$r', r));
       }
-      factory.tokensForNew = ['新回复'];
+      session.tokens = ['新回复'];
       await client.generateResponse(history).join();
       expect(summarizer.lastPrevious, isEmpty);
 
       summarizer.result = '第二轮摘要';
+      session.ops.clear();
       await client
           .generateResponse(
               [...history, _ai('新回复', 10), _user('问题11', 11)])
@@ -292,25 +301,33 @@ void main() {
 
       expect(summarizer.callCount, 2);
       expect(summarizer.lastPrevious, '摘要内容'); // 旧摘要进入合并入参
-      final rebuilt = factory.created.last;
       expect(
-        rebuilt.ops.where((op) => op.startsWith('system:')).last,
+        session.ops.where((op) => op.startsWith('system:')).last,
         'system:【此前对话摘要】\n第二轮摘要',
       );
+      expect(factory.created.length, 1);
     });
 
-    test('消息数不超过保底：不触发压缩（无移出、不调摘要器、不重建）', () async {
+    test('消息数不超过保底：不触发压缩（无移出、不调摘要器）', () async {
       final factory = _ChatSessionFactory();
       final summarizer = _FakeSummarizer();
       final client = _tightClient(factory: factory, summarizer: summarizer);
       await client.initialize();
 
-      factory.tokensForNew = ['回复A'];
+      final session = factory.created.single;
+      session.ops.clear();
+      session.tokens = ['回复A'];
       await client.generateResponse([_welcome, _user('问题1', 1)]).join();
 
       expect(summarizer.callCount, 0);
-      expect(factory.created.length, 1); // 未重建
-      expect(factory.created.single.ops.contains('user:问题1'), isTrue);
+      expect(factory.created.length, 1);
+      // 只有人设一条 system（无摘要卡）
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:问题1',
+        'generate:2048',
+      ]);
     });
 
     test('压缩：摘要器失败回落纯丢弃，生成不受影响', () async {
@@ -319,21 +336,24 @@ void main() {
       final client = _tightClient(factory: factory, summarizer: summarizer);
       await client.initialize();
 
+      final session = factory.created.single;
+      session.ops.clear();
+
       final history = <ChatMessage>[_welcome];
       for (var r = 1; r <= 10; r++) {
         history.add(_user('问题$r', r));
         if (r < 10) history.add(_ai('回复$r', r));
       }
-      factory.tokensForNew = ['新回复'];
+      session.tokens = ['新回复'];
       final out = await client.generateResponse(history).join();
 
       expect(out, '新回复');
       expect(summarizer.callCount, 1);
       // 回落：无摘要卡，只有人设一条 system
-      final rebuilt = factory.created.last;
-      expect(rebuilt.ops.where((op) => op.startsWith('system:')).length, 1);
-      expect(rebuilt.ops.contains('assistant:回复9'), isTrue);
-      expect(rebuilt.ops.contains('user:问题10'), isTrue);
+      expect(session.ops.where((op) => op.startsWith('system:')).length, 1);
+      expect(session.ops.contains('assistant:回复9'), isTrue);
+      expect(session.ops.contains('user:问题10'), isTrue);
+      expect(factory.created.length, 1);
     });
 
     test('think 标签剥离：标签内不输出，标签后正常流式', () async {
@@ -341,7 +361,8 @@ void main() {
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
 
-      factory.created.single.tokens = [
+      final session = factory.created.single;
+      session.tokens = [
         '<think>推理中',
         '的内容</think>',
         '答案',
@@ -351,21 +372,21 @@ void main() {
           await client.generateResponse([_welcome, _user('问题1', 1)]).toList();
 
       expect(collected, ['答案', '!']);
-      // 客户端不做回复登记（引擎负责），故这里不应出现任何 assistant: op
+      // 输出侧不做登记；本轮装配结果里也没有 assistant 条目
       expect(
-        factory.created.single.ops.where((op) => op.startsWith('assistant:')),
+        session.ops.where((op) => op.startsWith('assistant:')),
         isEmpty,
       );
     });
 
-    test('取消：客户端不登记半截回复，下一轮 diff 跳过该条 AI 历史', () async {
+    test('取消：不登记半截回复；下一轮按业务列表重放该条 AI', () async {
       final factory = _ChatSessionFactory();
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
 
       final session = factory.created.single;
       // 带 think 标签 → 闭合后 token 逐段流出，才能在流中途取消
-      session.tokens = ['<think>x</think>', '部分', '后半'];
+      session.tokens = [_think, '部分', '后半'];
       session.pauseBetweenTokens = true;
 
       final collected = <String>[];
@@ -379,10 +400,11 @@ void main() {
       await _settle();
 
       expect(collected, ['部分']);
-      // 生成中断：客户端不登记 assistant（真实路径由引擎登记部分回复）
+      // 生成中断：客户端不登记 assistant
       expect(session.ops.where((op) => op.startsWith('assistant:')), isEmpty);
 
-      // 下一轮：历史含上轮半截 AI 消息，应被跳过，只 append 新用户消息
+      session.ops.clear();
+      session.pauseBetweenTokens = false;
       session.tokens = ['回复2'];
       final out2 = await client
           .generateResponse(
@@ -390,11 +412,18 @@ void main() {
           .join();
 
       expect(out2, '回复2');
-      expect(session.ops.contains('user:问题2'), isTrue);
-      expect(session.ops.where((op) => op.startsWith('assistant:')), isEmpty);
+      // 语义反转：不再"跳过"，而是按业务列表把该条半截 AI 原样重放
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:问题1',
+        'assistant:部分',
+        'user:问题2',
+        'generate:2048',
+      ]);
     });
 
-    test('生成失败：yield 兜底文案，下一轮 diff 跳过该条 AI 历史', () async {
+    test('生成失败：yield 兜底文案；下一轮按业务列表重放该条 AI', () async {
       final factory = _ChatSessionFactory();
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
@@ -406,12 +435,8 @@ void main() {
       final out =
           await client.generateResponse([_welcome, _user('问题1', 1)]).join();
       expect(out, failureText);
-      // 失败未登记 assistant（本轮也没有其它 assistant 消息）
-      expect(
-        session.ops.where((op) => op.startsWith('assistant:')).length,
-        0,
-      );
 
+      session.ops.clear();
       session.throwOnGenerate = null;
       session.tokens = ['恢复'];
       final out2 = await client
@@ -424,10 +449,17 @@ void main() {
           .join();
 
       expect(out2, '恢复');
-      expect(session.ops.where((op) => op.startsWith('assistant:')), isEmpty);
+      expect(session.ops, [
+        'clear',
+        startsWith('system:'),
+        'user:问题1',
+        'assistant:$failureText',
+        'user:问题2',
+        'generate:2048',
+      ]);
     });
 
-    test('context-full 自愈：强制重建只留最后 4 条，下一轮可用', () async {
+    test('context-full 自愈：强制收缩只留最后 4 条并按新窗口重放', () async {
       final factory = _ChatSessionFactory();
       final client = LocalChatClient(sessionFactory: factory.call);
       await client.initialize();
@@ -442,6 +474,7 @@ void main() {
       history.add(_user('问题6', 6));
 
       final session = factory.created.single;
+      session.ops.clear();
       session.throwOnGenerate = const LlamaDecodeException(
         0,
         'context full at pos=4095 / nCtx=4096; '
@@ -451,28 +484,36 @@ void main() {
       final out = await client.generateResponse(history).join();
       expect(out, '\n\n[助手暂时无法回应，请稍后再试]');
 
-      // 自愈重建：旧会话 dispose，新会话只含最后 4 条（回复4..问题6）
-      expect(factory.created.length, 2);
-      expect(factory.created.first.ops.last, 'dispose');
-      final healed = factory.created.last;
-      final chatOps = healed.ops
-          .where((op) => op.startsWith('user:') || op.startsWith('assistant:'))
-          .toList();
-      expect(chatOps, [
-        'assistant:回复4',
-        'user:问题5',
-        'assistant:回复5',
-        'user:问题6',
-      ]);
+      // 不重建会话
+      expect(factory.created.length, 1);
 
-      // 下一轮在新会话上正常生成
-      healed.tokens = ['恢复'];
+      // 自愈段 = 最后一次 clear 之后的片段：硬收缩窗口（最后 4 条）
+      final healedOps = session.ops.sublist(session.ops.lastIndexOf('clear'));
+      expect(
+        healedOps
+            .where(
+                (op) => op.startsWith('user:') || op.startsWith('assistant:'))
+            .toList(),
+        [
+          'assistant:回复4',
+          'user:问题5',
+          'assistant:回复5',
+          'user:问题6',
+        ],
+      );
+
+      // 下一轮在同一会话上正常生成
+      session.throwOnGenerate = null;
+      session.tokens = ['恢复'];
       final out2 = await client
-          .generateResponse(
-              [...history, _ai('\n\n[助手暂时无法回应，请稍后再试]', 6), _user('问题7', 7)])
+          .generateResponse([
+            ...history,
+            _ai('\n\n[助手暂时无法回应，请稍后再试]', 6),
+            _user('问题7', 7),
+          ])
           .join();
       expect(out2, '恢复');
-      expect(healed.ops.contains('user:问题7'), isTrue);
+      expect(session.ops.contains('user:问题7'), isTrue);
     });
 
     test('dispose：会话释放且不可再生成', () async {
@@ -496,22 +537,57 @@ void main() {
       final client = _tightClient(factory: factory);
       await client.initialize();
 
-      factory.tokensForNew = ['新回复'];
+      final session = factory.created.single;
+      session.ops.clear();
+      session.tokens = ['新回复'];
       final out = await client
           .generateResponse(
               [_welcome, _user('问题1', 1), _ai('回复1', 1), _user('问题2', 2)])
           .join();
       expect(out, '新回复');
 
-      // 压缩仍发生（会话重建），只是 evicted 被纯丢弃（无摘要卡）
-      expect(factory.created.length, 2);
-      expect(factory.created.first.ops.last, 'dispose');
-      final rebuilt = factory.created.last;
-      expect(
-        rebuilt.ops.where((op) => op.startsWith('system:')).length,
-        1, // 只有人设，无摘要卡
-      );
-      expect(rebuilt.ops.contains('user:问题2'), isTrue);
+      // 压缩仍发生（窗口收缩），evicted 被纯丢弃（无摘要卡）
+      expect(factory.created.length, 1);
+      expect(session.ops.where((op) => op.startsWith('system:')).length, 1);
+      expect(session.ops.contains('user:问题2'), isTrue);
+    });
+  });
+
+  group('eventsToText（SDK 事件流 → 文本 token 流）', () {
+    test('TokenEvent 逐条输出；DoneEvent.trailingText 非空时补充', () async {
+      final out = await eventsToText(Stream.fromIterable([
+        _token('正文'),
+        const DoneEvent(
+          reason: StopMaxTokens(),
+          generatedCount: 1,
+          committedPosition: 1,
+          trailingText: '残留片段',
+        ),
+      ])).toList();
+
+      expect(out, ['正文', '残留片段']);
+    });
+
+    test('DoneEvent.trailingText 为空时不产生空事件', () async {
+      final out = await eventsToText(Stream.fromIterable([
+        _token('正文'),
+        const DoneEvent(
+          reason: StopMaxTokens(),
+          generatedCount: 1,
+          committedPosition: 1,
+        ),
+      ])).toList();
+
+      expect(out, ['正文']);
+    });
+
+    test('ShiftEvent 被忽略（不参与文本流）', () async {
+      final out = await eventsToText(Stream.fromIterable([
+        const ShiftEvent(nKeep: 1, nDiscard: 2, newPosition: 3),
+        _token('正文'),
+      ])).toList();
+
+      expect(out, ['正文']);
     });
   });
 }

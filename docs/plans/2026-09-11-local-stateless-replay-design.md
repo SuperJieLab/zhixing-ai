@@ -1,8 +1,10 @@
 # 知行AI — 端侧会话无状态化（Local Stateless Replay）
 
-> 状态：设计待确认（2026-09-11 对话确认问题成立；用户决策「先落设计与计划文档，代码未动」）
+> 状态：**✅ 已实施**（2026-09-11；实施记录与差异见同名 `-plan.md` 头部）
 > 前置：`2026-09-11-context-policy-design.md`（ContextPolicy 已落地，Task 1–4 完成）
 > 依据：`docs/notes/2026-09-11/local-kv-reuse-feasibility.md` **§10**（问题核实，含源码行号）、**§11**（业界对照）
+>
+> **实施期新增（设计外）**：`_syncSession` 增加 `nudgeTail` 开关——`ConversationStrategy.isDuplicate` 有状态，而 `context full` 自愈在同一次 `generateResponse` 内二次重放，会导致尾问被二次判定为重复。见 §4.3 与备忘 §10.4。
 
 ## 1. 背景与问题
 
@@ -122,7 +124,7 @@ Stream<String> generateResponse(List<ChatMessage> history) async* {
   // think 剥离输出逻辑不变；context full 自愈分支改为重新 assemble + _syncSession
 }
 
-void _syncSession(ChatSession session, AssembledContext assembled) {
+void _syncSession(ChatSession session, AssembledContext assembled, {bool nudgeTail = true}) {
   session.clear();
   session.addSystem(_systemPrompt);
   final card = assembled.summaryCard;
@@ -132,7 +134,7 @@ void _syncSession(ChatSession session, AssembledContext assembled) {
     final msg = msgs[i];
     if (msg.content.isEmpty) continue;
     if (msg.role == MessageRole.user) {
-      session.addUser(i == msgs.length - 1 && _strategy.isDuplicate(msg.content)
+      session.addUser(nudgeTail && i == msgs.length - 1 && _strategy.isDuplicate(msg.content)
           ? '${msg.content}（请从不同的角度回答，不要重复之前的观点）'
           : msg.content);
     } else {
@@ -141,6 +143,8 @@ void _syncSession(ChatSession session, AssembledContext assembled) {
   }
 }
 ```
+
+> `nudgeTail` 是**实施期新增**：`isDuplicate` 会把问题记入滚动窗口（有状态），故同一尾问连续判定两次时第二次必然返回 `true`。`context full` 自愈在同一次 `generateResponse` 内会二次装配 + 二次重放 → 必须传 `false`，否则尾问被误改写。`nudgeTail` 置于 `&&` 首位，短路保证 `false` 时不触碰策略状态。
 
 **保留不动**：think 剥离流式输出（`:194-244`）、尾部用户消息去重改写判据（`i == msgs.length - 1`）、`context full` 捕获与 `handleOverflow()` 自愈、`isReady` / `initialize` / `dispose` 语义。
 

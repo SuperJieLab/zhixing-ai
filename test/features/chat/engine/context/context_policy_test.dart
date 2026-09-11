@@ -334,23 +334,6 @@ void main() {
       expect(_contents(ctx.messages), 'c,d');
     });
 
-    test('evicted 标记：预算内为 false，发生移出为 true', () async {
-      final policy = _TestPolicy(
-        estimator: _CharEstimator(),
-        budget: 1000,
-        minKeep: 1,
-      );
-
-      final roomy = await policy.assemble([_msg('a'), _msg('b')]);
-      expect(roomy.evicted, isFalse);
-
-      final tight =
-          _TestPolicy(estimator: _CharEstimator(), budget: 1, minKeep: 1);
-      final squeezed =
-          await tight.assemble([_msg('aaaa'), _msg('bb'), _msg('cccccc')]);
-      expect(squeezed.evicted, isTrue);
-    });
-
     test('reset：清空摘要与保留窗口，回到初始状态', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(

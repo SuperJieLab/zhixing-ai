@@ -5,6 +5,9 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 const String kSummaryCardPrefix = '【此前对话摘要】';
 
 /// 装配结果：本次请求要发送的历史 + 可选的摘要卡。
+///
+/// client 恒以「清空 + 按 [messages] 全量重放」消费，故无需标记本次是否发生
+/// 窗口收缩（原 `evicted` 字段已随无状态重放移除）。
 class AssembledContext {
   /// 已过滤 + 装窗后的历史（保持原顺序，尾部为最近消息）。
   final List<ChatMessage> messages;
@@ -13,22 +16,14 @@ class AssembledContext {
   /// system 消息注入）；null 表示本会话尚无摘要。
   final String? summaryCard;
 
-  /// 本次装配是否发生了**窗口收缩**（有消息被移出、压缩进摘要卡）。
-  ///
-  /// client 据此决定：true 必须按 [messages] 重建会话；
-  /// false 说明 [messages] 只是在上一轮结果上追加，可增量续接。
-  final bool evicted;
-
   const AssembledContext({
     required this.messages,
     this.summaryCard,
-    this.evicted = false,
   });
 
   @override
   String toString() => 'AssembledContext(messages: ${messages.length}, '
-      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'}, '
-      'evicted: $evicted)';
+      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'})';
 }
 
 /// 装窗结果。
@@ -172,8 +167,8 @@ PackResult packKeepLast(
 ///
 /// **窗口是有状态的**：[assemble] 只把新增的合格消息纳入保留窗口，
 /// 超预算时把窗口前端挤出（压缩）。这样一次压缩后窗口重新落到预算内，
-/// 后续若干轮都不再触发压缩——与"每轮从全量历史重算切点"相比，既避免
-/// 每轮重建会话，也避免每轮都调一次摘要器。
+/// 后续若干轮都不再触发压缩——与"每轮从全量历史重算切点"相比，
+/// 避免每轮都调一次摘要器。
 abstract class BaseContextPolicy implements ContextPolicy {
   BaseContextPolicy({
     required ContextEstimator estimator,
@@ -287,7 +282,6 @@ abstract class BaseContextPolicy implements ContextPolicy {
     return AssembledContext(
       messages: List.unmodifiable(pack.kept),
       summaryCard: _card(_summary),
-      evicted: evicted,
     );
   }
 

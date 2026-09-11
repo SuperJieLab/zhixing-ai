@@ -140,7 +140,6 @@ void main() {
     final p = _policy();
     final ctx = await p.assemble(_history(3), systemPrompt: 'x' * 100);
     expect(ctx.messages.length, 3);
-    expect(ctx.evicted, isFalse);
     expect(ctx.summaryCard, isNull);
   });
 
@@ -161,7 +160,6 @@ void main() {
     final ctx = await p.assemble(_history(4), systemPrompt: 'x' * 50);
 
     expect(ctx.messages.length, 2); // minKeep
-    expect(ctx.evicted, isTrue);
     expect(ctx.summaryCard, contains('摘要正文'));
     expect(fake.calls, 1);
     expect(fake.lastEvicted.length, 2);
@@ -175,7 +173,6 @@ void main() {
     await p.handleOverflow();
     final ctx = await p.assemble(_history(3));
     expect(ctx.messages.length, 3);
-    expect(ctx.evicted, isFalse);
     expect(fake.calls, 0);
   });
 

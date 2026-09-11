@@ -1,14 +1,16 @@
 # 知行AI — 端侧会话无状态化实施计划
 
-> 状态：**未开工**（设计待确认）
+> 状态：**✅ 已完成**（2026-09-11 全部 Task 落地；`flutter analyze` 0，全量 `flutter test` 177 绿）
 > 设计：`docs/plans/2026-09-11-local-stateless-replay-design.md`
 > 依据：`docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10（问题与源码证据）、§11（业界对照）
-> 前置纪律：工作区已有未提交改动（`local_chat_client.dart` 更名/重复登记修复、`local_chat_client_test.dart`、`docs/PROJECT.md`、`docs/notes/2026-09-11/`）。**开工前先提交，固化回退点**，避免与本次语义级改动混淆。
+> 前置纪律：工作区已有未提交改动（`local_chat_client.dart` 更名/重复登记修复、`local_chat_client_test.dart`、`docs/PROJECT.md`、`docs/notes/2026-09-11/`）。**开工前先提交，固化回退点**，避免与本次语义级改动混淆。→ ✅ 已提交 `1d16811`
 > 提交纪律：每 Task 实现 → 自查 → 全量回归 → 改动留工作区，由用户确认后提交（不自动 commit）
 > 测试命令（宿主代理会拦截 flutter_tester，须一并清 ALL_PROXY）：
 > `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy NO_PROXY='*' no_proxy='*' flutter test`
+>
+> **实施补充（计划外的必要决定）**：新增 `_syncSession(nudgeTail:)` 开关。`ConversationStrategy.isDuplicate` **有状态**（会把新问题记入滚动窗口），而 `context full` 自愈在同一次 `generateResponse` 内二次装配 + 二次重放 → 同一尾问会被二次判定为「重复」而遭误改写。自愈路径传 `nudgeTail: false` 解决（详见备忘 §10.4）。
 
-## Task 1：`ChatSession.clear()` + `LocalChatClient` 无状态重放 ⬜ 未开始
+## Task 1：`ChatSession.clear()` + `LocalChatClient` 无状态重放 ✅ 已完成
 
 **文件**
 
@@ -47,17 +49,19 @@
 - 新增**重放不变量**用例：每轮 `ops` 为 `[clear, system:…, user:…, assistant:…, generate:…]` 全量序列；且 `factory.created.length` 恒为 1
 - 评估 `_ChatSessionFactory.tokensForNew` 机制是否还有用（不再重建会话，该字段语义可能失效）
 
-**验证**
-- [ ] 每轮均以 `clear` 开头，且重放**全量**（非增量）消息
-- [ ] 全生命周期只创建 **1 个** `ChatSession`（不再 dispose + create）
-- [ ] 引擎内 assistant 条目 ≡ Provider 列表内容（无 think、无重复登记）——即 design §3 不变量 1/2 有正向断言
-- [ ] 尾部用户消息去重改写仍生效（仅本轮最后一条）
-- [ ] think 剥离、`context full` 自愈、`isReady`、`initialize` 失败、`dispose`、构造期校验语义**零回归**
-- [ ] `flutter analyze` 0；全量 `flutter test` 全绿（当前基线 175）
+**验证**（全部通过）
+- [x] 每轮均以 `clear` 开头，且重放**全量**（非增量）消息
+- [x] 全生命周期只创建 **1 个** `ChatSession`（不再 dispose + create）
+- [x] 引擎内 assistant 条目 ≡ Provider 列表内容（无 think、无重复登记）——即 design §3 不变量 1/2 有正向断言
+- [x] 尾部用户消息去重改写仍生效（仅本轮最后一条）
+- [x] think 剥离、`context full` 自愈、`isReady`、`initialize` 失败、`dispose`、构造期校验语义**零回归**
+- [x] `flutter analyze` 0；全量 `flutter test` 全绿（基线 175 → **177**）
+
+**实施差异**：`tokensForNew` 已**删除**（不再重建会话，该字段彻底失效）；新增 `nudgeTail` 开关（见头部「实施补充」）。
 
 **⚠️ 行为变更**（详见 design §7）：模型不再看到自身历史 think；预算估算变准（压缩触发点后移）；取消/失败轮改为按业务列表重放。
 
-## Task 2：修复 `DoneEvent.trailingText` 被丢弃 ⬜ 未开始（独立，可先做）
+## Task 2：修复 `DoneEvent.trailingText` 被丢弃 ✅ 已完成
 
 **问题**：`LlamaChatSession.generate`（`local_chat_client.dart:49-60`）只转发 `TokenEvent`，而 `EngineChat` 会把 `DoneEvent.trailingText` 写进 `replyBuf` 并登记（`engine.dart:780-781`）→ 引擎有、我方无（design §1.2 #3）。
 
@@ -68,12 +72,14 @@
 
 **文件**：改 `lib/features/chat/engine/client/local_chat_client.dart`；新增用例到 `local_chat_client_test.dart`（或独立纯函数测试文件）。
 
-**验证**
-- [ ] `DoneEvent.trailingText` 非空时被 yield；为空时不产生空事件
-- [ ] 与 think 剥离的交互正确（trailing 内容进入 `buffer` 并参与收尾判断）
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+**验证**（全部通过）
+- [x] `DoneEvent.trailingText` 非空时被 yield；为空时不产生空事件
+- [x] 与 think 剥离的交互正确（trailing 内容进入 `buffer` 并参与收尾判断）
+- [x] `flutter analyze` 0；全量 `flutter test` 绿
 
-## Task 3：清理 `AssembledContext.evicted` + `ChatSession` 注释定位 ⬜ 未开始
+**实施差异**：`eventsToText` 定点在 `local_chat_client.dart` 顶层（与 `ChatSession` 同文件，便于把 SDK 依赖收敛在一处）；unit test 落在 `local_chat_client_test.dart` 的 `group('eventsToText')`，共 3 例。
+
+## Task 3：清理 `AssembledContext.evicted` + `ChatSession` 注释定位 ✅ 已完成
 
 > 依赖 Task 1（其唯一消费方是 `LocalChatClient:161`）
 
@@ -88,19 +94,22 @@
 改 `lib/features/chat/engine/client/local_chat_client.dart`：
 - `ChatSession` / `LlamaChatSession` 注释补写**存在理由**：它是**可替换依赖的端口（测试接缝）+ SDK 唯一依赖点**，**不是**"SDK 强制要求的适配层"（当前注释 `:12-20` 只写了"它不是 KV 缓存句柄"，未写"它为何存在"，容易被误读）。
 
-**验证**
-- [ ] `AssembledContext` 不再有 `evicted`；全仓 `grep` 无残留消费方
-- [ ] 策略层装配行为零变更（仅字段移除）
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+**验证**（全部通过）
+- [x] `AssembledContext` 不再有 `evicted`；全仓 `grep` 无残留消费方
+- [x] 策略层装配行为零变更（仅字段移除）
+- [x] `flutter analyze` 0；全量 `flutter test` 绿
 
-## Task 4：收尾 ⬜ 未开始
+**实施差异**：`AssembledContext` 的类注释补写了「为何不再有 `evicted`」（client 恒为无状态重放，无需告知是否收缩）；`BaseContextPolicy` 的类注释中「既避免每轮重建会话」一句随之删除（不再重建）。`context_policy_test.dart` 的 `evicted 标记` 用例整条删除（其余断言已覆盖等价语义）。
 
-- [ ] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿
-- [ ] 文档：
-  - `docs/PROJECT.md`：决策表「端侧消息列表真相源」行由**待决策**改为**已采纳**（附实施要点）；「传输层」行描述由「`ChatSession` 消息同步 + 增量补差/重建」改为「无状态重放（`clear` + 全量重放）」；目录说明如涉及同步
-  - `docs/notes/2026-09-11/local-kv-reuse-feasibility.md`：§10 标注已实施；§8「可另开一轮评估」的指针更新为已落地
+## Task 4：收尾 ✅ 已完成
+
+- [x] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿（177）
+- [x] 文档：
+  - `docs/PROJECT.md`：决策表「端侧消息列表真相源」行由**待决策**改为**已采纳**（附实施要点与四条不变量）；「传输层」行描述改为「无状态重放——每轮 `clear()` + 按装配结果全量重放」；目录说明（`local_chat_client.dart` 行）同步
+  - `docs/notes/2026-09-11/local-kv-reuse-feasibility.md`：头部状态与 §10.4/§10.5/§11.3 标注已实施；§8「可另开一轮评估」指针更新为已落地
+  - `docs/plans/2026-09-11-local-stateless-replay-{design,plan}.md`：状态改为已完成
   - `.workbuddy/memory/MEMORY.md`：对话链路条目更新（「端侧增量补差 vs 重建」→「无状态重放」，并写明不变量）
-- [ ] 冒烟项（**用户侧**，需真机/模拟器）：
+- [ ] 冒烟项（**用户侧**，需真机/模拟器）— **待用户验证**：
   - 多轮对话连贯性（模型不再看到自身 think 后是否可接受）
   - 长对话压缩触发时机后移是否符合预期
   - `context full` 异常是否显著减少
