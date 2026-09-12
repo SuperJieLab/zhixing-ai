@@ -1,13 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/context_budget.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
+import 'package:zhixing_ai/core/llm/local_context_policy.dart';
 
-/// 端侧策略装配测试：度量单位（token + 模板开销）、预算/保底/溢出口径。
+/// 端侧后端策略装配测试：度量单位（token + 模板开销）、预算/保底/溢出口径。
 ///
-/// 装配编排本身由 `context_policy_test.dart` 覆盖；此处只验证端侧注入的参数。
+/// 装配编排本身由 `context_assembly_test.dart` 覆盖；此处只验证端侧注入的参数。
 
 class _EchoSummarizer implements ConversationSummarizer {
   int calls = 0;
@@ -81,7 +82,7 @@ void main() {
         _user('第二问也不短的内容'),
         _user('第三问'),
         _user('第四问'),
-      ]);
+      ], state: ContextState());
 
       expect(ctx.messages.length, 2); // 保底 2 条
       expect(summarizer.calls, 1);
@@ -96,7 +97,7 @@ void main() {
         _user('第一问很长很长的问题'),
         _user('第二问也不短的内容'),
         _user('第三问'),
-      ]);
+      ], state: ContextState());
 
       expect(ctx.messages.length, 2); // 窗口已收缩（保底 2 条）
       expect(ctx.summaryCard, isNull);

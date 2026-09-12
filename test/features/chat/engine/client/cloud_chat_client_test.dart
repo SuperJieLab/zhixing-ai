@@ -6,8 +6,8 @@ import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/context/cloud_context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 
 // 云端对话客户端（BYOK 直连）真实集成测试
 //

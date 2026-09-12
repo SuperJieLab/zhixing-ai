@@ -2,13 +2,13 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/inference.dart';
+import 'package:zhixing_ai/core/llm/local_context_policy.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
-import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
 
 /// 端侧推理会话窄接口：一份多轮消息列表 + 每轮全量渲染生成。
 ///
@@ -92,6 +92,9 @@ class LocalChatClient implements ChatClient {
   ChatSession? _session;
   String _systemPrompt = '';
 
+  /// 会话压缩状态（Task 3 后由业务持有并传入；本步先由交付实现暂持）。
+  final ContextState _state = ContextState();
+
   /// [engine] 与 [sessionFactory] 必须给其一（构造期 [ArgumentError]）。
   /// 只注入 [sessionFactory]（无 [engine]）时摘要引擎不可用：压缩回落纯丢弃。
   /// [policy] 可整体替换（测试注入小预算策略强制触发压缩）。
@@ -124,7 +127,7 @@ class LocalChatClient implements ChatClient {
       _session?.dispose();
       _session = await _createSession();
       _session!.addSystem(_systemPrompt);
-      _policy.reset();
+      _state.reset();
       return true;
     } catch (e) {
       AppLogger.error('LocalChatClient', '初始化失败', e);
@@ -142,8 +145,11 @@ class LocalChatClient implements ChatClient {
     }
 
     // 装配（过滤 + 装窗 + 压缩）委托策略，随后无状态重放到会话
-    final assembled =
-        await _policy.assemble(history, systemPrompt: _systemPrompt);
+    final assembled = await _policy.assemble(
+      history,
+      state: _state,
+      systemPrompt: _systemPrompt,
+    );
     _syncSession(session, assembled);
 
     // think 剥离流式输出
@@ -204,9 +210,12 @@ class LocalChatClient implements ChatClient {
         try {
           // 自愈：策略强制收缩后重新装配重放（下一轮直接可用）。
           // nudgeTail: false —— 本轮已判定过尾问，不得重复计入去重窗口。
-          await _policy.handleOverflow();
-          final healed =
-              await _policy.assemble(history, systemPrompt: _systemPrompt);
+          _policy.handleOverflow(_state);
+          final healed = await _policy.assemble(
+            history,
+            state: _state,
+            systemPrompt: _systemPrompt,
+          );
           _syncSession(session, healed, nudgeTail: false);
         } catch (re) {
           AppLogger.error('LocalChatClient', '自愈重放失败', re);

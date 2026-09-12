@@ -4,9 +4,9 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/context/cloud_context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
 import 'package:zhixing_ai/features/chat/engine/client/sse_parser.dart';
 
@@ -36,6 +36,9 @@ class CloudChatClient implements ChatClient {
 
   /// initialize 暂存的已有目标，请求时拼进 system 消息（与本地人设逐字一致）。
   List<Goal> _pendingGoals = const [];
+
+  /// 会话压缩状态（Task 3 后由业务持有并传入；本步先由交付实现暂持）。
+  final ContextState _state = ContextState();
 
   /// 本地/云端共享的唯一人设出处。
   final ConversationStrategy _strategy;
@@ -76,8 +79,8 @@ class CloudChatClient implements ChatClient {
   @override
   Future<bool> initialize({List<Goal> existingGoals = const []}) async {
     _pendingGoals = existingGoals;
-    // 会话生命周期重置：清空摘要卡与保留窗口（新对话 / 重新初始化）。
-    _policy.reset();
+    // 会话生命周期重置：清空摘要与覆盖游标（新对话 / 重新初始化）。
+    _state.reset();
     return true;
   }
 
@@ -96,8 +99,11 @@ class CloudChatClient implements ChatClient {
     // 人设唯一出处：与本地模式共享同一份 system 提示词（含 goals 注入）。
     final systemPrompt =
         _strategy.buildSystemPrompt(existingGoals: _pendingGoals);
-    final assembled =
-        await _policy.assemble(history, systemPrompt: systemPrompt);
+    final assembled = await _policy.assemble(
+      history,
+      state: _state,
+      systemPrompt: systemPrompt,
+    );
     final payload = assembled.messages
         .map((m) => (
               role: m.role == MessageRole.user ? 'user' : 'assistant',

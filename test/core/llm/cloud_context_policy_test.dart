@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/features/chat/engine/context/cloud_context_policy.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 
-// 云端策略单元测试：与 lib 侧 cloud_context_policy.dart 镜像对应——该文件把
+// 云端后端策略单元测试：与 lib 侧 cloud_context_policy.dart 镜像对应——该文件把
 // 「度量 + 摘要器 + 装配」三件套收在一处（与端侧 local_context_policy.dart
 // 结构逐位对应），测试也在同一文件覆盖三部分：
 //
@@ -138,7 +138,8 @@ void main() {
   // ── 预算内透传：全量携带、不压缩 ──
   test('预算内：历史全量携带，不触发压缩', () async {
     final p = _policy();
-    final ctx = await p.assemble(_history(3), systemPrompt: 'x' * 100);
+    final ctx = await p.assemble(_history(3),
+        state: ContextState(), systemPrompt: 'x' * 100);
     expect(ctx.messages.length, 3);
     expect(ctx.summaryCard, isNull);
   });
@@ -149,7 +150,7 @@ void main() {
     final ctx = await p.assemble([
       _msg('欢迎语', MessageRole.ai, 0),
       _msg('问题', MessageRole.user, 1),
-    ]);
+    ], state: ContextState());
     expect(ctx.messages.map((m) => m.content), ['问题']);
   });
 
@@ -157,7 +158,8 @@ void main() {
   test('预算不足：仅留保底尾部，移出消息进摘要器并产出摘要卡', () async {
     final fake = _FakeSummarizer();
     final p = _policy(budget: 0, summarizer: fake);
-    final ctx = await p.assemble(_history(4), systemPrompt: 'x' * 50);
+    final ctx = await p.assemble(_history(4),
+        state: ContextState(), systemPrompt: 'x' * 50);
 
     expect(ctx.messages.length, 2); // minKeep
     expect(ctx.summaryCard, contains('摘要正文'));
@@ -169,23 +171,26 @@ void main() {
   test('handleOverflow 无害：云端不收缩', () async {
     final fake = _FakeSummarizer();
     final p = _policy(summarizer: fake);
-    await p.assemble(_history(3));
-    await p.handleOverflow();
-    final ctx = await p.assemble(_history(3));
+    final state = ContextState();
+    await p.assemble(_history(3), state: state);
+    p.handleOverflow(state);
+    final ctx = await p.assemble(_history(3), state: state);
     expect(ctx.messages.length, 3);
     expect(fake.calls, 0);
   });
 
-  // ── 会话生命周期：reset 清空摘要与保留窗口 ──
-  test('reset：清空摘要与保留窗口', () async {
+  // ── 会话生命周期：reset 清空摘要与覆盖游标 ──
+  test('reset：清空摘要与覆盖游标', () async {
     final p = _policy(budget: 0, summarizer: _FakeSummarizer());
-    await p.assemble(_history(4), systemPrompt: 'x' * 50);
-    expect(p.summary, isNotEmpty);
-    expect(p.retainedCount, 2);
+    final state = ContextState();
+    final ctx = await p.assemble(_history(4),
+        state: state, systemPrompt: 'x' * 50);
+    expect(state.summary, isNotEmpty);
+    expect(ctx.messages.length, 2);
 
-    p.reset();
-    expect(p.summary, isEmpty);
-    expect(p.retainedCount, 0);
+    state.reset();
+    expect(state.summary, isEmpty);
+    expect(state.k, 0);
   });
 
   // ═══════════ Ⅱ CloudSummarizer（本地 mock 端点） ═══════════

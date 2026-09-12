@@ -1,11 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/context_budget.dart';
 
-/// ContextPolicy 共享层单测：过滤 / 装窗 / 装配骨架（fake 度量与摘要器）。
+/// 转换段共享层单测：过滤 / 装窗 / 装配骨架（fake 度量与摘要器）+ **状态外置**。
 ///
 /// 覆盖：round==0 剔除、尾部优先装窗、minKeep 保底、预算充足全量透传、
-/// evicted 前缀切分、强制收缩、摘要游标（不重复摘要）、摘要失败回落。
+/// evicted 前缀切分、强制收缩、覆盖游标（不重复摘要）、摘要失败回落，
+/// 以及方案 A 的两条防御（历史变短 / 游标越界 → reset）。
 
 ChatMessage _msg(String content, {MessageRole role = MessageRole.user, int round = 1}) =>
     ChatMessage(role: role, content: content, round: round);
@@ -47,6 +49,10 @@ String _contents(List<ChatMessage> msgs) =>
     msgs.map((m) => m.content).join(',');
 
 void main() {
+  late ContextState state;
+
+  setUp(() => state = ContextState());
+
   group('filterEligible（① 过滤·双端共享）', () {
     test('剔除第 0 轮欢迎语，保留其余并维持顺序', () {
       final history = [
@@ -150,7 +156,7 @@ void main() {
     });
   });
 
-  group('BaseContextPolicy.assemble（装配骨架）', () {
+  group('BaseContextPolicy.assemble（装配骨架 · 无状态）', () {
     test('预算充足：全量透传、无摘要卡、不触发摘要器', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(
@@ -163,14 +169,14 @@ void main() {
         _msg('欢迎', role: MessageRole.ai, round: 0),
         _msg('问题一'),
         _msg('回答一', role: MessageRole.ai),
-      ]);
+      ], state: state);
 
       expect(_contents(ctx.messages), '问题一,回答一');
       expect(ctx.summaryCard, isNull);
       expect(summarizer.calls, isEmpty);
     });
 
-    test('超预算：移出消息压成摘要卡（带前缀）', () async {
+    test('超预算：移出消息压成摘要卡（带前缀），覆盖游标前移', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(
         estimator: _CharEstimator(),
@@ -179,13 +185,17 @@ void main() {
         minKeep: 1,
       );
 
-      final ctx = await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      final ctx = await policy.assemble(
+          [_msg('a' * 50), _msg('b' * 50)],
+          state: state);
 
       expect(_contents(ctx.messages), 'b' * 50);
       expect(ctx.summaryCard, '【此前对话摘要】\n摘要(1)');
       expect(summarizer.calls.length, 1);
       expect(summarizer.calls.single.previous, '');
       expect(_contents(summarizer.calls.single.evicted), 'a' * 50);
+      expect(state.k, 1); // 游标前移 1 条
+      expect(state.summary, '摘要(1)');
     });
 
     test('摘要游标：历史增长后只对「新移出」的消息再摘要', () async {
@@ -198,10 +208,11 @@ void main() {
       );
 
       // 第一次：移出 m1
-      await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      await policy.assemble([_msg('a' * 50), _msg('b' * 50)], state: state);
       // 第二次：历史增长，预算内只住得下 m3，m1+m2 被移出，但 m1 已摘要过
       final ctx = await policy.assemble(
-          [_msg('a' * 50), _msg('b' * 50), _msg('c' * 50)]);
+          [_msg('a' * 50), _msg('b' * 50), _msg('c' * 50)],
+          state: state);
 
       expect(summarizer.calls.length, 2);
       expect(summarizer.calls.last.previous, '摘要(1)');
@@ -220,8 +231,8 @@ void main() {
       );
 
       final history = [_msg('a' * 50), _msg('b' * 50)];
-      await policy.assemble(history);
-      final ctx = await policy.assemble(history);
+      await policy.assemble(history, state: state);
+      final ctx = await policy.assemble(history, state: state);
 
       expect(summarizer.calls.length, 1);
       expect(ctx.summaryCard, isNotNull);
@@ -236,7 +247,9 @@ void main() {
         minKeep: 1,
       );
 
-      final ctx = await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      final ctx = await policy.assemble(
+          [_msg('a' * 50), _msg('b' * 50)],
+          state: state);
 
       expect(_contents(ctx.messages), 'b' * 50); // 窗口仍正常
       expect(ctx.summaryCard, isNull); // 无摘要问世
@@ -249,7 +262,9 @@ void main() {
         minKeep: 1,
       );
 
-      final ctx = await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      final ctx = await policy.assemble(
+          [_msg('a' * 50), _msg('b' * 50)],
+          state: state);
 
       expect(_contents(ctx.messages), 'b' * 50);
       expect(ctx.summaryCard, isNull);
@@ -265,7 +280,9 @@ void main() {
         minKeep: 1,
       );
 
-      final ctx = await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
+      final ctx = await policy.assemble(
+          [_msg('a' * 50), _msg('b' * 50)],
+          state: state);
 
       expect(ctx.summaryCard, '【此前对话摘要】\n${'x' * 200}…');
     });
@@ -280,6 +297,7 @@ void main() {
       // 人设占 91，只剩 9：尾部 6 装入，头部 4 被挤出
       final ctx = await policy.assemble(
         [_msg('aaaa'), _msg('cccccc')],
+        state: state,
         systemPrompt: 'p' * 91,
       );
 
@@ -295,9 +313,10 @@ void main() {
         overflowKeep: 2,
       );
 
-      await policy.handleOverflow();
+      policy.handleOverflow(state);
       final ctx = await policy.assemble(
-          [_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
+          [_msg('a'), _msg('b'), _msg('c'), _msg('d')],
+          state: state);
 
       expect(_contents(ctx.messages), 'c,d');
       expect(summarizer.calls, isEmpty);
@@ -309,13 +328,13 @@ void main() {
         budget: 1000,
       );
 
-      await policy.handleOverflow();
-      final ctx = await policy.assemble([_msg('a'), _msg('b')]);
+      policy.handleOverflow(state);
+      final ctx = await policy.assemble([_msg('a'), _msg('b')], state: state);
 
       expect(_contents(ctx.messages), 'a,b');
     });
 
-    test('强制收缩后不回补：窗口已收窄，旧消息不再纳入也不再被摘要', () async {
+    test('强制收缩后不回补：游标已前移，旧消息不再纳入也不再被摘要', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(
         estimator: _CharEstimator(),
@@ -324,17 +343,19 @@ void main() {
         overflowKeep: 2,
       );
 
-      await policy.handleOverflow();
-      await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
+      policy.handleOverflow(state);
+      await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')],
+          state: state);
       // 再走正常路径：历史虽含全部 4 条，但窗口已硬丢前 2 条
-      final ctx =
-          await policy.assemble([_msg('a'), _msg('b'), _msg('c'), _msg('d')]);
+      final ctx = await policy.assemble(
+          [_msg('a'), _msg('b'), _msg('c'), _msg('d')],
+          state: state);
 
       expect(summarizer.calls, isEmpty);
       expect(_contents(ctx.messages), 'c,d');
     });
 
-    test('reset：清空摘要与保留窗口，回到初始状态', () async {
+    test('reset：清空摘要与覆盖游标，回到初始状态', () async {
       final summarizer = _RecordingSummarizer();
       final policy = _TestPolicy(
         estimator: _CharEstimator(),
@@ -343,17 +364,80 @@ void main() {
         minKeep: 1,
       );
 
-      await policy.assemble([_msg('a' * 50), _msg('b' * 50)]);
-      expect(policy.summary, isNotEmpty);
-      expect(policy.retainedCount, 1);
+      final before = await policy.assemble(
+          [_msg('a' * 50), _msg('b' * 50)],
+          state: state);
+      expect(state.summary, isNotEmpty);
+      expect(before.messages.length, 1); // 窗口 = eligible[k..]
 
-      policy.reset();
+      state.reset();
 
-      expect(policy.summary, isEmpty);
-      expect(policy.retainedCount, 0);
-      final ctx = await policy.assemble([_msg('x'), _msg('y')]);
+      expect(state.summary, isEmpty);
+      expect(state.k, 0);
+      final ctx = await policy.assemble([_msg('x'), _msg('y')], state: state);
       expect(_contents(ctx.messages), 'x,y');
       expect(ctx.summaryCard, isNull);
+    });
+  });
+
+  group('方案 A 的两条防御（与「存完整窗口」等价）', () {
+    test('历史变短 → reset：窗口回到全量、摘要清空', () async {
+      final summarizer = _RecordingSummarizer();
+      final policy = _TestPolicy(
+        estimator: _CharEstimator(),
+        budget: 60,
+        summarizer: summarizer,
+        minKeep: 1,
+      );
+
+      final long = [_msg('a' * 50), _msg('b' * 50), _msg('c' * 50)];
+      await policy.assemble(long, state: state);
+      await policy.assemble(long, state: state); // 游标推进到 2
+      expect(state.k, 2);
+
+      // 换会话 / 历史回退：只剩 2 条
+      final ctx = await policy.assemble(
+          [_msg('x' * 50), _msg('y' * 50)],
+          state: state);
+
+      expect(state.k, 1); // reset 后按新历史重新装窗（移出 1 条）
+      expect(_contents(ctx.messages), 'y' * 50);
+    });
+
+    test('游标越界 → reset：不静默错位', () async {
+      final policy = _TestPolicy(
+        estimator: _CharEstimator(),
+        budget: 60,
+        minKeep: 1,
+      );
+
+      // 人为把游标推到越界位置
+      state.k = 99;
+      state.lastEligibleLength = 99;
+
+      final ctx = await policy.assemble([_msg('x'), _msg('y')], state: state);
+
+      expect(state.k, 0);
+      expect(_contents(ctx.messages), 'x,y');
+    });
+
+    test('中间删一条（长度不变）不触发 reset：窗口按列表现算，不做回补', () async {
+      final policy = _TestPolicy(
+        estimator: _CharEstimator(),
+        budget: 1000,
+        minKeep: 1,
+      );
+
+      await policy.assemble([_msg('a'), _msg('b'), _msg('c')], state: state);
+      expect(state.k, 0);
+
+      // 长度相同、内容不同：不触发 reset（防御只覆盖「变短」与「越界」）
+      final ctx = await policy.assemble(
+          [_msg('a'), _msg('x'), _msg('c')],
+          state: state);
+
+      expect(state.k, 0);
+      expect(_contents(ctx.messages), 'a,x,c');
     });
   });
 }
