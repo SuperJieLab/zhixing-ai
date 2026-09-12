@@ -1,12 +1,7 @@
-import 'dart:convert';
-import 'dart:math' as math;
-
-import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
-
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart' show MessageRole;
 import 'package:zhixing_ai/core/llm/context_budget.dart';
-import 'package:zhixing_ai/core/llm/inference.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
@@ -25,13 +20,13 @@ import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart
 /// 装箱/度量与对话客户端同一原语（`packTailWithinBudget` + `LlamaTemplateEstimator`，
 /// 含每条 +16 模板开销），保证预算内输入 + 一整轮生成仍在窗口内。
 /// 输出保护：maxTokens=[AppConstants.localMaxTokens]，足够丰富的 JSON 提取结果。
-/// 依赖：LlamaEngine + completeText/context_budget + chat_utils
+/// 依赖：Llm（单次补全走统一入口，模式跟随全局配置）+ context_budget + chat_utils
 /// 消费方：StrategyBriefProvider（唯一）
 
 class StrategistExtractor {
-  final LlamaEngine _engine;
+  final Llm _llm;
 
-  StrategistExtractor(this._engine);
+  StrategistExtractor(this._llm);
 
   static const _systemPrompt = '''
 你是一位助手。请首先判断以下对话是否包含值得关注的目标或策略。
@@ -109,30 +104,20 @@ cross_patterns 格式：
     AppLogger.info('StrategistExtractor',
         '提取上下文: overhead=$overheadTokens, budget=$budget, 使用 ${messages.length}/${conversation.messages.length} 条消息');
 
-    final chat = await _engine.createChat();
     try {
-      final json = await completeText(
-        chat,
+      // 结构化输出契约统一走 askJson：JSON-only 约束 + 剥 think/围栏 +
+      // 刮 {...} 的容错都在统一入口内（双后端共用），本类只管解析后的语义。
+      final parsed = await _llm.askJson(
         system: _systemPrompt,
         user: '$existingGoalsText\n## 本轮对话\n$conversationText',
-        sampler: const SamplerParams(
-          temperature: 0.3,
-          topP: 0.8,
-          repeatPenalty: 1.1,
-        ),
         maxTokens: AppConstants.localMaxTokens,
-        stripThink: true,
       );
 
-      AppLogger.info('StrategistExtractor',
-          '原始回复: ${json.isEmpty ? '(空)' : json.substring(0, math.min(json.length, 200))}');
-
-      if (json.isEmpty) {
-        AppLogger.info('StrategistExtractor', 'LLM 返回空内容（可能仅含 think 标签）');
+      if (parsed == null) {
+        AppLogger.info('StrategistExtractor', 'LLM 未给出可解析的 JSON（空或格式不符）');
         return null;
       }
 
-      final parsed = jsonDecode(json) as Map<String, dynamic>;
       if (parsed['relevant'] != true) {
         AppLogger.info('StrategistExtractor', 'LLM 判定无实质内容');
         return null;

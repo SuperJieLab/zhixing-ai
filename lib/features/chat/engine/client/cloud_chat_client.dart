@@ -10,12 +10,6 @@ import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
 import 'package:zhixing_ai/features/chat/engine/client/sse_parser.dart';
 
-/// 云端对话模式
-enum ChatMode {
-  local,
-  cloud,
-}
-
 /// 云端对话客户端：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
 ///
 /// 只负责「传输」：把 [ContextPolicy] 装配好的上下文发到端点、把 SSE 增量

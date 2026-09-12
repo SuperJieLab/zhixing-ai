@@ -7,6 +7,8 @@ import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/llm/llm_service.dart';
 import 'package:zhixing_ai/core/platform/push_service.dart';
 import 'package:zhixing_ai/core/platform/push_socket_service.dart';
 import 'package:zhixing_ai/core/ui/in_app_banner.dart';
@@ -65,9 +67,15 @@ Future<void> main() async {
   // 触发本地模型扫描（异步，不影响启动速度）
   ActiveModelManager.instance.checkLocalModels();
 
+  // 大模型服务：composition root 全 App 唯一构造点（方案 B——唯一性来自
+  // 「main() 只跑一次、只 new 一次」+ 下方 Provider 树持有，寿命与 App 相同）。
+  final llm = LlmService(settings: SettingsRepository.instance);
+  unawaited(llm.initialize());
+
   runApp(
     MultiProvider(
       providers: [
+        Provider<Llm>.value(value: llm),
         ChangeNotifierProvider<ActiveModelManager>.value(value: ActiveModelManager.instance),
       ],
       child: ZhixingApp(navigatorKey: navigatorKey),

@@ -116,6 +116,9 @@ class LlamaService {
     AppLogger.info('LlamaService', '引擎已释放');
   }
 
+  /// 是否有已加载（或加载中）的引擎——供 [LlmService.isReady] 表达端侧就绪态。
+  bool get hasLoadedEngine => _pool.isNotEmpty;
+
   // ================================================================
   // Token 估算工具（保留）
   // ================================================================

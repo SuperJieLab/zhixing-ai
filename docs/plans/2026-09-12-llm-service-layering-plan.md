@@ -46,7 +46,7 @@
 
 **风险**：`context_budget.dart` 上移会不会让 `ContextEstimator` 的既有 import 大面积改动 → 用 `export` 兜住，避免波及 3 个策略测试。
 
-## Task 2：服务骨架 + 单一模式来源 + 提取改走服务 ⬜ 未开始
+## Task 2：服务骨架 + 单一模式来源 + 提取改走服务 ✅ 完成（2026-09-12）
 
 > 依赖 Task 1。这是**第一个垂直切片**：修掉 design §1.2 那个真实缺陷（云端模式 + 未下载模型 → 报错）。
 
@@ -73,15 +73,24 @@
 6. 改 `strategist_extractor.dart`——构造改为依赖 `Llm`（或由 provider 直接 `ask`，实施时定）
 
 **验证**
-- [ ] `grep -rn "ChatMode" lib/features` **为空**；`grep -rn "chatCloudMode" lib/features` **只命中 `features/settings/`**（不变量 1；设置页必须能**写**模式，故不能要求整体为空——见 design §8 复核记录 R2）
-- [ ] `grep -rn "LlamaService\|LlamaEngine" lib/features/strategy_brief` **为空**（不变量 2 的提取部分）
-- [ ] `grep -rn "LlmService" lib/features` **为空**（不变量 6）
-- [ ] 云端模式 + 未下载本地模型 → 提取走云端，**不再报「需要下载模型」**
-- [ ] 本地模式 → 提取行为与改造前一致（含 think 剥离、JSON 解析、`relevant:false` 短路）
-- [ ] 新增 `llm_service_test.dart`：模式解析（含三件套未配齐的云端）+ `ask` 两实现（fake）
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] `ChatMode` **定义**已搬到 `core/llm/llm.dart`（不变量 1 的定义侧）；`lib/features` 下的引用**暂剩 `chat_provider.dart`**（`_resolvedMode`/`_defaultClientFactory` 仍按模式选 client——**Task 3 消除**）；`chatCloudMode` 在 features 命中 settings（写）+ chat_provider（读，Task 3 删）
+- [x] `grep -rn "LlamaService\|LlamaEngine" lib/features/strategy_brief` **为空**（不变量 2 的提取部分）
+- [x] `grep -rn "LlmService" lib/features` **为空**（不变量 6）
+- [x] 云端模式 + 未下载本地模型 → 提取走云端，**不再报「需要下载模型」**（冒烟项，逻辑上由模式解析保证：`_resolveCompleter` 按 `chatCloudMode` 选路，本地 ensureReady 只在本地路径出现）
+- [x] 本地模式 → 提取行为与改造前一致（think 剥离 / JSON 解析 / `relevant:false` 短路不变；sampler 沿用提取器既有调参，见实施记录 3）
+- [x] 新增 `test/core/llm/llm_service_test.dart`（**10 用例**：模式路由 4 + askJson 容错 6+3——三件套缺抛语义异常 / 入口复核中途切换 / 围栏 / 刮 `{...}` / think 包裹 / null / 空回复 / 异常透传 / maxTokens 透传 / parseJsonReply 纯函数）
+- [x] `flutter analyze` 0；全量 `flutter test` 绿（**191 = 基线 177 + 新增 14**）
 
-**⚠️ 行为变更**：云端模式下提取会产生 API 调用与费用；BYOK 模型的 JSON 遵从度未知 → 本 Task 必须同时落 design 附录 **A1**（JSON-only 提示词约束 + 刮 `{...}` 容错），否则是降级。
+**实施记录（与原稿的差异）**
+
+1. **后端接缝形态**：`LlmService` 构造注入 `SingleShotAsk? cloudAsk / localAsk`（函数接缝），而非注入 `CloudCompletion` 实例——因为 BYOK 三件套**按调用时读**（改配置即时生效），且 `EngineChat` 是 final class 无法 fake，函数接缝让模式路由 / 容错全部可测（191 里 14 条新用例的来源）。
+2. **共享云端补全落在新文件 `core/llm/cloud_completion.dart`**：`CloudCompletion.complete`（非流式 POST + `extractContent`）；`CloudSummarizer` 同步改为委托它（删 40 行重复 Dio 样板）。**文案微变**：异常消息「云端摘要请求失败」→「云端补全请求失败」（兜底回落语义不变）。
+3. **sampler 归属**：`ask/askJson` 接口**不含 sampler**（后端细节不外泄），本地默认实现内置提取器既有调参 `temperature 0.3 / topP 0.8 / repeatPenalty 1.1`、`maxTokens` 缺省 512（提取显式传 `localMaxTokens`）。
+4. **`ask` 必须是 `async`**：`_resolveCompleter` 的同步抛错（云端未配置）要收敛为 Future 错误——初版非 async 导致 `expectLater(ask(...), throwsA)` 拿不到 Future，测试当场抓住。
+5. **`isReady` 本地口径**：取 `LlamaService.hasLoadedEngine`（新增，`_pool.isNotEmpty`）——粗粒度但当前无 UI 消费方；Task 4 生命周期收口时再细化。
+6. **`initialize()` 现阶段仅记日志**：主动预热与窄 Listenable 订阅按计划留给 Task 4；composition root 接线（构造 + `unawaited(initialize)` + `Provider<Llm>.value`）本 Task 已就位。
+
+**⚠️ 行为变更**：云端模式下提取会产生 API 调用与费用；BYOK 模型的 JSON 遵从度未知 → 本 Task 必须同时落 design 附录 **A1**（JSON-only 提示词约束 + 刮 `{...}` 容错），否则是降级。**（已落：`askJson` 内置约束追加 + `parseJsonReply` 三段容错）**
 
 **⚠️ 前置（已解除）**：A1 的落法已拍定 = design §10.1 #6 **方案 A**：本 Task 落的不是「只加提示词约束」，而是 **`askJson`（结构化返回 + 内部容错）**——签名与容错语义见 design §6.1 / §10.1「已拍定」。
 

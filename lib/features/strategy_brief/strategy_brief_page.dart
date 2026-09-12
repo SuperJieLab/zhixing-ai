@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/strategy_brief/providers/strategy_brief_provider.dart';
 import 'package:zhixing_ai/features/strategy_brief/strategy_detail_page.dart';
@@ -20,7 +22,10 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
   @override
   void initState() {
     super.initState();
-    _provider = StrategyBriefProvider(widget.conversation);
+    _provider = StrategyBriefProvider(
+      widget.conversation,
+      llm: context.read<Llm>(),
+    );
     _provider.addListener(_onStateChanged);
     _provider.extract();
   }

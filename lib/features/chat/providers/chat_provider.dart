@@ -9,6 +9,7 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/llm/llm.dart' show ChatMode;
 import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/client/local_chat_client.dart';

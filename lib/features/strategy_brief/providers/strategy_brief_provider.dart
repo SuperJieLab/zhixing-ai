@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'package:zhixing_ai/core/data/conversation_service.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/strategy_brief/engine/strategist_extractor.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
 
@@ -54,6 +53,7 @@ class StrategyBriefState {
 
 class StrategyBriefProvider {
   final Conversation _conversation;
+  final Llm _llm;
   final DashboardRepository _dashboardRepo = DashboardRepository();
   final ConversationService _convService = ConversationService();
 
@@ -62,7 +62,10 @@ class StrategyBriefProvider {
 
   final List<void Function(StrategyBriefState)> _listeners = [];
 
-  StrategyBriefProvider(this._conversation);
+  /// [llm] 由页面经 Provider 树注入（composition root 构造的唯一实例）；
+  /// 提取的后端模式跟随全局配置（云端 / 本地），本类不感知。
+  StrategyBriefProvider(this._conversation, {required Llm llm})
+      : _llm = llm; // ignore: prefer_initializing_formals
 
   void addListener(void Function(StrategyBriefState) listener) {
     _listeners.add(listener);
@@ -139,10 +142,7 @@ class StrategyBriefProvider {
       );
       _notify();
 
-      final engine = LlamaService.instance
-          .ensureReady(gpuLayers: SettingsRepository.instance.gpuLayers);
-      final llmEngine = await engine;
-      final extractor = StrategistExtractor(llmEngine);
+      final extractor = StrategistExtractor(_llm);
       final result = await extractor.extract(
         conversation: _conversation,
         existingGoals: existingGoals,
