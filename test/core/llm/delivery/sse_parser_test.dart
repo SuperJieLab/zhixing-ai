@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:zhixing_ai/features/chat/engine/client/sse_parser.dart';
+import 'package:zhixing_ai/core/llm/delivery/sse_parser.dart';
 
 void main() {
   test('1. 单帧单 chunk → 载荷，done=false', () {

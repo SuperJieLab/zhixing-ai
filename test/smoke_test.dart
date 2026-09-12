@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/data/conversation_service.dart';
 import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/llm/llm_service.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
@@ -14,7 +16,8 @@ import 'package:zhixing_ai/core/platform/sync_service.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
+
+import 'support/fake_llm.dart';
 
 /// v2 冒烟测试
 ///
@@ -33,6 +36,8 @@ import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 Widget buildTestApp() {
   return MultiProvider(
     providers: [
+      // 与 composition root（main.dart）同构：大模型服务由 Provider 树持有
+      Provider<Llm>.value(value: LlmService()),
       ChangeNotifierProvider<ActiveModelManager>.value(value: ActiveModelManager.instance),
     ],
     child: const ZhixingApp(),
@@ -41,29 +46,15 @@ Widget buildTestApp() {
 
 // ---- 测试 4/5 用的注入件 ----
 
+/// 目标仓库 fake：返回空目标（不依赖 DB）
 class _OkDashboardRepo extends DashboardRepository {
   @override
   Future<List<Goal>> getActiveGoals() async => const [];
 }
 
-class _FakeChatClient implements ChatClient {
-  @override
-  bool get isReady => true;
-
-  @override
-  Future<bool> initialize({List<Goal> existingGoals = const []}) async => true;
-
-  @override
-  Stream<String> generateResponse(List<ChatMessage> history) async* {
-    yield '这是 fake 回复。';
-  }
-
-  @override
-  void stop() {}
-
-  @override
-  void dispose() {}
-}
+/// 脚本化 fake `Llm`：一轮回复固定文本（不触碰真实引擎/网络）。
+FakeLlm _fakeLlm() =>
+    FakeLlm()..onConverse = (_) => Stream.value('这是 fake 回复。');
 
 class _NoopConversationService extends ConversationService {
   @override
@@ -87,7 +78,7 @@ ChatProvider _fakeProviderFactory({
       topic: topic,
       conversation: conversation ?? _dummyConv(),
       conversationService: _NoopConversationService(),
-      client: _FakeChatClient(),
+      llm: _fakeLlm(),
       dashboardRepo: _OkDashboardRepo(),
     );
 

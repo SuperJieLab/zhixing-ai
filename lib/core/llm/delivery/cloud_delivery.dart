@@ -3,23 +3,20 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
-import 'package:zhixing_ai/features/chat/engine/client/sse_parser.dart';
+import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/llm/delivery/sse_parser.dart';
 
-/// 云端对话客户端：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
+/// 云端交付实现：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
 ///
-/// 只负责「传输」：把 [ContextPolicy] 装配好的上下文发到端点、把 SSE 增量
-/// 收敛成纯文本流。上下文装配（过滤 / 装窗 / 压缩）不再属于本类，见
-/// [ContextPolicy]。
+/// 只负责「把装配好的上下文送进模型并取回文本流」：HTTP 请求体、SSE 增量收敛、
+/// 取消/超时。上下文装配（过滤 / 装窗 / 压缩）与服务编排都不属于本类。
 ///
 /// 坑位备忘：
 ///   - 必须用 [utf8.decoder] 转换原始字节流，多字节 CJK 字符可能被 TCP 拆到两个 chunk；
 ///   - [stop] 要取消响应体订阅——仅取消 CancelToken 对已进入响应体的流无效。
-class CloudChatClient implements ChatClient {
+///   - 云端**不剥 think**（与端侧不一致是既有的有意识选择；是否统一见设计 §10.1 #5）。
+class CloudDelivery implements ChatDelivery {
   late final Dio _dio;
 
   /// API Key（Bearer 认证），仅存本机、随请求头发送。
@@ -31,91 +28,64 @@ class CloudChatClient implements ChatClient {
   /// 帧间空闲超时（非总时长）：超时抛 [TimeoutException] 交上层降级。
   final Duration _frameTimeout;
 
-  /// 上下文策略（过滤 / 装窗 / 压缩）；默认按 BYOK 三件套装配。
-  final ContextPolicy _policy;
-
-  /// initialize 暂存的已有目标，请求时拼进 system 消息（与本地人设逐字一致）。
-  List<Goal> _pendingGoals = const [];
-
-  /// 会话压缩状态（Task 3 后由业务持有并传入；本步先由交付实现暂持）。
-  final ContextState _state = ContextState();
-
-  /// 本地/云端共享的唯一人设出处。
-  final ConversationStrategy _strategy;
-
   CancelToken? _cancelToken;
   StreamSubscription<void>? _bodySubscription;
   StreamController<String>? _activeController;
 
   /// [baseUrl] 为 OpenAI 兼容端点根地址（容忍尾斜杠），客户端拼 `/chat/completions`。
-  /// [policy] 可整体替换（测试注入小预算策略强制触发压缩）。
-  CloudChatClient({
+  /// [dio] 仅测试注入。
+  CloudDelivery({
     required String baseUrl,
     required String apiKey,
     required String modelName,
     Duration frameTimeout = const Duration(seconds: 10),
-    ConversationStrategy? strategy,
-    ContextPolicy? policy,
+    Dio? dio,
   })  : _apiKey = apiKey, // ignore: prefer_initializing_formals
         _modelName = modelName, // ignore: prefer_initializing_formals
         _frameTimeout = frameTimeout, // ignore: prefer_initializing_formals
-        _strategy = strategy ?? ConversationStrategy(),
-        _policy = policy ??
-            CloudContextPolicy(
-              baseUrl: baseUrl,
-              apiKey: apiKey,
-              modelName: modelName,
-            ),
-        _dio = Dio(BaseOptions(
-          // 容忍尾斜杠：用户从厂商文档复制的根地址形态不保证无尾斜杠
-          baseUrl: baseUrl.replaceAll(RegExp(r'/+$'), ''),
-          responseType: ResponseType.stream,
-          connectTimeout: const Duration(seconds: 10),
-        ));
+        _dio = dio ??
+            Dio(BaseOptions(
+              // 容忍尾斜杠：用户从厂商文档复制的根地址形态不保证无尾斜杠
+              baseUrl: baseUrl.replaceAll(RegExp(r'/+$'), ''),
+              responseType: ResponseType.stream,
+              connectTimeout: const Duration(seconds: 10),
+            ));
 
   @override
   bool get isReady => true;
 
+  /// 云端无本地资源需加载（配置校验在服务入口完成）。
   @override
-  Future<bool> initialize({List<Goal> existingGoals = const []}) async {
-    _pendingGoals = existingGoals;
-    // 会话生命周期重置：清空摘要与覆盖游标（新对话 / 重新初始化）。
-    _state.reset();
-    return true;
-  }
+  Future<void> ensureReady() async {}
 
-  /// [history] 为完整历史（尾部为本轮新用户消息）。
-  /// 上下文由 [ContextPolicy] 装配（过滤 round==0 + 装窗 + 必要时压缩）；
+  /// [assembled] 由服务装配（过滤 round==0 + 装窗 + 必要时压缩）。
   /// HTTP 非 200 或网络异常原样上抛，由上层决定降级策略。
   @override
-  Stream<String> generateResponse(List<ChatMessage> history) {
-    if (history.isEmpty) {
-      throw ArgumentError('history 不能为空');
-    }
-    return _assembleAndGenerate(history);
-  }
-
-  Stream<String> _assembleAndGenerate(List<ChatMessage> history) async* {
-    // 人设唯一出处：与本地模式共享同一份 system 提示词（含 goals 注入）。
-    final systemPrompt =
-        _strategy.buildSystemPrompt(existingGoals: _pendingGoals);
-    final assembled = await _policy.assemble(
-      history,
-      state: _state,
-      systemPrompt: systemPrompt,
-    );
+  Stream<String> deliver(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) {
     final payload = assembled.messages
         .map((m) => (
               role: m.role == MessageRole.user ? 'user' : 'assistant',
               content: m.content,
             ))
         .toList();
-    yield* _generate(
+    return _generate(
       payload,
       systemPrompt: systemPrompt,
       summaryCard: assembled.summaryCard,
     );
   }
+
+  /// 云端无会话态：无需预置（契约对称的空实现）。
+  @override
+  void prime(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) {}
 
   Stream<String> _generate(
     List<({String role, String content})> messages, {
@@ -150,7 +120,7 @@ class CloudChatClient implements ChatClient {
     final body = {
       'model': _modelName,
       'messages': [
-        // 人设唯一出处：与本地模式共享同一份 system 提示词（含 goals 注入）。
+        // 人设由业务提供（唯一出处是业务侧的人设构建器）。
         {'role': 'system', 'content': systemPrompt},
         // 摘要卡（如有）紧随人设之后：同为 system 消息，不进对话 role 序列。
         if (summaryCard != null) {'role': 'system', 'content': summaryCard},

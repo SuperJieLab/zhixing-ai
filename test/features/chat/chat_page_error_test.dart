@@ -6,6 +6,8 @@ import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
 
+import '../../support/fake_llm.dart';
+
 /// ChatProvider 错误状态 API 的单元测试
 ///
 /// 需要调用 sendMessage 的测试传入 dummy Conversation(id: 1)，
@@ -44,6 +46,7 @@ void main() {
         topic: topic,
         conversation: skipDb ? _dummyConv() : null,
         conversationService: _NoopConversationService(),
+        llm: FakeLlm(),
       );
 
   group('ChatProvider error state', () {

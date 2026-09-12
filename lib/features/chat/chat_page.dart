@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/features/chat/utils/snackbar_throttle.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
@@ -95,13 +96,15 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) {
+      create: (context) {
         final factory = widget.providerFactory;
+        // 大模型服务实例由 composition root 构造、Provider 树持有（业务只认接口）。
         final provider = factory != null
             ? factory(topic: widget.topic, conversation: widget.conversation)
             : ChatProvider(
                 topic: widget.topic,
                 conversation: widget.conversation,
+                llm: context.read<Llm>(),
               );
         provider.loadModel();
         return provider;

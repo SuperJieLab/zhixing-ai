@@ -4,47 +4,45 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
-import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
 
-// 云端对话客户端（BYOK 直连）真实集成测试
+// 云端交付（BYOK 直连）真实集成测试
 //
 // 用真实 dart:io HttpServer 起本地 mock OpenAI 兼容 SSE 服务端（127.0.0.1
-// 直连），验证 [CloudChatClient] 的关键行为：
+// 直连），验证 [CloudDelivery] 的关键行为：
 //   A. 正常 delta 流按序产出并正常结束；
-//   B. [CloudChatClient.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
+//   B. [CloudDelivery.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
 //      断开（客户端取消 → 连接销毁 → 厂商侧中断）；
 //   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）；
-//   D. 上下文装配：round==0 欢迎语被过滤、system 首条、尾部用户消息随请求发送；
-//   E. 预算内历史全量携带（不再固定取尾 10 条）；
-//   F. isReady 恒真、initialize 暂存 goals；
-//   G. 请求体：system 人设（含 goals）+ model + Authorization 头；
-//   H. 无 goals 时 system 不含目标段；
-//   I. HTTP 非 200（401）→ 抛错且含状态码；
-//   J. 无 delta.content 的帧（role/finish_reason）被跳过；
-//   K. 小预算触发装窗：仅保留保底尾部 + 移出消息进摘要器。
+//   D. 装配结果按序映射为 OpenAI messages（转换段的 round==0 过滤在此复现一次）；
+//   E. 多轮历史全量按序映射（不截断——预算内全量携带属转换段职责）；
+//   F. isReady 恒真、ensureReady 幂等、prime 为 no-op（云端无会话态）；
+//   G. 请求体：system 人设（业务原样透传，含业务注入的目标段）+ model + Bearer 头；
+//   H. 摘要卡作为第二条 system 紧随人设；
+//   I. HTTP 非 200（401）→ 流上抛错且含状态码；
+//   J. 无 delta.content 的帧（role/finish_reason）被跳过。
+//
+// **装配相关用例**（预算内全量携带、小预算装窗 + 摘要器）已随状态外置迁至
+// `test/core/llm/context_assembly_test.dart` 与 `cloud_context_policy_test.dart`，
+// 本文件只覆盖「怎么把装配结果送进模型」。
 //
 // 关键：服务端必须设 `bufferOutput = false`——dart:io HttpResponse 默认缓冲输出，
 // 小写入会攒到连接关闭才上线，SSE 增量投递完全失效（曾由此误判为环境代理缓冲）。
 
 const _dummyKey = 'sk-test';
 const _dummyModel = 'test-model';
+const _systemPrompt = '你是知行AI助手（人设由业务提供）。';
 
-/// 记录调用次数的摘要器 fake：小预算用例中验证「移出消息真的进了摘要器」。
-class _FakeSummarizer implements ConversationSummarizer {
-  int calls = 0;
-  List<ChatMessage> lastEvicted = const [];
+/// 直构装配结果（装配正确性由转换段自测）。
+AssembledContext _assembled(List<ChatMessage> messages, {String? summaryCard}) =>
+    AssembledContext(messages: messages, summaryCard: summaryCard);
 
-  @override
-  Future<String> summarize(
-      String previousSummary, List<ChatMessage> evicted) async {
-    calls++;
-    lastEvicted = evicted;
-    return '摘要卡正文';
-  }
-}
+ChatMessage _user(String content, int round) =>
+    ChatMessage(role: MessageRole.user, content: content, round: round);
+
+ChatMessage _ai(String content, int round) =>
+    ChatMessage(role: MessageRole.ai, content: content, round: round);
 
 /// mock SSE 服务端句柄：端口 + 客户端提前断开的感知信号 + 最近一次请求。
 class _MockServer {
@@ -127,18 +125,17 @@ Future<void> _writeFrame(
 String _openAiDelta(String content) =>
     '{"choices":[{"delta":{"content":${jsonEncode(content)}}}]}';
 
-CloudChatClient _client(
-  String baseUrl, {
-  Duration? frameTimeout,
-  ContextPolicy? policy,
-}) =>
-    CloudChatClient(
+CloudDelivery _delivery(String baseUrl, {Duration? frameTimeout}) =>
+    CloudDelivery(
       baseUrl: baseUrl,
       apiKey: _dummyKey,
       modelName: _dummyModel,
       frameTimeout: frameTimeout ?? const Duration(seconds: 10),
-      policy: policy,
     );
+
+/// 收流为列表（交付层的取回段没有本地那层 think 处理，云端不剥 think）。
+Future<List<String>> _collect(CloudDelivery d, AssembledContext ctx) =>
+    d.deliver(ctx, systemPrompt: _systemPrompt).toList();
 
 void main() {
   /// 回显服务端收到的 messages（跳过 system，role:content| 逐帧），供窗口断言。
@@ -171,15 +168,10 @@ void main() {
       await _writeFrame(resp, '[DONE]', s.clientDisconnected);
       await resp.close();
     });
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
-    final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '你好', round: 1),
-    ])) {
-      received.add(d);
-    }
-    client.dispose();
+    final received = await _collect(delivery, _assembled([_user('你好', 1)]));
+    delivery.dispose();
     await s.close();
 
     expect(received, ['你', '好']);
@@ -199,16 +191,16 @@ void main() {
       }
       await resp.close().catchError((_) {});
     });
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
     final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '慢一点', round: 1),
-    ])) {
+    await for (final d
+        in delivery.deliver(_assembled([_user('慢一点', 1)]),
+            systemPrompt: _systemPrompt)) {
       received.add(d);
-      if (received.length == 1) client.stop(); // 收到首帧后立刻中止
+      if (received.length == 1) delivery.stop(); // 收到首帧后立刻中止
     }
-    client.dispose();
+    delivery.dispose();
 
     // 断言：仅收到首帧。bufferOutput=false 保证帧每 50ms 增量到达，因此这是
     // 真断言——若 stop() 失效，客户端会继续收到 帧1..帧N（直至 [DONE] 或发满）。
@@ -227,21 +219,21 @@ void main() {
       // 保持打开、不再发帧：挂起一个永不完成的等待（服务端由 finally 强制关闭）。
       await Completer<void>().future;
     });
-    final client = _client(s.baseUrl,
+    final delivery = _delivery(s.baseUrl,
         frameTimeout: const Duration(milliseconds: 200));
 
     final received = <String>[];
     Object? caught;
     try {
-      await for (final d in client.generateResponse([
-        ChatMessage(role: MessageRole.user, content: '超时', round: 1),
-      ])) {
+      await for (final d
+          in delivery.deliver(_assembled([_user('超时', 1)]),
+              systemPrompt: _systemPrompt)) {
         received.add(d);
       }
     } on TimeoutException catch (e) {
       caught = e; // 帧间空闲超时 → TimeoutException
     } finally {
-      client.dispose();
+      delivery.dispose();
       await s.close(); // 强制关闭 mock 服务端，释放挂起的连接
     }
 
@@ -249,31 +241,32 @@ void main() {
     expect(caught, isA<TimeoutException>());
   });
 
-  // ── 测试 D：上下文装配——round==0 欢迎语被过滤，尾部用户消息随请求发送 ──
-  test('D. round==0 欢迎语被过滤，尾部用户消息随请求发送', () async {
+  // ── 测试 D：装配结果按序映射（round==0 过滤归转换段） ──
+  test('D. 装配结果按序映射为 messages；round==0 已由转换段过滤', () async {
     final s = await _startMock(echoMessages);
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
-    final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.ai, content: '欢迎语', round: 0),
-      ChatMessage(role: MessageRole.ai, content: '旧回答', round: 1),
-      ChatMessage(role: MessageRole.user, content: '问题1', round: 1),
-      ChatMessage(role: MessageRole.user, content: '问题2', round: 2),
-    ])) {
-      received.add(d);
-    }
-    client.dispose();
+    // 复现转换段的过滤：欢迎语（round==0）不进上下文。
+    final history = [
+      _ai('欢迎语', 0),
+      _ai('旧回答', 1),
+      _user('问题1', 1),
+      _user('问题2', 2),
+    ];
+    final assembled = _assembled(filterEligible(history));
+
+    final received = await _collect(delivery, assembled);
+    delivery.dispose();
     await s.close();
 
     // 请求体：欢迎语被滤，历史映射 user/assistant，尾部用户消息在末尾
     expect(received.join(), 'assistant:旧回答|user:问题1|user:问题2|');
   });
 
-  // ── 测试 E：预算内历史全量携带（不再固定取尾 10 条）──
-  test('E. 预算内历史全量携带', () async {
+  // ── 测试 E：装配结果全量按序映射（不截断）──
+  test('E. 装配结果全量按序映射，不截断', () async {
     final s = await _startMock(echoMessages);
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
     final history = <ChatMessage>[];
     for (var r = 1; r <= 15; r++) {
@@ -283,78 +276,30 @@ void main() {
         round: r,
       ));
     }
-    history.add(
-        ChatMessage(role: MessageRole.user, content: '新问题', round: 16));
+    history.add(_user('新问题', 16));
 
-    final received = <String>[];
-    await for (final d in client.generateResponse(history)) {
-      received.add(d);
-    }
-    client.dispose();
+    final received = await _collect(delivery, _assembled(history));
+    delivery.dispose();
     await s.close();
 
-    // 默认预算（AppConstants.cloudInputBudget）远大于本对话 → 15 条历史 +
-    // 新问题全量携带（旧实现固定取尾 10 条，恒为 11 条）
+    // 派生的装配窗口有多少条，就发多少条（预算判断在转换段）
     expect(received.length, 16);
     expect(received.first, 'user:消息1|'); // 消息1 为奇数轮 → 用户角色
     expect(received.last, 'user:新问题|');
   });
 
-  // ── 测试 K：小预算触发装窗——仅留保底尾部，移出消息进摘要器 ──
-  test('K. 小预算时仅保留保底尾部，移出消息进摘要器', () async {
-    final s = await _startMock(echoMessages);
-    final summarizer = _FakeSummarizer();
-    final client = _client(
-      s.baseUrl,
-      policy: CloudContextPolicy(
-        baseUrl: s.baseUrl,
-        apiKey: _dummyKey,
-        modelName: _dummyModel,
-        budget: 0, // 任何历史都超预算 → 只留 minKeep=2
-        summarizer: summarizer,
-      ),
-    );
+  // ── 测试 F：isReady 恒真；ensureReady 幂等且无副作用 ──
+  test('F. isReady 恒真，ensureReady 幂等', () async {
+    final delivery = _delivery('https://example.com');
+    expect(delivery.isReady, isTrue);
 
-    final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: 'q1', round: 1),
-      ChatMessage(role: MessageRole.ai, content: 'a1', round: 1),
-      ChatMessage(role: MessageRole.user, content: 'q2', round: 2),
-      ChatMessage(role: MessageRole.ai, content: 'a2', round: 2),
-      ChatMessage(role: MessageRole.user, content: 'q3', round: 3),
-      ChatMessage(role: MessageRole.ai, content: 'a3', round: 3),
-    ])) {
-      received.add(d);
-    }
-    client.dispose();
-    await s.close();
-
-    // 预算 0 + minKeep 2 → 装窗只保留最后 2 条；被移出的 4 条进摘要器
-    expect(received, ['user:q3|', 'assistant:a3|']);
-    expect(summarizer.calls, 1);
-    expect(summarizer.lastEvicted.length, 4);
+    await delivery.ensureReady();
+    await delivery.ensureReady();
+    expect(delivery.isReady, isTrue);
   });
 
-  // ── 测试 F：isReady 恒真；initialize 暂存 goals 且恒成功 ──
-  test('F. isReady 恒真，initialize 暂存 goals', () async {
-    final client = _client('https://example.com');
-    expect(client.isReady, isTrue);
-
-    final ok = await client.initialize(
-      existingGoals: [
-        Goal(
-          title: '学英语',
-          createdAt: DateTime(2026, 1, 1),
-          updatedAt: DateTime(2026, 1, 1),
-        ),
-      ],
-    );
-    expect(ok, isTrue);
-    expect(client.isReady, isTrue);
-  });
-
-  // ── 测试 G：请求体为 OpenAI 格式——system 人设（goals）+ model + Bearer 头 ──
-  test('G. 请求体含 system 人设/model/Authorization，goals 注入', () async {
+  // ── 测试 G：请求体为 OpenAI 格式——system 人设 + model + Bearer 头 ──
+  test('G. 请求体含 system 人设/model/Authorization，人设原样透传', () async {
     Map<String, dynamic>? capturedBody;
     String? capturedAuth;
     final s = await _startMock((resp, s2, body) async {
@@ -364,24 +309,16 @@ void main() {
       await _writeFrame(resp, '[DONE]', s2.clientDisconnected);
       await resp.close();
     });
-    final client = _client(s.baseUrl);
-    await client.initialize(
-      existingGoals: [
-        Goal(
-          title: '三个月内找到 iOS 工作',
-          createdAt: DateTime(2026, 1, 1),
-          updatedAt: DateTime(2026, 1, 1),
-        ),
-      ],
-    );
+    final delivery = _delivery(s.baseUrl);
 
-    final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '近况', round: 1),
-    ])) {
-      received.add(d);
-    }
-    client.dispose();
+    // 业务人设（含目标注入段）——交付层只做透传，不重组人设
+    const goalsPrompt = '$_systemPrompt\n\n## 用户已有目标\n'
+        '[active] 三个月内找到 iOS 工作\n建议合并而非新建';
+
+    final received = await delivery
+        .deliver(_assembled([_user('近况', 1)]), systemPrompt: goalsPrompt)
+        .toList();
+    delivery.dispose();
     await s.close();
 
     expect(received, ['ok']);
@@ -390,20 +327,14 @@ void main() {
     expect(capturedBody!['stream'], isTrue);
     expect(capturedAuth, 'Bearer $_dummyKey');
 
-    // system 首条：统一人设（与 ConversationStrategy.buildSystemPrompt 一致）
-    // + goals 注入段
+    // system 首条 = 业务传入的人设（逐字），无交付层重组
     final messages = capturedBody!['messages'] as List;
     expect(messages.first['role'], 'system');
-    final system = messages.first['content'] as String;
-    expect(system, contains('你是知行AI'));
-    expect(system, contains('Markdown'));
-    expect(system, contains('## 用户已有目标'));
-    expect(system, contains('[active] 三个月内找到 iOS 工作'));
-    expect(system, contains('建议合并而非新建'));
+    expect(messages.first['content'], goalsPrompt);
   });
 
-  // ── 测试 H：未调 initialize（无 goals）→ system 仍发送，不含目标段 ──
-  test('H. 无 goals 时 system 不含目标段', () async {
+  // ── 测试 H：摘要卡作为第二条 system 紧随人设 ──
+  test('H. 摘要卡作为第二条 system，排在历史之前', () async {
     Map<String, dynamic>? capturedBody;
     final s = await _startMock((resp, s2, body) async {
       capturedBody = jsonDecode(body) as Map<String, dynamic>;
@@ -411,38 +342,41 @@ void main() {
       await _writeFrame(resp, '[DONE]', s2.clientDisconnected);
       await resp.close();
     });
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
-    await for (final _ in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '近况', round: 1),
-    ])) {}
-    client.dispose();
+    await _collect(
+      delivery,
+      _assembled([_user('近况', 1)],
+          summaryCard: '$kSummaryCardPrefix\n此前聊过换工作'),
+    );
+    delivery.dispose();
     await s.close();
 
     final messages = capturedBody!['messages'] as List;
-    final system = messages.first['content'] as String;
-    expect(system, contains('你是知行AI'));
-    expect(system, isNot(contains('## 用户已有目标')));
+    expect(messages[0], {'role': 'system', 'content': _systemPrompt});
+    expect(messages[1], {
+      'role': 'system',
+      'content': '$kSummaryCardPrefix\n此前聊过换工作',
+    });
+    expect(messages[2]['role'], 'user');
   });
 
-  // ── 测试 I：HTTP 非 200 → 抛错且错误信息含状态码 ──
+  // ── 测试 I：HTTP 非 200 → 流上抛错且错误信息含状态码 ──
   test('I. 上游 401 → 抛错含 HTTP 状态码', () async {
     final s = await _startMock((resp, s2, body) async {
       resp.statusCode = 401;
       resp.write('{"error":{"message":"Invalid API key"}}');
       await resp.close();
     });
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
     Object? caught;
     try {
-      await for (final _ in client.generateResponse([
-        ChatMessage(role: MessageRole.user, content: '近况', round: 1),
-      ])) {}
+      await _collect(delivery, _assembled([_user('近况', 1)]));
     } catch (e) {
       caught = e;
     } finally {
-      client.dispose();
+      delivery.dispose();
       await s.close();
     }
 
@@ -454,8 +388,7 @@ void main() {
   test('J. 无 content 的帧被跳过，不产出空 delta', () async {
     final s = await _startMock((resp, s, body) async {
       // role 帧（OpenAI 首帧常见）
-      await _writeFrame(
-          resp, '{"choices":[{"delta":{"role":"assistant"}}]}',
+      await _writeFrame(resp, '{"choices":[{"delta":{"role":"assistant"}}]}',
           s.clientDisconnected);
       // finish_reason 帧
       await _writeFrame(
@@ -467,17 +400,20 @@ void main() {
       await _writeFrame(resp, '[DONE]', s.clientDisconnected);
       await resp.close();
     });
-    final client = _client(s.baseUrl);
+    final delivery = _delivery(s.baseUrl);
 
-    final received = <String>[];
-    await for (final d in client.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '近况', round: 1),
-    ])) {
-      received.add(d);
-    }
-    client.dispose();
+    final received = await _collect(delivery, _assembled([_user('近况', 1)]));
+    delivery.dispose();
     await s.close();
 
     expect(received, ['好']);
+  });
+
+  // ── 附加：prime 为 no-op（云端无会话态，契约对称） ──
+  test('K. prime 为 no-op：云端无会话态可预置', () {
+    final delivery = _delivery('https://example.com');
+    // 不应抛异常，也不产生任何可观察行为
+    delivery.prime(_assembled([_user('q', 1)]), systemPrompt: _systemPrompt);
+    expect(delivery.isReady, isTrue);
   });
 }

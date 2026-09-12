@@ -2,10 +2,10 @@
 ///
 /// 业务只认这个接口——后端（本地 / 云端）差异全部关进 `core/llm`，
 /// 模式由服务按用户设置解析（唯一解析点），业务不感知「当前用的谁」。
-///
-/// `converse`（多轮对话流）与 `stop` 在 Task 3（对话链路并入）加入；
-/// 本 Task 只落单次补全能力。
 library;
+
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 
 /// 推理后端模式。
 ///
@@ -16,8 +16,22 @@ enum ChatMode {
   cloud,
 }
 
-/// 大模型服务接口：单次补全 + 结构化补全 + 就绪态。
+/// 大模型服务接口：多轮对话 + 单次补全 + 结构化补全 + 就绪态。
 abstract class Llm {
+  /// 一轮对话：给**完整历史**（尾部为本轮新用户消息），回文本流。
+  ///
+  /// [systemPrompt] 为业务提供的人设（唯一出处是业务侧，基建不持）；
+  /// [state] 为业务持有的会话压缩状态实例（类型在基建、实例在业务），
+  /// 装配过程就地更新它——**服务不持消息列表、不持压缩状态**。
+  ///
+  /// 端侧溢出（context full）由服务内部自愈；彻底失败以兜底文案收尾，
+  /// 云端异常（超时 / 非 2xx）原样经流上抛，由业务决定降级。
+  Stream<String> converse(
+    List<ChatMessage> history, {
+    required String systemPrompt,
+    required ContextState state,
+  });
+
   /// 一次补全：给 system + user，回一段文本（内部收流、剥 think）。
   ///
   /// [maxTokens] 缺省时用后端默认值。后端未就绪时由入口自行确保
@@ -39,6 +53,14 @@ abstract class Llm {
     int? maxTokens,
   });
 
+  /// 确保当前后端就绪（幂等）：本地加载引擎 + 建会话，云端校验 BYOK 配置。
+  /// 失败抛带语义的异常（业务据此走降级 / 错误视图）。
+  Future<void> ensureReady();
+
+  /// 中断进行中的对话流。
+  void stop();
+
   /// 当前后端是否就绪（供 UI 表达，**不暴露**「本地/云端」）。
   bool get isReady;
 }
+

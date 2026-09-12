@@ -2,11 +2,18 @@ import 'dart:convert';
 
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/cloud_completion.dart';
+import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
+import 'package:zhixing_ai/core/llm/delivery/local_delivery.dart';
 import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/llm/local_context_policy.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
@@ -37,23 +44,117 @@ class LlmService implements Llm {
   final SingleShotAsk? _cloudAsk;
   final SingleShotAsk? _localAsk;
 
-  /// [settings] 缺省用仓库单例；[cloudAsk] / [localAsk] 仅测试注入。
+  /// 转换 / 交付接缝（**仅测试注入**）；null 时按模式解析生产实现。
+  ///
+  /// 端侧引擎与 `EngineChat` 均为 `final class` 无法 fake，故用函数接缝让
+  /// [converse] 的编排（装配 → 交付 → 溢出承接自愈）可单测——与
+  /// [SingleShotAsk] 同一思路。
+  final ContextPolicy Function()? _policyFactory;
+  final ChatDelivery Function()? _deliveryFactory;
+
+  /// 端侧引擎句柄（服务资源态：不持它就无法加载 / 释放）。
+  LlamaEngine? _localEngine;
+
+  /// 交付实现（服务资源态）。云端按 BYOK 指纹重建，本地复用同一会话。
+  LocalDelivery? _localDelivery;
+  CloudDelivery? _cloudDelivery;
+  String? _cloudFingerprint;
+
+  /// 测试接缝交付实例：惰性建一次并复用（与生产「稳定实例」语义一致）。
+  ChatDelivery? _overrideDelivery;
+
+  /// [settings] 缺省用仓库单例；其余接缝（[cloudAsk] / [localAsk] /
+  /// [policyFactory] / [deliveryFactory]）仅测试注入。
   LlmService({
     SettingsRepository? settings,
     SingleShotAsk? cloudAsk,
     SingleShotAsk? localAsk,
+    ContextPolicy Function()? policyFactory,
+    ChatDelivery Function()? deliveryFactory,
   })  : _settings = settings ?? SettingsRepository.instance,
         _cloudAsk = cloudAsk, // ignore: prefer_initializing_formals
-        _localAsk = localAsk; // ignore: prefer_initializing_formals
+        _localAsk = localAsk, // ignore: prefer_initializing_formals
+        _policyFactory = policyFactory, // ignore: prefer_initializing_formals
+        _deliveryFactory = deliveryFactory; // ignore: prefer_initializing_formals
 
   /// 启动期初始化（composition root 调用，异步不卡首帧）。
   ///
-  /// Task 2 现阶段仅记录解析出的模式；Task 4 扩展为：本地模式主动预热
+  /// Task 3 现阶段仅记录解析出的模式；Task 4 扩展为：本地模式主动预热
   /// 引擎 + 订阅设置变更（窄 Listenable，切云端延迟释放）。
   Future<void> initialize() async {
     AppLogger.info('LlmService',
         '初始化完成，当前模式: ${_settings.chatCloudMode ? 'cloud' : 'local'}');
   }
+
+  // ─── 对话（多轮）───
+
+  /// 服务内部编排上下文交付链：入口确保就绪 → 转换（装配）→ 交付 → 取回。
+  ///
+  /// 端侧溢出（context full）在此承接自愈：强制收缩 → 重新装配 →
+  /// 预置会话（下一轮直接可用），本轮以兜底文案收尾。
+  @override
+  Stream<String> converse(
+    List<ChatMessage> history, {
+    required String systemPrompt,
+    required ContextState state,
+  }) async* {
+    final policy = await _policyFor();
+    final delivery = await _deliveryFor();
+    final assembled = await policy.assemble(
+      history,
+      state: state,
+      systemPrompt: systemPrompt,
+    );
+
+    try {
+      // **必须用 `await for` 而非 `yield*`**：`yield*` 委托时内层流的错误会直
+      // 接转投到输出流，**绕过本 try**，下面的溢出承接将永远不触发。`await for`
+      // 才会把内层错误抛进本函数的 try 作用域（用 `yield*` 的写法曾被单测当场
+      // 抓住——自愈静默失效）。
+      await for (final token
+          in delivery.deliver(assembled, systemPrompt: systemPrompt)) {
+        yield token;
+      }
+    } on LlmContextOverflowException {
+      AppLogger.warn('LlmService', '端侧上下文撑爆，强制收缩后重放');
+      try {
+        policy.handleOverflow(state);
+        final healed = await policy.assemble(
+          history,
+          state: state,
+          systemPrompt: systemPrompt,
+        );
+        // 二次重放不再判定尾部去重（isDuplicate 有状态，本轮已判定过）
+        delivery.prime(healed, systemPrompt: systemPrompt, nudgeTail: false);
+      } catch (re) {
+        AppLogger.error('LlmService', '自愈重放失败', re);
+      }
+      yield kLlmFailureReply;
+    }
+  }
+
+  @override
+  void stop() {
+    _overrideDelivery?.stop();
+    _localDelivery?.stop();
+    _cloudDelivery?.stop();
+  }
+
+  @override
+  Future<void> ensureReady() async {
+    if (_settings.chatCloudMode) {
+      _requireCloudConfigured();
+      return;
+    }
+    await _localDeliveryFor();
+  }
+
+  @override
+  bool get isReady => _settings.chatCloudMode
+      ? _settings.isCloudApiConfigured
+      : (_localDelivery?.isReady ?? false);
+
+  // ─── 单次补全 ───
 
   @override
   Future<String> ask({
@@ -88,20 +189,78 @@ class LlmService implements Llm {
     return parsed;
   }
 
-  @override
-  bool get isReady => _settings.chatCloudMode
-      ? _settings.isCloudApiConfigured
-      : LlamaService.instance.hasLoadedEngine;
-
   // ─── 模式解析（唯一出处）───
 
   /// **唯一的模式解析点**：每次调用时读设置（入口复核——即使将来通知
-  /// 漏发，这里也不会用错后端）。云端模式要求三件套齐全，否则抛语义异常。
-  SingleShotAsk _resolveCompleter() {
-    if (_settings.chatCloudMode) {
-      if (!_settings.isCloudApiConfigured) {
-        throw StateError('云端模式未配置完整（地址 / Key / 模型名），请先在设置中补全');
+  /// 漏发，这里也不会用错后端）。
+  ChatMode get _mode =>
+      _settings.chatCloudMode ? ChatMode.cloud : ChatMode.local;
+
+  void _requireCloudConfigured() {
+    if (!_settings.isCloudApiConfigured) {
+      throw StateError('云端模式未配置完整（地址 / Key / 模型名），请先在设置中补全');
+    }
+  }
+
+  /// 转换段：按模式给出后端策略（度量 + 预算 + 摘要实现）。
+  Future<ContextPolicy> _policyFor() async {
+    final override = _policyFactory;
+    if (override != null) return override();
+    if (_mode == ChatMode.cloud) {
+      _requireCloudConfigured();
+      return CloudContextPolicy(
+        baseUrl: _settings.cloudApiBaseUrl,
+        apiKey: _settings.cloudApiKey,
+        modelName: _settings.cloudModelName,
+      );
+    }
+    final engine = await _ensureLocalEngine();
+    return LocalContextPolicy(summarizer: LlamaSummarizer(engine));
+  }
+
+  /// 交付段：按模式给出交付实现（模式出口，业务不可见）。
+  Future<ChatDelivery> _deliveryFor() async {
+    final override = _deliveryFactory;
+    // 惰性建一次并复用：交付实现是「稳定实例」（端侧靠它复用同一会话）
+    if (override != null) return _overrideDelivery ??= override();
+    if (_mode == ChatMode.cloud) {
+      _requireCloudConfigured();
+      final fingerprint = '${_settings.cloudApiBaseUrl}\u0000'
+          '${_settings.cloudApiKey}\u0000${_settings.cloudModelName}';
+      if (_cloudDelivery == null || _cloudFingerprint != fingerprint) {
+        _cloudDelivery?.dispose();
+        _cloudDelivery = CloudDelivery(
+          baseUrl: _settings.cloudApiBaseUrl,
+          apiKey: _settings.cloudApiKey,
+          modelName: _settings.cloudModelName,
+        );
+        _cloudFingerprint = fingerprint;
       }
+      return _cloudDelivery!;
+    }
+    return _localDeliveryFor();
+  }
+
+  Future<LocalDelivery> _localDeliveryFor() async {
+    final engine = await _ensureLocalEngine();
+    final delivery = _localDelivery ??=
+        LocalDelivery(sessionFactory: () => engine.createChat().then(LlamaChatSession.new));
+    await delivery.ensureReady();
+    return delivery;
+  }
+
+  Future<LlamaEngine> _ensureLocalEngine() async {
+    final engine = _localEngine;
+    if (engine != null) return engine;
+    _localEngine =
+        await LlamaService.instance.ensureReady(gpuLayers: _settings.gpuLayers);
+    return _localEngine!;
+  }
+
+  /// 单次补全的后端接缝：模式解析（唯一出处）+ 就绪校验。
+  SingleShotAsk _resolveCompleter() {
+    if (_mode == ChatMode.cloud) {
+      _requireCloudConfigured();
       return _cloudAsk ?? _defaultCloudAsk;
     }
     return _localAsk ?? _defaultLocalAsk;

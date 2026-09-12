@@ -8,8 +8,9 @@ import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
+
+import '../../../support/fake_llm.dart';
 
 /// ChatProvider 单元测试
 ///
@@ -48,45 +49,22 @@ class _RecordingConversationService extends ConversationService {
   }
 }
 
-/// fake 对话客户端：脚本化生成行为，供 Provider 降级/取消/持久化测试
-class _FakeChatClient implements ChatClient {
-  bool ready = false;
-  Object? throwOnInitialize;
-  Stream<String> Function(List<ChatMessage> history)? onGenerate;
-
-  final List<List<ChatMessage>> generateCalls = [];
-  final List<List<Goal>> initializeGoals = [];
-  int stopCalls = 0;
-  bool disposed = false;
-
-  @override
-  bool get isReady => ready;
-
-  @override
-  Future<bool> initialize({List<Goal> existingGoals = const []}) async {
-    initializeGoals.add(existingGoals);
-    if (throwOnInitialize != null) throw throwOnInitialize!;
-    ready = true;
-    return true;
-  }
-
-  @override
-  Stream<String> generateResponse(List<ChatMessage> history) {
-    generateCalls.add(history);
-    return onGenerate?.call(history) ?? const Stream.empty();
-  }
-
-  @override
-  void stop() => stopCalls++;
-
-  @override
-  void dispose() => disposed = true;
-}
-
 /// 目标仓库 fake：返回空目标（load 不依赖 DB）
 class _OkDashboardRepo extends DashboardRepository {
   @override
   Future<List<Goal>> getActiveGoals() async => const [];
+}
+
+/// 目标仓库 fake：返回一个已有目标（验证「目标注入人设」留在业务侧）
+class _GoalsDashboardRepo extends DashboardRepository {
+  @override
+  Future<List<Goal>> getActiveGoals() async => [
+        Goal(
+          title: '学英语',
+          createdAt: DateTime(2026, 1, 1),
+          updatedAt: DateTime(2026, 1, 1),
+        ),
+      ];
 }
 
 /// 目标仓库 fake：模拟测试环境无 DB（getActiveGoals 抛错）
@@ -105,7 +83,7 @@ void main() {
   ChatProvider makeProvider({
     String topic = 'test',
     bool skipDb = true,
-    ChatClient? client,
+    FakeLlm? llm,
     DashboardRepository? dashboardRepo,
     ConversationService? conversationService,
   }) =>
@@ -113,7 +91,7 @@ void main() {
         topic: topic,
         conversation: skipDb ? _dummyConv() : null,
         conversationService: conversationService ?? _NoopConversationService(),
-        client: client,
+        llm: llm ?? FakeLlm(),
         dashboardRepo: dashboardRepo,
       );
 
@@ -165,33 +143,52 @@ void main() {
     });
   });
 
-  group('ChatProvider × ChatClient 接入', () {
-    test('loadModel：注入 client 初始化成功 → isModelReady，goals 透传', () async {
-      final client = _FakeChatClient();
-      final provider = makeProvider(client: client, dashboardRepo: _OkDashboardRepo());
+  group('ChatProvider × Llm 接入', () {
+    test('loadModel：ensureReady 成功 → isModelReady', () async {
+      final llm = FakeLlm();
+      final provider = makeProvider(llm: llm, dashboardRepo: _OkDashboardRepo());
 
       expect(provider.isModelReady, isFalse);
       await provider.loadModel();
       expect(provider.isModelReady, isTrue);
       expect(provider.hasModelError, isFalse);
-      expect(client.initializeGoals.single, isEmpty);
+      expect(llm.ensureReadyCalls, 1);
     });
 
     test('loadModel：目标仓库失败 → modelError（不阻塞 mock 路径）', () async {
+      final llm = FakeLlm();
       final provider = makeProvider(
-        client: _FakeChatClient(),
+        llm: llm,
         dashboardRepo: _FailingDashboardRepo(),
       );
 
       await provider.loadModel();
       expect(provider.hasModelError, isTrue);
       expect(provider.isModelReady, isFalse);
+      // 目标读取失败即短路，不再触碰后端
+      expect(llm.ensureReadyCalls, 0);
+    });
+
+    test('人设每轮注入已有目标（目标读取留在业务侧）', () async {
+      final llm = FakeLlm();
+      final provider = makeProvider(
+        llm: llm,
+        dashboardRepo: _GoalsDashboardRepo(),
+      );
+      await provider.loadModel();
+
+      llm.onConverse = (_) => Stream.value('回复');
+      await provider.sendMessage('hi');
+
+      final prompt = llm.converseCalls.single.systemPrompt;
+      expect(prompt, contains('## 用户已有目标'));
+      expect(prompt, contains('[active] 学英语'));
     });
 
     test('流式回复逐段写回 AI 消息，历史尾部为本轮用户消息', () async {
-      final client = _FakeChatClient();
+      final llm = FakeLlm();
       final provider = makeProvider(
-        client: client,
+        llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
       await provider.loadModel();
@@ -205,7 +202,7 @@ void main() {
         }
       });
 
-      client.onGenerate = (_) => controller.stream;
+      llm.onConverse = (_) => controller.stream;
       final sendFuture = provider.sendMessage('我想转管理');
       await Future<void>.delayed(Duration.zero);
 
@@ -219,22 +216,35 @@ void main() {
       expect(provider.messages.last.content, '你好');
       expect(seen, contains('你')); // 中间态曾被写回
       // 历史 = 去掉尾部空 AI 占位符 → 尾部是本轮用户消息
-      final history = client.generateCalls.single;
-      expect(history.last.role, MessageRole.user);
-      expect(history.last.content, '我想转管理');
-      expect(history.where((m) => m.content.isEmpty), isEmpty);
+      final call = llm.converseCalls.single;
+      expect(call.history.last.role, MessageRole.user);
+      expect(call.history.last.content, '我想转管理');
+      expect(call.history.where((m) => m.content.isEmpty), isEmpty);
     });
 
-    test('stopGeneration：半截内容保留，正常收尾且转发 stop 到 client', () async {
-      final client = _FakeChatClient();
+    test('压缩状态实例由业务持有并跨轮复用（类型在基建、实例在业务）', () async {
+      final llm = FakeLlm();
+      final provider = makeProvider(llm: llm, dashboardRepo: _OkDashboardRepo());
+      await provider.loadModel();
+      llm.onConverse = (_) => Stream.value('回复');
+
+      await provider.sendMessage('a');
+      await provider.sendMessage('b');
+
+      expect(llm.converseCalls.length, 2);
+      expect(llm.converseCalls[0].state, same(llm.converseCalls[1].state));
+    });
+
+    test('stopGeneration：半截内容保留，正常收尾且转发 stop 到服务', () async {
+      final llm = FakeLlm();
       final provider = makeProvider(
-        client: client,
+        llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
       await provider.loadModel();
       final gate = Completer<void>();
 
-      client.onGenerate = (_) async* {
+      llm.onConverse = (_) async* {
         yield '部分';
         await gate.future;
         yield '后半';
@@ -251,19 +261,19 @@ void main() {
       expect(provider.isThinking, isFalse);
       expect(provider.round, 2); // 轮次已推进
       expect(provider.error, isNull); // 未进降级分支
-      expect(client.stopCalls, 1);
+      expect(llm.stopCalls, 1);
       gate.complete(); // 清理挂起的生成器
     });
 
     test('TimeoutException → 固定超时文案', () async {
-      final client = _FakeChatClient();
+      final llm = FakeLlm();
       final provider = makeProvider(
-        client: client,
+        llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
       await provider.loadModel();
 
-      client.onGenerate = (_) async* {
+      llm.onConverse = (_) async* {
         throw TimeoutException('帧间空闲');
       };
 
@@ -273,14 +283,14 @@ void main() {
     });
 
     test('空内容异常 → Mock 降级', () async {
-      final client = _FakeChatClient();
+      final llm = FakeLlm();
       final provider = makeProvider(
-        client: client,
+        llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
       await provider.loadModel();
 
-      client.onGenerate = (_) async* {
+      llm.onConverse = (_) async* {
         throw StateError('boom');
       };
 
@@ -290,16 +300,16 @@ void main() {
     });
 
     test('每轮流式结束后持久化消息', () async {
-      final client = _FakeChatClient();
+      final llm = FakeLlm();
       final service = _RecordingConversationService();
       final provider = makeProvider(
-        client: client,
+        llm: llm,
         conversationService: service,
         dashboardRepo: _OkDashboardRepo(),
       );
       await provider.loadModel();
 
-      client.onGenerate = (history) => Stream.value('回复');
+      llm.onConverse = (history) => Stream.value('回复');
       await provider.sendMessage('hi');
 
       expect(service.saves.length, 1);

@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
-import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
+import 'package:zhixing_ai/features/chat/prompt/conversation_strategy.dart';
 
 Goal _goal(String title, [GoalStatus status = GoalStatus.active]) => Goal(
       title: title,

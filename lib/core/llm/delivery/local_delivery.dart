@@ -1,19 +1,17 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/llm/delivery/tail_dedup.dart';
 import 'package:zhixing_ai/core/llm/inference.dart';
-import 'package:zhixing_ai/core/llm/local_context_policy.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/prompt/conversation_strategy.dart';
 
 /// 端侧推理会话窄接口：一份多轮消息列表 + 每轮全量渲染生成。
 ///
-/// 它是 [LocalChatClient] 唯一的 SDK 依赖点，也是**测试接缝**——单测注入 fake
-/// 即可覆盖压缩、自愈、think 剥离等路径，无需加载真实模型。生产实现见
+/// 它是 [LocalDelivery] 唯一的 SDK 依赖点，也是**测试接缝**——单测注入 fake
+/// 即可覆盖重放、think 剥离等路径，无需加载真实模型。生产实现见
 /// [LlamaChatSession]（`EngineChat` 的薄适配）。
 ///
 /// 名字里的 Session 指「一次对话会话」，**与 KV 缓存无关**：底层每轮 generate
@@ -71,93 +69,61 @@ class LlamaChatSession implements ChatSession {
 /// 生产包 [LlamaEngine.createChat]，测试注入 fake。
 typedef ChatSessionFactory = Future<ChatSession> Function();
 
-/// 本地（端侧 llama）对话客户端。
+/// 端侧交付实现（llama.cpp 会话）。
 ///
-/// 职责：① 把 [ContextPolicy] 的装配结果「清空 + 全量重放」到 [ChatSession]
-/// （见 [_syncSession]）；② think 剥离；③ `context full` 自愈。
+/// 职责：① 把服务装配好的上下文「清空 + 全量重放」到 [ChatSession]
+/// （见 [_syncSession]）；② think 剥离；③ `context full` 抛类型化信号
+/// （自愈编排在服务层）。
 ///
 /// **为何每轮重放而非增量补差**：`EngineChat` 收尾会把回复（含 think 原文）自动
 /// 登记进自己的列表，增量喂法会有两份必然漂移的列表，只能靠游标 + 位置型补丁
-/// 对齐。重放后引擎不再持有权威副本——唯一真相源是 `ChatProvider._messages`，
+/// 对齐。重放后引擎不再持有权威副本——唯一真相源是业务的 `_messages`，
 /// 与云端（每轮现拼现发）同构。成本仅 N 次本地 `List.add`（零 RPC）。
 /// 设计见 `docs/plans/2026-09-11-local-stateless-replay-design.md`。
-///
-/// 上下文装配（过滤 / 装窗 / 压缩）不属于本类，见 [ContextPolicy]。
-class LocalChatClient implements ChatClient {
-  final ConversationStrategy _strategy;
+class LocalDelivery implements ChatDelivery {
   final ChatSessionFactory _createSession;
-  final ContextPolicy _policy;
 
-  /// 当前推理会话。全生命周期只有**一个**（[initialize] 创建），此后只 clear + 重放。
+  /// 尾部去重（交付内部状态）。
+  final TailDeduplicator _dedup = TailDeduplicator();
+
+  /// 当前推理会话。全生命周期只有**一个**（[ensureReady] 创建），此后只 clear + 重放。
   ChatSession? _session;
-  String _systemPrompt = '';
 
-  /// 会话压缩状态（Task 3 后由业务持有并传入；本步先由交付实现暂持）。
-  final ContextState _state = ContextState();
-
-  /// [engine] 与 [sessionFactory] 必须给其一（构造期 [ArgumentError]）。
-  /// 只注入 [sessionFactory]（无 [engine]）时摘要引擎不可用：压缩回落纯丢弃。
-  /// [policy] 可整体替换（测试注入小预算策略强制触发压缩）。
-  LocalChatClient({
-    LlamaEngine? engine,
-    ConversationStrategy? strategy,
-    ChatSessionFactory? sessionFactory,
-    ContextPolicy? policy,
-    ConversationSummarizer? summarizer,
-  })  : _strategy = strategy ?? ConversationStrategy(),
-        _createSession = sessionFactory ??
-            (() => engine!.createChat().then(LlamaChatSession.new)),
-        _policy = policy ??
-            LocalContextPolicy(
-              summarizer:
-                  summarizer ?? (engine == null ? null : LlamaSummarizer(engine)),
-            ) {
-    if (engine == null && sessionFactory == null) {
-      throw ArgumentError('LocalChatClient 需要 engine 或 sessionFactory 之一');
-    }
-  }
+  LocalDelivery({required ChatSessionFactory sessionFactory})
+      : _createSession = sessionFactory;
 
   @override
   bool get isReady => _session != null;
 
   @override
-  Future<bool> initialize({List<Goal> existingGoals = const []}) async {
-    try {
-      _systemPrompt = _strategy.buildSystemPrompt(existingGoals: existingGoals);
-      _session?.dispose();
-      _session = await _createSession();
-      _session!.addSystem(_systemPrompt);
-      _state.reset();
-      return true;
-    } catch (e) {
-      AppLogger.error('LocalChatClient', '初始化失败', e);
-      return false;
-    }
+  Future<void> ensureReady() async {
+    if (_session != null) return;
+    _session = await _createSession();
   }
 
   @override
-  Stream<String> generateResponse(List<ChatMessage> history) async* {
+  Stream<String> deliver(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) async* {
     final session = _session;
     if (session == null) {
-      AppLogger.warn('LocalChatClient', '引擎未初始化');
-      yield '助手尚在准备中，请稍后再来。';
+      AppLogger.warn('LocalDelivery', '引擎未就绪');
+      yield kLlmNotReadyReply;
       return;
     }
 
-    // 装配（过滤 + 装窗 + 压缩）委托策略，随后无状态重放到会话
-    final assembled = await _policy.assemble(
-      history,
-      state: _state,
-      systemPrompt: _systemPrompt,
-    );
-    _syncSession(session, assembled);
+    _syncSession(session, assembled,
+        systemPrompt: systemPrompt, nudgeTail: nudgeTail);
 
     // think 剥离流式输出
     final buffer = StringBuffer();
     var passedThink = false;
     var suppressWhitespace = false;
     try {
-      await for (final token in session.generate(maxTokens: AppConstants.localMaxTokens)) {
+      await for (final token
+          in session.generate(maxTokens: AppConstants.localMaxTokens)) {
         if (!passedThink) {
           buffer.write(token);
           final text = buffer.toString();
@@ -204,30 +170,31 @@ class LocalChatClient implements ChatClient {
         yield fullReply;
       }
     } catch (e) {
-      AppLogger.error('LocalChatClient', '生成回复失败', e);
-      // context full = 真实上下文先于估算撑爆，必须真正减少保留条数才能自愈。
+      // context full = 真实上下文先于估算撑爆 → 交服务强制收缩自愈
       if (_isContextFullError(e)) {
-        try {
-          // 自愈：策略强制收缩后重新装配重放（下一轮直接可用）。
-          // nudgeTail: false —— 本轮已判定过尾问，不得重复计入去重窗口。
-          _policy.handleOverflow(_state);
-          final healed = await _policy.assemble(
-            history,
-            state: _state,
-            systemPrompt: _systemPrompt,
-          );
-          _syncSession(session, healed, nudgeTail: false);
-        } catch (re) {
-          AppLogger.error('LocalChatClient', '自愈重放失败', re);
-        }
+        AppLogger.warn('LocalDelivery', '上下文撑爆，交服务自愈: $e');
+        throw const LlmContextOverflowException();
       }
-      yield '\n\n[助手暂时无法回应，请稍后再试]';
+      AppLogger.error('LocalDelivery', '生成回复失败', e);
+      yield kLlmFailureReply;
     }
   }
 
   @override
+  void prime(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) {
+    final session = _session;
+    if (session == null) return;
+    _syncSession(session, assembled,
+        systemPrompt: systemPrompt, nudgeTail: nudgeTail);
+  }
+
+  @override
   void stop() {
-    // 本地流中断由 Provider 取消订阅完成，无遗留状态需清理：下一轮会 clear 重放。
+    // 本地流中断由消费方取消订阅完成，无遗留状态需清理：下一轮会 clear 重放。
   }
 
   @override
@@ -240,15 +207,16 @@ class LocalChatClient implements ChatClient {
   /// 使引擎内列表恒等于本轮装配结果。本类与 SDK 之间唯一的会话同步点。
   ///
   /// [nudgeTail] 为尾部用户消息的去重改写开关（上一问高度相似 → 提示换角度）。
-  /// `isDuplicate` 有状态（会把问题记入滚动窗口），故同一次 [generateResponse]
-  /// 内只允许调用一次：溢出自愈的二次重放须传 `false`。
+  /// `isDuplicate` 有状态（会把问题记入滚动窗口），故同一轮交付内只允许施加
+  /// 一次：溢出收缩后的二次重放（服务的 [prime]）须传 `false`。
   void _syncSession(
     ChatSession session,
     AssembledContext assembled, {
+    required String systemPrompt,
     bool nudgeTail = true,
   }) {
     session.clear();
-    session.addSystem(_systemPrompt);
+    session.addSystem(systemPrompt);
     final summaryCard = assembled.summaryCard;
     if (summaryCard != null) {
       session.addSystem(summaryCard);
@@ -259,7 +227,8 @@ class LocalChatClient implements ChatClient {
       final msg = messages[i];
       if (msg.content.isEmpty) continue;
       if (msg.role == MessageRole.user) {
-        final rewritten = nudgeTail && i == last && _strategy.isDuplicate(msg.content);
+        final rewritten =
+            nudgeTail && i == last && _dedup.isDuplicate(msg.content);
         session.addUser(rewritten
             ? '${msg.content}（请从不同的角度回答，不要重复之前的观点）'
             : msg.content);

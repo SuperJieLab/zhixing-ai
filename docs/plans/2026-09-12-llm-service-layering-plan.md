@@ -1,6 +1,6 @@
 # 知行AI — 大模型服务分层实施计划
 
-> 状态：**设计已确认 · 待开工**（2026-09-12 三项待拍全部拍定；代码未动）
+> 状态：**实施中——Task 1 / 2 / 3 已完成，Task 4 / 5 待开工**（2026-09-12）
 > 设计：`docs/plans/2026-09-12-llm-service-layering-design.md`
 > 依据：`docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §11（业界对照）；`.workbuddy/memory/2026-09-11.md`（架构决策链 + 源码核实）
 > 前置纪律：工作区**尚有三份文件未提交**（本 plan / design 两份新文档 + `docs/PROJECT.md` 决策表一行修改；本地领先远端 18 commit）→ 开工前先提交这批文档，形成回退点。
@@ -96,9 +96,10 @@
 
 **风险**：云端 `ask` 若不加容错，提取成功率可能低于本地。**A1 与本 Task 不可分割**。
 
-## Task 3：对话链路并入服务 ⬜ 未开始
+## Task 3：对话链路并入服务 ✅ 完成（2026-09-12）
 
-> 依赖 Task 2。**最大的一块**，`features/chat/engine/` 在此解体。建议拆成多个 commit 粒度（交付下沉 / 转换上移 / provider 改造）。
+> 依赖 Task 2。**最大的一块**，`features/chat/engine/` 在此解体。
+> 分两个 commit 落地：**3a** 转换段上移 core + 压缩状态外置（方案 A）；**3b** 交付段上移 + 服务串联 + 业务瘦身。
 
 **文件**
 
@@ -118,16 +119,31 @@
 8. **`ChatClient.initialize({existingGoals})` 退场**：goals 改由业务读（`ChatProvider` 的 `getActiveGoals()`）并随 `spec` 每轮传人设；`_modelError` / `retryLoadModel()` / `_generateMockResponse()`（mock 兜底）归属按 design §10.1 **#8** 落定——**mock 兜底属业务，不随服务下沉**
 
 **验证**
-- [ ] `grep -rn "LlamaEngine" lib/features` **为空**；`grep -rln "Dio" lib/features` **只命中 `model_manager/`**（不变量 2 全量；模型下载的 Dio 不属 LLM 后端，见 design §8 复核记录 R3）
-- [ ] `grep -rn "ChatMode" lib/features` 为空；`grep -rn "chatCloudMode" lib/features` 只命中 `features/settings/`（不变量 1）
-- [ ] `grep -rn "ContextPolicy\|ConversationSummarizer" lib/features` **为空**（不变量 8：压缩无业务参数）
-- [ ] `features/chat/engine/` 已解体：`client/`→交付、`context/`→转换、`prompt/`→人设留业务
-- [ ] 业务文件不出现「本地/云端」分支
-- [ ] `ChatProvider` 不再构造 client、不再读模式
-- [ ] 端侧无状态重放不变量（2026-09-11 的四条）在交付层**仍然成立**（用例迁移后仍断言）
-- [ ] 双端行为零回归：本地压缩/自愈/think 剥离、云端 SSE/取消/超时
-- [ ] 测试迁移：`local_chat_client_test.dart` / `cloud_chat_client_test.dart` / 三个策略测试 全部落到新位置且绿
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] `grep -rn "LlamaEngine" lib/features` **为空**（0）；`grep -rn "LlamaService" lib/features` **为空**（0）；`grep -rln "Dio" lib/features` **只命中 `model_manager/engine/model_download_service.dart`**（不变量 2 全量；模型下载的 Dio 不属 LLM 后端，见 design §8 复核记录 R3）
+- [x] `grep -rn "ChatMode" lib/features` 为空（0）；`grep -rn "chatCloudMode" lib/features` 只命中 `features/settings/`（3 处：`settings_provider.dart:44,49` + `settings_page.dart:78`）（不变量 1）
+- [x] `grep -rn "ContextPolicy" lib/features` 为空（0）；`grep -rn "ConversationSummarizer" lib/features` 为空（0）；`grep -rn "ChatSession" lib/features` 为空（0）（不变量 8：压缩无业务参数）
+- [x] `features/chat/engine/` 已解体：`client/`→`core/llm/delivery/`、`context/`→`core/llm/context_assembly.dart`、`prompt/`→`features/chat/prompt/`。现 `features/chat/` = `chat_page.dart` + `prompt/` + `providers/` + `utils/` + `widgets/`
+- [x] 业务文件不出现「本地/云端」分支（`ChatMode` / `chatCloudMode` 在 features 下 0 命中）
+- [x] `ChatProvider` 不再构造 client、不再读模式（`grep -n "Client\|_resolvedMode\|chatCloudMode\|ChatMode\|Dio" chat_provider.dart` 为空）；`ChatClient` 全仓 0 命中
+- [x] 端侧无状态重放不变量（2026-09-11 的四条）在交付层**仍然成立**（用例迁移后仍断言，见 `local_delivery_test.dart` 顶部 `不变量 ①②④` 组）
+- [x] 双端行为零回归：本地压缩/自愈/think 剥离、云端 SSE/取消/超时——本地 17 例 + 云端 13 例 + 服务编排 6 例全绿
+- [x] 测试迁移：`local_chat_client_test.dart` → `test/core/llm/delivery/local_delivery_test.dart`；`cloud_chat_client_test.dart` → `test/core/llm/delivery/cloud_delivery_test.dart`；三个策略测试（Task 3a 已落 `test/core/llm/`）保持绿
+- [x] `flutter analyze` 0；全量 `flutter test` 绿（**203**；Task 3a 基线 194）
+
+**实施记录（与原稿的差异）**
+
+1. **`ChatClient` 退场 → `ChatDelivery`**（`core/llm/delivery/chat_delivery.dart`）：`isReady / ensureReady / deliver(assembled, systemPrompt, nudgeTail) / prime(assembled, ..., nudgeTail) / stop / dispose`。`deliver` 产出 token 流；`prime` **只重放不生成**（端侧溢出收缩后供下一轮直接可用，云端空实现保契约对称）。`kLlmFailureReply`（`\n\n[助手暂时无法回应，请稍后再试]`）与 `kLlmNotReadyReply` 随之集中在此文件。
+2. **`ChatSession` 抽象随交付下沉**（`local_delivery.dart`）：`LlamaChatSession` 是 `EngineChat` 的薄适配（`clear`→`clearHistory`），是 `LocalDelivery` 唯一的 SDK 依赖点兼**测试接缝**。
+3. **`isDuplicate` 下沉为 `TailDeduplicator`**（`core/llm/delivery/tail_dedup.dart`）：它是有状态滚动窗口且只被端侧重放用到，留 feature 会造成 `core/llm/delivery` → feature 反向依赖。`prime` 默认 `nudgeTail: true`（与 `deliver` 一致），服务的自愈二次重放**显式传 `false`**。
+4. **端侧自愈编排从交付上移到服务**：交付只抛类型化信号 `LlmContextOverflowException`；`LlmService.converse` 承接（`handleOverflow` → 重新装配 → `prime(nudgeTail:false)` → 以兜底文案收尾）。
+   ⚠️ **踩坑（单测当场抓住的真 bug）**：`converse` 初版写 `yield* delivery.deliver(...)`，而 **`async*` 里 `yield*` 委托时内层流的错误会直接转投到输出流、绕过外层 `try`** → 溢出承接**永远不会触发**（自愈在生产会静默失效）。必须改为 `await for (...) { yield token; }`。`test/core/llm/llm_service_test.dart` 的 converse 组首跑即失败暴露此点。
+5. **新增测试接缝** `LlmService({policyFactory, deliveryFactory})`（仅测试注入）：`LlamaEngine` / `EngineChat` 均 `final class` 无法 fake，用**函数接缝**让 `converse` 编排（装配 → 交付 → 溢出自愈）可单测——与 Task 2 的 `SingleShotAsk` 同一思路。交付实例**惰性建一次并复用**（与生产「稳定实例」语义一致，端侧靠它复用同一会话），`stop()` 也转发给它。
+6. **`Llm` 接口扩为业务依赖面全集**：`converse` + `ask` + `askJson` + `ensureReady` + `stop` + `isReady`。`converse` 收完整历史（尾部为本轮用户消息）+ 业务提供的 `systemPrompt` + **业务持有的 `ContextState` 实例**；服务不持消息列表、不持压缩状态。
+7. **`conversation_strategy.dart` 拆分落位**：`buildSummaryPrompt` → `core/llm/summary_prompt.dart`；`buildSystemPrompt` 留业务，文件移到 `features/chat/prompt/`。`sse_parser.dart` → `core/llm/delivery/`。
+8. **`ChatProvider` 瘦身为三件事**：持消息列表（唯一真值源）+ 持 `ContextState` 实例 + 每轮传人设。`loadModel()` = `getActiveGoals()`（**留在业务**，design §10.1 #8）→ `_llm.ensureReady()`；goal 改由每轮 `buildSystemPrompt(existingGoals:)` 注入，不再走 `ChatClient.initialize`。`stopGeneration()` → `_llm.stop()` + 取消订阅。`dispose()` 不再释放后端资源。
+9. **`eventsToText` 用例独立**为 `test/core/llm/inference_test.dart`（原挂在 client 测试下）；业务侧 fake 统一为 `test/support/fake_llm.dart`（4 个测试文件共用，替代各自的 `_FakeChatClient`）。
+10. **冒烟测试 `buildTestApp()` 须与 composition root 同构**补 `Provider<Llm>`：`ChatPage` 的默认 `ChatProvider` 工厂现在 `context.read<Llm>()`，缺 provider 会在真实导航路径抛 `ProviderNotFoundException`（Task 2 已改 `main.dart`，测试侧同步）。
+11. **装配相关用例移交转换段**：原 `cloud_chat_client_test` 的「预算内全量携带」「小预算装窗 + 移出进摘要器」由 `test/core/llm/cloud_context_policy_test.dart` 覆盖；交付测试改为「按序全量映射、不截断」。
 
 **⚠️ 风险**：状态外置是**实打实的改造**（非 `git mv`）；A 形态（只存下标 `k`）必须带两条防御——① `eligible.length` 比上次**变短** → `reset()`；② 游标越界 → `reset()`。等价性以现有策略测试验证；若出现不等价先例，退回 B（状态持完整保留窗口列表）。
 

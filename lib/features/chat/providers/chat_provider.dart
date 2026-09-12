@@ -3,41 +3,44 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:zhixing_ai/core/data/conversation_service.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
+import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
-import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/llm.dart' show ChatMode;
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
-import 'package:zhixing_ai/features/chat/engine/client/local_chat_client.dart';
+import 'package:zhixing_ai/features/chat/prompt/conversation_strategy.dart';
 
-/// 异步构造 [ChatClient] 的工厂（生产按模式选实现，测试注入 fake）。
-typedef ChatClientFactory = Future<ChatClient> Function();
-
-/// 对话状态管理。模式分支收在 [ChatClient] 实现内部（本地 diff 增量 /
-/// 云端窗口裁剪），Provider 只面向接口，收发均不含模式判断。
+/// 对话状态管理。
+///
+/// 业务职责只有三件（设计 §5.1）：**持消息列表**（唯一真值源）、
+/// **持压缩状态实例**（[ContextState]，类型在基建）、**每轮传人设**。
+/// 后端模式（本地 / 云端）由 `Llm` 服务内部解析，本类不含任何模式分支，
+/// 也不构造 / 释放后端资源（那是服务的职责）。
 ///
 /// 两种生命周期：新对话只传 [topic]（内部加欢迎语，首次发言建 DB 记录）；
 /// 恢复对话传 [conversation]（加载其消息 / ID / 轮次）。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
-
-  /// 显式指定的模式；null 时延迟到 [_defaultClientFactory] 读取
-  /// [SettingsRepository]（构造期不碰单例，测试免初始化）。
-  final ChatMode? _explicitMode;
-  final ChatClient? _injectedClient;
-  final ChatClientFactory? _clientFactory;
+  final Llm _llm;
   final DashboardRepository _dashboardRepo;
 
-  ChatClient? _client;
+  /// 人设出处（业务；唯一）。
+  final ConversationStrategy _strategy = ConversationStrategy();
+
+  /// 会话压缩状态（业务持有的实例；装配时就地更新）。
+  final ContextState _contextState = ContextState();
+
+  /// 本轮注入人设的已有目标（loadModel 时读取，留在业务侧）。
+  List<Goal> _activeGoals = const [];
+
   bool _isModelLoading = false;
   String? _modelError;
+  bool _ready = false;
 
-  bool get isModelReady => _client != null && _client!.isReady;
+  bool get isModelReady => _ready;
   bool get isModelLoading => _isModelLoading;
   String? get modelError => _modelError;
   bool get hasModelError => _modelError != null;
@@ -69,17 +72,11 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider({
     required String topic,
+    required this._llm,
     Conversation? conversation,
     ConversationService? conversationService,
-    ChatMode? mode,
-    ChatClient? client,
-    ChatClientFactory? clientFactory,
     DashboardRepository? dashboardRepo,
-  })  : _explicitMode = mode,
-        _injectedClient = client,
-        // ignore: prefer_initializing_formals
-        _clientFactory = clientFactory,
-        _dashboardRepo = dashboardRepo ?? DashboardRepository(),
+  })  : _dashboardRepo = dashboardRepo ?? DashboardRepository(),
         _topic = topic,
         _messages = conversation?.messages ?? _buildWelcome(topic),
         _round = conversation != null
@@ -93,7 +90,7 @@ class ChatProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _client?.dispose();
+    // 后端资源（引擎 / 交付实现）归服务所有、寿命与 App 相同，此处不释放。
     super.dispose();
   }
 
@@ -105,54 +102,24 @@ class ChatProvider extends ChangeNotifier {
     return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
   }
 
-  /// 云端模式不加载本地模型（输入解锁更快）；本地经 [LlamaService.ensureReady]。
-  /// 两者都读取 Dashboard 已有目标注入上下文。
+  /// 读取已有目标（注入人设）→ 确保后端就绪。
+  ///
+  /// 目标取用**留在业务侧**：基建不认识 Dashboard 仓库（design §10.1 #8）。
   Future<void> loadModel() async {
     _isModelLoading = true;
     notifyListeners();
 
     try {
-      final client = _injectedClient ??
-          await (_clientFactory ?? _defaultClientFactory)();
-
-      final activeGoals = await _dashboardRepo.getActiveGoals();
-
-      if (!await client.initialize(existingGoals: activeGoals)) {
-        throw Exception('对话客户端初始化失败');
-      }
-      _client = client;
+      _activeGoals = await _dashboardRepo.getActiveGoals();
+      await _llm.ensureReady();
+      _ready = true;
     } catch (e) {
       AppLogger.warn('ChatProvider', '模型加载失败，将使用 Mock 回复: $e');
       _modelError = e.toString();
+      _ready = false;
     } finally {
       _isModelLoading = false;
       notifyListeners();
-    }
-  }
-
-  ChatMode get _resolvedMode =>
-      _explicitMode ??
-      (SettingsRepository.instance.chatCloudMode
-          ? ChatMode.cloud
-          : ChatMode.local);
-
-  Future<ChatClient> _defaultClientFactory() async {
-    switch (_resolvedMode) {
-      case ChatMode.cloud:
-        // BYOK 直连：三件套齐全才可用（设置层有门禁，此处防御兜底）。
-        final repo = SettingsRepository.instance;
-        if (!repo.isCloudApiConfigured) {
-          throw StateError('云端模式未配置 API（地址/Key/模型名）');
-        }
-        return CloudChatClient(
-          baseUrl: repo.cloudApiBaseUrl,
-          apiKey: repo.cloudApiKey,
-          modelName: repo.cloudModelName,
-        );
-      case ChatMode.local:
-        final engine = await LlamaService.instance
-            .ensureReady(gpuLayers: SettingsRepository.instance.gpuLayers);
-        return LocalChatClient(engine: engine);
     }
   }
 
@@ -183,8 +150,7 @@ class ChatProvider extends ChangeNotifier {
     ));
 
     try {
-      final client = _client;
-      if (client == null || !client.isReady) {
+      if (!_ready) {
         _messages[aiMessageIndex] = ChatMessage(
           role: MessageRole.ai,
           content: _generateMockResponse(),
@@ -195,7 +161,14 @@ class ChatProvider extends ChangeNotifier {
 
       // 去掉尾部空 AI 占位符 → 尾部恰为本轮用户消息。
       final history = _messages.sublist(0, _messages.length - 1);
-      await _consume(client.generateResponse(history), aiMessageIndex);
+      await _consume(
+        _llm.converse(
+          history,
+          systemPrompt: _strategy.buildSystemPrompt(existingGoals: _activeGoals),
+          state: _contextState,
+        ),
+        aiMessageIndex,
+      );
     } catch (e, stack) {
       AppLogger.error('ChatProvider', '推理失败', e, stack);
       if (e is TimeoutException) {
@@ -266,7 +239,7 @@ class ChatProvider extends ChangeNotifier {
   Completer<void>? _generationCompleter;
   StreamSubscription<String>? _activeSubscription;
 
-  /// 停止按钮：[_client.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
+  /// 停止按钮：[_llm.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
   /// 已生成文本保留。完成器标记为「正常完成」→ 走 sendMessage 的 finally
   /// 正常推进轮次并保存半截内容，不进 catch 降级分支。
   void stopGeneration() {
@@ -274,7 +247,7 @@ class ChatProvider extends ChangeNotifier {
     if (sub == null) return;
     _activeSubscription = null;
 
-    _client?.stop();
+    _llm.stop();
     sub.cancel();
 
     if (_generationCompleter != null && !_generationCompleter!.isCompleted) {

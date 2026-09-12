@@ -1,8 +1,8 @@
-/// 云端对话客户端冒烟测试
+/// 云端交付冒烟测试
 ///
-/// 自行用 dart:io 起一个 mock SSE 服务端，验证 [CloudChatClient]：
+/// 自行用 dart:io 起一个 mock SSE 服务端，验证 [CloudDelivery]：
 ///   1. 正确拼接并解码跨 chunk 边界的 UTF-8 SSE 帧（delta 流）；
-///   2. [stop] 能提前终止正在进行的流。
+///   2. [CloudDelivery.stop] 能提前终止正在进行的流。
 ///
 /// 运行：dart run tool/cloud_smoke.dart（在项目根目录执行，package: 解析才生效）
 library;
@@ -12,7 +12,18 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/features/chat/engine/client/cloud_chat_client.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
+
+/// 冒烟用人设（真实人设由业务经 `systemPrompt` 提供，这里只需非空）。
+const _systemPrompt = '你是知行AI助手。';
+
+/// 装配一段单条用户消息的上下文（装配本身由转换段负责，此处直构）。
+AssembledContext _assembled(String userContent) => AssembledContext(
+      messages: [
+        ChatMessage(role: MessageRole.user, content: userContent, round: 1),
+      ],
+    );
 
 /// 起一个 mock SSE 服务端，按 [frames] 逐帧下发，帧间延迟 [delayMs]。
 Future<HttpServer> startMockServer(
@@ -56,20 +67,21 @@ Future<void> main() async {
     '[DONE]',
   ]);
   final baseUrl = 'http://127.0.0.1:${server.port}';
-  final client = CloudChatClient(
+  final delivery = CloudDelivery(
     baseUrl: baseUrl,
     apiKey: 'sk-smoke',
     modelName: 'smoke-model',
   );
 
   final received = <String>[];
-  await for (final d in client.generateResponse([
-    ChatMessage(role: MessageRole.user, content: '你好', round: 1),
-  ])) {
+  await for (final d in delivery.deliver(
+    _assembled('你好'),
+    systemPrompt: _systemPrompt,
+  )) {
     received.add(d);
     stdout.writeln('[delta] $d');
   }
-  client.dispose();
+  delivery.dispose();
   await server.close(force: true);
 
   assert(received.length == 2,
@@ -81,7 +93,7 @@ Future<void> main() async {
   final slowFrames = List.generate(
       10, (i) => '{"choices":[{"delta":{"content":"帧$i"}}]}');
   final slowServer = await startMockServer(slowFrames, delayMs: 50);
-  final slowClient = CloudChatClient(
+  final slowDelivery = CloudDelivery(
     baseUrl: 'http://127.0.0.1:${slowServer.port}',
     apiKey: 'sk-smoke',
     modelName: 'smoke-model',
@@ -90,13 +102,14 @@ Future<void> main() async {
   final beforeStop = <String>[];
   var stoppedClean = false;
   try {
-    await for (final d in slowClient.generateResponse([
-      ChatMessage(role: MessageRole.user, content: '慢一点', round: 1),
-    ])) {
+    await for (final d in slowDelivery.deliver(
+      _assembled('慢一点'),
+      systemPrompt: _systemPrompt,
+    )) {
       beforeStop.add(d);
       stdout.writeln('[slow delta] $d');
       if (beforeStop.length == 1) {
-        slowClient.stop(); // 收到首帧后立即中止
+        slowDelivery.stop(); // 收到首帧后立即中止
       }
     }
     // 正常结束说明 stop 后流关闭
@@ -106,7 +119,7 @@ Future<void> main() async {
     stoppedClean = e.type == DioExceptionType.cancel;
     stdout.writeln('[stop] 捕获取消异常: ${e.type}');
   }
-  slowClient.dispose();
+  slowDelivery.dispose();
   await slowServer.close(force: true);
 
   assert(beforeStop.isNotEmpty, 'stop 前至少应收到 1 帧');

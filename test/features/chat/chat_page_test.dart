@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
-import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
+
+import '../../support/fake_llm.dart';
 
 /// ChatPage 的 Widget 测试
 ///
 /// ChatPage 创建时自动调 loadModel()（异步）。真实路径下本地模式会加载
 /// llama FFI——在 macOS flutter_tester 中 dylib 可成功加载，FFI 回调在
 /// FakeAsync zone 中永不完成 → pumpAndSettle 超时（「FFI 快速失败」假设
-/// 已失效）。因此本文件通过 [ChatPage.providerFactory] 注入 fake client
+/// 已失效）。因此本文件通过 [ChatPage.providerFactory] 注入 fake `Llm`
 /// 与 fake 仓库，分别构造「加载成功 → 正常视图」与「加载失败 → 错误视图」。
 
 /// 目标仓库 fake：返回空目标（不依赖 DB）
@@ -29,24 +29,6 @@ class _FailingDashboardRepo extends DashboardRepository {
   Future<List<Goal>> getActiveGoals() async => throw StateError('no db');
 }
 
-class _FakeChatClient implements ChatClient {
-  @override
-  bool get isReady => true;
-
-  @override
-  Future<bool> initialize({List<Goal> existingGoals = const []}) async => true;
-
-  @override
-  Stream<String> generateResponse(List<ChatMessage> history) =>
-      const Stream.empty();
-
-  @override
-  void stop() {}
-
-  @override
-  void dispose() {}
-}
-
 void main() {
   // ChatPage 内部创建 ChatProvider，构造时读取 chatCloudMode，
   // 须先初始化 SettingsRepository
@@ -57,7 +39,7 @@ void main() {
 
   /// 构建测试用的 ChatPage
   ///
-  /// [loadOk] = true → fake client + 空目标仓库（加载成功，正常视图）；
+  /// [loadOk] = true → fake Llm + 空目标仓库（加载成功，正常视图）；
   /// false → 目标仓库抛错（加载失败，错误视图）。
   Widget buildTestWidget({String topic = '职业发展', bool loadOk = true}) {
     return MaterialApp(
@@ -66,7 +48,7 @@ void main() {
         providerFactory: ({required topic, conversation}) => ChatProvider(
           topic: topic,
           conversation: conversation,
-          client: _FakeChatClient(),
+          llm: FakeLlm(),
           dashboardRepo: loadOk ? _OkDashboardRepo() : _FailingDashboardRepo(),
         ),
       ),
