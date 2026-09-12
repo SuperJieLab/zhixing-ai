@@ -2,6 +2,7 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/features/chat/engine/client/chat_client.dart';
@@ -33,22 +34,8 @@ abstract class ChatSession {
   void dispose();
 }
 
-/// `GenerationEvent` 流 → 纯文本 token 流。
-///
-/// 抽为顶层纯函数才能单测：`EngineChat` 是 `final class`，无法 mock。
-/// [TokenEvent] 取 `text`；[DoneEvent] 的 `trailingText` 也必须 yield——引擎会
-/// 把它写进回复并登记，丢弃即与引擎内容分叉；其余事件忽略。
-Stream<String> eventsToText(Stream<GenerationEvent> events) async* {
-  await for (final event in events) {
-    if (event is TokenEvent) {
-      yield event.text;
-    } else if (event is DoneEvent && event.trailingText.isNotEmpty) {
-      yield event.trailingText;
-    }
-  }
-}
-
-/// [EngineChat] → [ChatSession] 适配器：事件流收敛为纯 token 文本流。
+/// [EngineChat] → [ChatSession] 适配器：事件流收敛为纯 token 文本流
+/// （收敛原语见 `core/llm/inference.dart` 的 `eventsToText`）。
 class LlamaChatSession implements ChatSession {
   final EngineChat _inner;
 

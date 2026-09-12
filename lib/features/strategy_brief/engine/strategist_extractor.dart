@@ -4,14 +4,14 @@ import 'dart:math' as math;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
+import 'package:zhixing_ai/core/data/models/chat_models.dart' show MessageRole;
+import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/core/logger.dart';
-import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/features/strategy_brief/engine/chat_utils.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
-import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 
 /// 对话提取引擎
 ///
@@ -22,9 +22,10 @@ import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 ///   - cross_patterns：跨对话自我认知模式
 ///
 /// 上下文保护：输入封顶 [AppConstants.localInputBudget]（nCtx − 生成上限 − 余量），
-/// 与对话客户端同一口径，保证预算内输入 + 一整轮生成仍在窗口内。
+/// 装箱/度量与对话客户端同一原语（`packTailWithinBudget` + `LlamaTemplateEstimator`，
+/// 含每条 +16 模板开销），保证预算内输入 + 一整轮生成仍在窗口内。
 /// 输出保护：maxTokens=[AppConstants.localMaxTokens]，足够丰富的 JSON 提取结果。
-/// 依赖：LlamaEngine + chat_utils + think_tag_stripper
+/// 依赖：LlamaEngine + completeText/context_budget + chat_utils
 /// 消费方：StrategyBriefProvider（唯一）
 
 class StrategistExtractor {
@@ -87,10 +88,21 @@ cross_patterns 格式：
         ? '\n## 用户已有的目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n'
         : '';
 
-    final overheadTokens = LlamaService.estimateTokens(_systemPrompt) +
-        LlamaService.estimateTokens(existingGoalsText);
+    // 度量与对话客户端同一口径（LlamaTemplateEstimator：token + 每条 +16）。
+    final estimator = LlamaTemplateEstimator();
+    final overheadTokens =
+        estimator.estimateText(_systemPrompt) +
+        estimator.estimateText(existingGoalsText);
     final budget = AppConstants.localInputBudget - overheadTokens;
-    final messages = _truncateMessages(conversation.messages, budget);
+    // minKeep: 0 —— 提取无「当前问题」须保底，语义与旧 _truncateMessages 一致：
+    // 尾部往前装，放不下即停（最坏保留 0 条）。
+    final pack = packTailWithinBudget(
+      conversation.messages,
+      budget: budget,
+      estimator: estimator,
+      minKeep: 0,
+    );
+    final messages = pack.kept;
 
     final conversationText =
         buildConversationText(conversation.topic, messages);
@@ -99,25 +111,19 @@ cross_patterns 格式：
 
     final chat = await _engine.createChat();
     try {
-      chat.addSystem(_systemPrompt);
-      chat.addUser('$existingGoalsText\n## 本轮对话\n$conversationText');
-
-      final buffer = StringBuffer();
-      await for (final event in chat.generate(
+      final json = await completeText(
+        chat,
+        system: _systemPrompt,
+        user: '$existingGoalsText\n## 本轮对话\n$conversationText',
         sampler: const SamplerParams(
           temperature: 0.3,
           topP: 0.8,
           repeatPenalty: 1.1,
         ),
         maxTokens: AppConstants.localMaxTokens,
-      )) {
-        if (event is TokenEvent) {
-          buffer.write(event.text);
-        }
-      }
+        stripThink: true,
+      );
 
-      final raw = buffer.toString().trim();
-      final json = stripThinkTags(raw);
       AppLogger.info('StrategistExtractor',
           '原始回复: ${json.isEmpty ? '(空)' : json.substring(0, math.min(json.length, 200))}');
 
@@ -139,29 +145,6 @@ cross_patterns 格式：
     } catch (e) {
       AppLogger.error('StrategistExtractor', '提取失败', e);
       return null;
-    } finally {
-      chat.dispose();
     }
-  }
-
-  /// Keep the most recent messages that fit within token budget.
-  List<ChatMessage> _truncateMessages(
-      List<ChatMessage> messages, int tokenBudget) {
-    if (messages.isEmpty) return [];
-
-    var used = 0;
-    final kept = <ChatMessage>[];
-
-    for (var i = messages.length - 1; i >= 0; i--) {
-      final msg = messages[i];
-      final tokens = LlamaService.estimateTokens(msg.content);
-      if (used + tokens > tokenBudget) break;
-      used += tokens;
-      kept.insert(0, msg);
-    }
-
-    AppLogger.info('StrategistExtractor',
-        '消息截断: ${messages.length}->${kept.length} 条, ~$used tokens');
-    return kept;
   }
 }

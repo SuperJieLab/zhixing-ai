@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
+import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/features/chat/engine/context/context_policy.dart';
 import 'package:zhixing_ai/features/chat/engine/client/local_chat_client.dart';
 import 'package:zhixing_ai/features/chat/engine/context/local_context_policy.dart';
