@@ -147,22 +147,25 @@
 
 **⚠️ 风险**：状态外置是**实打实的改造**（非 `git mv`）；A 形态（只存下标 `k`）必须带两条防御——① `eligible.length` 比上次**变短** → `reset()`；② 游标越界 → `reset()`。等价性以现有策略测试验证；若出现不等价先例，退回 B（状态持完整保留窗口列表）。
 
-## Task 4：生命周期收口 ⬜ 未开始
+## Task 4：生命周期收口 ✅ 完成（2026-09-12）
 
 > 依赖 Task 2（服务已存在）。落 design §9.4 / §10.1 #1。
 
-**文件**
+**实施记录**
 
-1. `ChatProvider` 移交 `loadModel()`（`:109-130`）、`dispose()` 里的 `_client?.dispose()`（`:94-97`）、`isModelLoading`（驱动整页 loading，`chat_page.dart:119`）。**注意 `loadModel()` 里混了互不相干的两件事**：① 后端就绪（随服务走）；② `getActiveGoals()` 注入人设（**属业务**，须留在 `ChatProvider`、改为随 `spec` 每轮传，见 design §10.1 #8）
-2. 服务按模式驱动引擎：切本地 → 主动加载；切云端 → **延迟释放 + 防抖**；冷启动 → 异步加载不卡首帧；进会话未就绪 → 异步兜底
-3. 模式通知源落地（design §10.1 #1 **已拍定**）：`SettingsRepository` 加**窄 `Listenable`**，只在 `setChatCloudMode` + `setCloudApiBaseUrl` / `setCloudApiKey` / `setCloudModelName` 后触发；服务订阅 → 「需要的后端（或三件套指纹）≠ 当前」→ 切换 / 重建，切换走延迟释放 + 防抖。**入口仍保留一次廉价复核当兜底**（不做二选一）
-4. `chat_page.dart`：loading 改为消费服务的就绪状态
+- `SettingsRepository`：新增窄通知源 `backendListenable`（私有 `_BackendNotifier extends ChangeNotifier` 只暴露一个触发方法，绕开 protected 限制）；仅 `setChatCloudMode` + BYOK 三件套写入后通知，其余设置项不通知。
+- `Llm` 接口：新增 `LlmPhase`（idle/loading/ready/failed）+ `LlmReadiness`（含失败原因）+ `readiness`（`ValueListenable`）——`isReady` 的时间维版本，UI 消费、不暴露本地/云端。`LlmService.isReady` 改为基于就绪态单一来源。
+- `LlmService` 生命周期：`initialize()` = 订阅通知源 + `ensureReady()` 吞错预热（本地异步加载不卡首帧）；切云端 → 本地资源**延迟释放 + 防抖**（`delayedRelease` 可注入，默认 30s，design 附录 A3；窗口内切回本地则取消，BYOK 指纹变更重排计时并即刻废弃旧云端交付）；切回本地 → 取消释放 + 异步补齐就绪；`ensureReady` 全程更新就绪态并按契约抛错。新增 `localDeliveryBuilder` 测试接缝（`LlamaEngine` final 无法 fake，与 `SingleShotAsk` 同思路）+ `dispose()`（测试清理用）。
+- `ChatProvider`：删 `loadModel` / `retryLoadModel` / `isModelLoading` / `isModelReady` / `modelError`；目标改为**每轮发言前刷新**（`_refreshGoals`，失败沿用上次/空、不阻塞）；未就绪 → Mock 兜底（判定 `_llm.isReady`）。
+- `chat_page`：loading / 错误 / 正常三视图改由 `ValueListenableBuilder(llm.readiness)` 驱动（idle 视同 loading）；`initState` 未就绪 → 异步兜底 `ensureReady`；错误视图重试走 `llm.ensureReady`。
+
+**测试接缝注意**：SharedPreferences mock 的写入 Future 在 fakeAsync zone 内**不完成**（探针证实，通知不触发）→ 生命周期计时测试不用 fakeAsync，改用可注入短窗口（150ms）+ 真实等待、裕量 ≥ 50ms。
 
 **验证**
-- [ ] 切模式后行为符合预期（不反复加载/释放；冷启动首帧不阻塞）
-- [ ] 未进对话页直接进 strategy_brief，本地模式下能自动就绪
-- [ ] `ChatProvider` 不再持有加载/释放职责
-- [ ] `flutter analyze` 0；全量 `flutter test` 绿
+- [x] 切模式后行为符合预期（不反复加载/释放；冷启动首帧不阻塞）——生命周期 8 用例（预热 / failed / 防抖取消 / 到点释放 / 释放后重建 / BYOK 重排）
+- [x] 未进对话页直接进 strategy_brief，本地模式下能自动就绪——`ask/askJson` 入口自带 ensure（Task 2 语义），无需页面触发
+- [x] `ChatProvider` 不再持有加载/释放职责（grep：loadModel / ensureReady / isModelLoading 均无）
+- [x] `flutter analyze` 0；全量 `flutter test` 绿（210）
 
 ## Task 5：收尾 ⬜ 未开始
 

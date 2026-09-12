@@ -4,6 +4,8 @@
 /// 模式由服务按用户设置解析（唯一解析点），业务不感知「当前用的谁」。
 library;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
 
@@ -14,6 +16,52 @@ import 'package:zhixing_ai/core/llm/context_assembly.dart';
 enum ChatMode {
   local,
   cloud,
+}
+
+/// 后端就绪阶段（design §9 #5：由服务表达，UI 只消费）。
+///
+/// **不暴露**「本地 / 云端」的种类差异——页面据此表达 loading / 错误视图，
+/// 与后端是哪种完全无关。
+enum LlmPhase {
+  /// 尚未确保就绪（服务刚构造 / 尚无任何 ensure 动作）。
+  idle,
+
+  /// 就绪化进行中（端侧引擎加载，约 15 秒量级；云端瞬时）。
+  loading,
+
+  /// 当前模式所需后端已就绪。
+  ready,
+
+  /// 就绪化失败（模型缺失 / 云端 BYOK 未配齐等），[LlmReadiness.error] 带语义。
+  failed,
+}
+
+/// 就绪状态快照（[Llm.readiness] 的值类型）。
+@immutable
+class LlmReadiness {
+  final LlmPhase phase;
+
+  /// 失败原因（仅 [LlmPhase.failed] 时有意义；展示用 `toString()`）。
+  final Object? error;
+
+  const LlmReadiness(this.phase, {this.error});
+
+  const LlmReadiness.idle() : phase = LlmPhase.idle, error = null;
+  const LlmReadiness.loading() : phase = LlmPhase.loading, error = null;
+  const LlmReadiness.ready() : phase = LlmPhase.ready, error = null;
+  const LlmReadiness.failed(this.error) : phase = LlmPhase.failed;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LlmReadiness &&
+      other.phase == phase &&
+      other.error?.toString() == error?.toString();
+
+  @override
+  int get hashCode => Object.hash(phase, error?.toString());
+
+  @override
+  String toString() => 'LlmReadiness($phase, error: $error)';
 }
 
 /// 大模型服务接口：多轮对话 + 单次补全 + 结构化补全 + 就绪态。
@@ -62,5 +110,11 @@ abstract class Llm {
 
   /// 当前后端是否就绪（供 UI 表达，**不暴露**「本地/云端」）。
   bool get isReady;
+
+  /// 就绪态（可监听）：[isReady] 的时间维版本。
+  ///
+  /// 服务在冷启动预热 / [ensureReady] / 用户切换模式时更新；
+  /// UI 据此表达 loading / 错误视图并触发兜底加载，不感知后端种类。
+  ValueListenable<LlmReadiness> get readiness;
 }
 

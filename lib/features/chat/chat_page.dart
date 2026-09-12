@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
@@ -9,7 +11,7 @@ import 'package:zhixing_ai/features/chat/widgets/chat_bubble.dart';
 import 'package:zhixing_ai/features/chat/widgets/chat_input.dart';
 import 'package:zhixing_ai/features/strategy_brief/strategy_brief_page.dart';
 
-/// 自定义 [ChatProvider] 构造工厂（测试注入缝；缺省走内部默认构造 + loadModel）。
+/// 自定义 [ChatProvider] 构造工厂（测试注入缝）。
 typedef ChatProviderFactory = ChatProvider Function({
   required String topic,
   Conversation? conversation,
@@ -38,10 +40,23 @@ class _ChatPageState extends State<ChatPage> {
   int _lastMessageCount = -1;
   bool _errorListenerSetup = false;
 
+  /// 大模型服务（就绪态消费 + 进入页面兜底加载；由 Provider 树提供）。
+  late final Llm _llm = context.read<Llm>();
+
   /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
   ChatProvider? _listenedProvider;
 
   String get _displayTopic => widget.topic.isNotEmpty ? widget.topic : '新对话';
+
+  @override
+  void initState() {
+    super.initState();
+    // 进会话未就绪 → 异步兜底（design §9 #4；服务冷启动已预热，此处只补漏）。
+    // 失败不抛——就绪态转 failed 由下方错误视图表达。
+    if (_llm.readiness.value.phase != LlmPhase.ready) {
+      unawaited(_llm.ensureReady().catchError((Object _) {}));
+    }
+  }
 
   @override
   void dispose() {
@@ -99,6 +114,7 @@ class _ChatPageState extends State<ChatPage> {
       create: (context) {
         final factory = widget.providerFactory;
         // 大模型服务实例由 composition root 构造、Provider 树持有（业务只认接口）。
+        // 加载 / 就绪归服务（llm.readiness），这里不再触发 loadModel。
         final provider = factory != null
             ? factory(topic: widget.topic, conversation: widget.conversation)
             : ChatProvider(
@@ -106,7 +122,6 @@ class _ChatPageState extends State<ChatPage> {
                 conversation: widget.conversation,
                 llm: context.read<Llm>(),
               );
-        provider.loadModel();
         return provider;
       },
       child: Consumer<ChatProvider>(
@@ -118,49 +133,70 @@ class _ChatPageState extends State<ChatPage> {
             chatProvider.addListener(_onChatError);
           }
 
-          // 模型加载中 → 全屏 loading
-          if (chatProvider.isModelLoading) {
-            return Scaffold(
-              appBar: AppBar(
-                backgroundColor: AppTheme.background,
-                title: Text(_displayTopic),
-              ),
-              body: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: AppTheme.primary),
-                    SizedBox(height: 16),
-                    Text(
-                      '正在加载 AI 模型（约 15 秒）...',
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          // 模型加载失败 → 错误视图
-          if (chatProvider.hasModelError) {
-            return _buildModelErrorView(chatProvider);
-          }
-
-          // 自动滚动
-          if (chatProvider.messages.length != _lastMessageCount) {
-            _lastMessageCount = chatProvider.messages.length;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (_scrollController.hasClients) {
-                _scrollController.animateTo(
-                  _scrollController.position.maxScrollExtent,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut,
-                );
+          // 就绪态由服务表达（不感知本地 / 云端）：loading / 失败 /
+          // 正常三种视图。idle 视同 loading（兜底 ensure 在 initState 已发起）。
+          return ValueListenableBuilder<LlmReadiness>(
+            valueListenable: _llm.readiness,
+            builder: (context, readiness, child) {
+              switch (readiness.phase) {
+                case LlmPhase.ready:
+                  return child!;
+                case LlmPhase.failed:
+                  return _buildModelErrorView(() async {
+                    await _llm.ensureReady(); // 失败会再转 failed
+                  });
+                case LlmPhase.idle:
+                case LlmPhase.loading:
+                  return _buildLoadingView();
               }
-            });
-          }
+            },
+            child: _buildChatView(chatProvider),
+          );
+        },
+      ),
+    );
+  }
 
-          return Scaffold(
+  /// 全屏 loading（端侧引擎加载约 15 秒量级；云端瞬时，通常一闪而过）。
+  Widget _buildLoadingView() {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: AppTheme.background,
+        title: Text(_displayTopic),
+      ),
+      body: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: AppTheme.primary),
+            SizedBox(height: 16),
+            Text(
+              '正在准备 AI（本地模型首次约 15 秒）...',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 正常对话视图（消息列表 + 输入框）。
+  Widget _buildChatView(ChatProvider chatProvider) {
+    // 自动滚动
+    if (chatProvider.messages.length != _lastMessageCount) {
+      _lastMessageCount = chatProvider.messages.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+
+    return Scaffold(
             appBar: AppBar(
               backgroundColor: AppTheme.background,
               surfaceTintColor: Colors.transparent,
@@ -235,12 +271,9 @@ class _ChatPageState extends State<ChatPage> {
               ],
             ),
           );
-        },
-      ),
-    );
   }
 
-  Widget _buildModelErrorView(ChatProvider provider) {
+  Widget _buildModelErrorView(VoidCallback onRetry) {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: AppTheme.background,
@@ -270,7 +303,7 @@ class _ChatPageState extends State<ChatPage> {
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: () => provider.retryLoadModel(),
+                onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
                 label: const Text('重试'),
               ),

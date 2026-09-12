@@ -18,6 +18,9 @@ import '../../../support/fake_llm.dart';
 /// sendMessage() 就不会触发 startConversation() → DB 操作。
 /// 避免在 macOS 测试环境中依赖 sqflite（需要 sqflite_common_ffi）。
 ///
+/// Task 4 后模型加载 / 就绪归 `Llm` 服务（llm.readiness），Provider 不再有
+/// loadModel / isModelLoading / modelError 等成员；目标改为每轮刷新注入。
+///
 /// 注意：每次 makeProvider 新建 Conversation——ChatProvider 会把
 /// conversation.messages 当作内部列表就地变更，共享实例会泄漏状态到后续测试。
 
@@ -65,6 +68,23 @@ class _GoalsDashboardRepo extends DashboardRepository {
           updatedAt: DateTime(2026, 1, 1),
         ),
       ];
+}
+
+/// 目标仓库 fake：按回调决定返回「1 个目标」还是「空」
+class _CountingDashboardRepo extends DashboardRepository {
+  _CountingDashboardRepo(this.hasGoal);
+  final bool Function() hasGoal;
+
+  @override
+  Future<List<Goal>> getActiveGoals() async => hasGoal()
+      ? [
+          Goal(
+            title: '学英语',
+            createdAt: DateTime(2026, 1, 1),
+            updatedAt: DateTime(2026, 1, 1),
+          ),
+        ]
+      : const [];
 }
 
 /// 目标仓库 fake：模拟测试环境无 DB（getActiveGoals 抛错）
@@ -144,38 +164,13 @@ void main() {
   });
 
   group('ChatProvider × Llm 接入', () {
-    test('loadModel：ensureReady 成功 → isModelReady', () async {
-      final llm = FakeLlm();
-      final provider = makeProvider(llm: llm, dashboardRepo: _OkDashboardRepo());
-
-      expect(provider.isModelReady, isFalse);
-      await provider.loadModel();
-      expect(provider.isModelReady, isTrue);
-      expect(provider.hasModelError, isFalse);
-      expect(llm.ensureReadyCalls, 1);
-    });
-
-    test('loadModel：目标仓库失败 → modelError（不阻塞 mock 路径）', () async {
-      final llm = FakeLlm();
-      final provider = makeProvider(
-        llm: llm,
-        dashboardRepo: _FailingDashboardRepo(),
-      );
-
-      await provider.loadModel();
-      expect(provider.hasModelError, isTrue);
-      expect(provider.isModelReady, isFalse);
-      // 目标读取失败即短路，不再触碰后端
-      expect(llm.ensureReadyCalls, 0);
-    });
-
     test('人设每轮注入已有目标（目标读取留在业务侧）', () async {
       final llm = FakeLlm();
       final provider = makeProvider(
         llm: llm,
         dashboardRepo: _GoalsDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
 
       llm.onConverse = (_) => Stream.value('回复');
       await provider.sendMessage('hi');
@@ -191,7 +186,7 @@ void main() {
         llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
       final controller = StreamController<String>();
 
       final seen = <String>[];
@@ -225,7 +220,7 @@ void main() {
     test('压缩状态实例由业务持有并跨轮复用（类型在基建、实例在业务）', () async {
       final llm = FakeLlm();
       final provider = makeProvider(llm: llm, dashboardRepo: _OkDashboardRepo());
-      await provider.loadModel();
+      llm.ready = true;
       llm.onConverse = (_) => Stream.value('回复');
 
       await provider.sendMessage('a');
@@ -241,7 +236,7 @@ void main() {
         llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
       final gate = Completer<void>();
 
       llm.onConverse = (_) async* {
@@ -271,7 +266,7 @@ void main() {
         llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
 
       llm.onConverse = (_) async* {
         throw TimeoutException('帧间空闲');
@@ -288,7 +283,7 @@ void main() {
         llm: llm,
         dashboardRepo: _OkDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
 
       llm.onConverse = (_) async* {
         throw StateError('boom');
@@ -307,7 +302,7 @@ void main() {
         conversationService: service,
         dashboardRepo: _OkDashboardRepo(),
       );
-      await provider.loadModel();
+      llm.ready = true;
 
       llm.onConverse = (history) => Stream.value('回复');
       await provider.sendMessage('hi');
@@ -315,6 +310,39 @@ void main() {
       expect(service.saves.length, 1);
       expect(service.saves.single.id, 1);
       expect(service.saves.single.messages.length, 2); // user + ai
+    });
+  });
+
+  group('目标每轮刷新（Task 4：goals 取用留业务、随轮注入）', () {
+    test('目标读取失败不阻塞对话：降级为空目标人设', () async {
+      final llm = FakeLlm()..ready = true;
+      llm.onConverse = (_) => Stream.value('回复');
+      final provider = makeProvider(
+        llm: llm,
+        dashboardRepo: _FailingDashboardRepo(),
+      );
+
+      await provider.sendMessage('hi');
+
+      expect(provider.error, isNull); // 不进降级分支
+      expect(llm.converseCalls, hasLength(1));
+      expect(llm.converseCalls.single.systemPrompt,
+          isNot(contains('## 用户已有目标')));
+    });
+
+    test('目标变更跨轮生效：第二轮不再注入第一轮的目标', () async {
+      var call = 0;
+      final llm = FakeLlm()..ready = true;
+      llm.onConverse = (_) => Stream.value('回复');
+      final repo = _CountingDashboardRepo(() => ++call == 1);
+      final provider = makeProvider(llm: llm, dashboardRepo: repo);
+
+      await provider.sendMessage('第一轮');
+      await provider.sendMessage('第二轮');
+
+      expect(llm.converseCalls[0].systemPrompt, contains('学英语'));
+      expect(llm.converseCalls[1].systemPrompt,
+          isNot(contains('## 用户已有目标')));
     });
   });
 

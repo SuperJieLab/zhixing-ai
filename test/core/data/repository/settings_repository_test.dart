@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
@@ -58,6 +59,40 @@ void main() {
       await repo.setCloudApiKey('sk-test');
       await repo.setCloudModelName('deepseek-chat');
       expect(repo.isCloudApiConfigured, isFalse);
+    });
+  });
+
+  group('后端窄通知源（backendListenable）', () {
+    int notified = 0;
+    late VoidCallback listener;
+
+    setUp(() {
+      notified = 0;
+      listener = () => notified++;
+      repo.backendListenable.addListener(listener);
+    });
+
+    tearDown(() {
+      repo.backendListenable.removeListener(listener);
+    });
+
+    test('影响后端的写入触发通知：模式开关 + BYOK 三件套', () async {
+      await repo.setChatCloudMode(true);
+      expect(notified, 1);
+
+      await repo.setCloudApiBaseUrl('https://api.example.com');
+      await repo.setCloudApiKey('sk-test');
+      await repo.setCloudModelName('test-model');
+      expect(notified, 4);
+    });
+
+    test('其余设置项不通知（窄语义：只服务后端切换）', () async {
+      await repo.setUseGpuAcceleration(true);
+      await repo.setUseAiOptimizedPush(true);
+      await repo.setAiPushConsented(true);
+      await repo.setChatCloudConsented(true);
+
+      expect(notified, 0);
     });
   });
 }

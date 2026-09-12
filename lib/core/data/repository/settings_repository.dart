@@ -1,4 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// 后端窄通知源：包内私有子类只暴露一个公开的触发方法，
+/// 绕开 `ChangeNotifier.notifyListeners` 的 protected 限制。
+class _BackendNotifier extends ChangeNotifier {
+  void notifyBackendChanged() => notifyListeners();
+}
 
 /// 用户设置持久化（基于 SharedPreferences）
 ///
@@ -17,6 +24,18 @@ class SettingsRepository {
   static final SettingsRepository instance = SettingsRepository._();
 
   SettingsRepository._();
+
+  /// 后端相关设置的**窄通知源**（design §10.1 #1）。
+  ///
+  /// 仅在影响推理后端选择的写入后触发：[setChatCloudMode] +
+  /// BYOK 三件套（[setCloudApiBaseUrl] / [setCloudApiKey] / [setCloudModelName]，
+  /// 三者变更后云端交付实现必须按新指纹重建）。其余设置项**不**通知。
+  ///
+  /// 消费方是 `LlmService`（订阅后驱动引擎加载 / 延迟释放）；入口复核
+  /// （每次调用读设置）仍是兜底，二者不是二选一。
+  final _BackendNotifier _backendNotifier = _BackendNotifier();
+
+  Listenable get backendListenable => _backendNotifier;
 
   late final SharedPreferences _prefs;
   bool _initialized = false;
@@ -80,8 +99,8 @@ class SettingsRepository {
   /// true  → 对话内容经服务端转发至 DeepSeek API（离开设备）。
   /// false → 本地 LLM 引擎离线生成（默认，全程不出设备）。
   ///
-  /// 默认 false：用户需在「设置」中开启。模式在 [ChatProvider] 构造时读取，
-  /// 仅对开启后的新对话生效，不影响正在进行中的对话。
+  /// 默认 false：用户需在「设置」中开启。模式由 `LlmService` 在每次调用时
+  /// 解析（唯一解析点），变更经 [backendListenable] 即时生效。
   bool get chatCloudMode {
     _assertInit();
     return _prefs.getBool(_kCloudChat) ?? false;
@@ -90,6 +109,7 @@ class SettingsRepository {
   Future<void> setChatCloudMode(bool value) async {
     _assertInit();
     await _prefs.setBool(_kCloudChat, value);
+    _backendNotifier.notifyBackendChanged();
   }
 
   /// 用户是否已同意「云端对话模式」的隐私说明。
@@ -115,6 +135,7 @@ class SettingsRepository {
   Future<void> setCloudApiBaseUrl(String value) async {
     _assertInit();
     await _prefs.setString(_kCloudApiBaseUrl, value.trim());
+    _backendNotifier.notifyBackendChanged();
   }
 
   /// 模型 API Key（用户自备，仅存本机 shared_preferences）
@@ -126,6 +147,7 @@ class SettingsRepository {
   Future<void> setCloudApiKey(String value) async {
     _assertInit();
     await _prefs.setString(_kCloudApiKey, value.trim());
+    _backendNotifier.notifyBackendChanged();
   }
 
   /// 模型名（自由文本，如 deepseek-chat；不做厂商枚举）
@@ -137,6 +159,7 @@ class SettingsRepository {
   Future<void> setCloudModelName(String value) async {
     _assertInit();
     await _prefs.setString(_kCloudModelName, value.trim());
+    _backendNotifier.notifyBackendChanged();
   }
 
   /// BYOK 三件套是否齐全（开启云端模式的前提）。

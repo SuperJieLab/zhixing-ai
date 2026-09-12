@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
@@ -25,6 +27,10 @@ typedef SingleShotAsk = Future<String> Function({
   required String user,
   int? maxTokens,
 });
+
+/// 本地交付构造接缝（**仅测试注入**）：生命周期测试用它替代真实引擎加载
+/// （`LlamaEngine` 是 final class，无法 fake；与 [SingleShotAsk] 同一思路）。
+typedef LocalDeliveryBuilder = FutureOr<ChatDelivery> Function();
 
 /// [Llm] 的唯一实现（设计文档方案 B：无 static instance）。
 ///
@@ -56,34 +62,122 @@ class LlmService implements Llm {
   LlamaEngine? _localEngine;
 
   /// 交付实现（服务资源态）。云端按 BYOK 指纹重建，本地复用同一会话。
-  LocalDelivery? _localDelivery;
+  ChatDelivery? _localDelivery;
   CloudDelivery? _cloudDelivery;
   String? _cloudFingerprint;
+
+  /// 本地交付的在途构建 Future（并发 ensure 去重 + 失败不缓存可重试）。
+  Future<ChatDelivery>? _localReady;
+
+  /// 就绪态通知源（服务资源态）：冷启动预热 / [ensureReady] / 模式切换时更新。
+  final ValueNotifier<LlmReadiness> _readiness =
+      ValueNotifier<LlmReadiness>(const LlmReadiness.idle());
+
+  /// 切云端后本地资源的延迟释放定时器（防抖：连续切换只保留最后一次）。
+  Timer? _releaseTimer;
+
+  /// 本地交付构造接缝；null 时按生产默认（真实引擎）。
+  final LocalDeliveryBuilder? _localDeliveryBuilder;
+
+  /// 切云端后本地资源的延迟释放时长（design 附录 A3 的可调参数）。
+  ///
+  /// 给「误切后切回」留缓冲：防抖窗口内切回本地则完全不动引擎。
+  final Duration _delayedRelease;
 
   /// 测试接缝交付实例：惰性建一次并复用（与生产「稳定实例」语义一致）。
   ChatDelivery? _overrideDelivery;
 
   /// [settings] 缺省用仓库单例；其余接缝（[cloudAsk] / [localAsk] /
-  /// [policyFactory] / [deliveryFactory]）仅测试注入。
+  /// [policyFactory] / [deliveryFactory] / [localDeliveryBuilder]）仅测试注入。
   LlmService({
     SettingsRepository? settings,
     SingleShotAsk? cloudAsk,
     SingleShotAsk? localAsk,
     ContextPolicy Function()? policyFactory,
     ChatDelivery Function()? deliveryFactory,
+    LocalDeliveryBuilder? localDeliveryBuilder,
+    Duration delayedRelease = const Duration(seconds: 30),
   })  : _settings = settings ?? SettingsRepository.instance,
         _cloudAsk = cloudAsk, // ignore: prefer_initializing_formals
         _localAsk = localAsk, // ignore: prefer_initializing_formals
         _policyFactory = policyFactory, // ignore: prefer_initializing_formals
-        _deliveryFactory = deliveryFactory; // ignore: prefer_initializing_formals
+        _deliveryFactory = deliveryFactory, // ignore: prefer_initializing_formals
+        _localDeliveryBuilder = localDeliveryBuilder, // ignore: prefer_initializing_formals
+        _delayedRelease = delayedRelease; // ignore: prefer_initializing_formals
 
-  /// 启动期初始化（composition root 调用，异步不卡首帧）。
+  /// 启动期初始化（composition root 调用，`unawaited` 异步不卡首帧）。
   ///
-  /// Task 3 现阶段仅记录解析出的模式；Task 4 扩展为：本地模式主动预热
-  /// 引擎 + 订阅设置变更（窄 Listenable，切云端延迟释放）。
+  /// ① 订阅设置的后端通知源（窄 `Listenable`）——此后用户切模式 / 改
+  /// BYOK 三件套，服务即时切换 / 重建资源（本地引擎延迟释放 + 防抖）；
+  /// ② 按当前模式预热：本地 → 异步加载引擎；云端 → 校验 BYOK 三件套。
+  /// 失败不抛（就绪态转 failed，由 UI 表达；页面进入时还有异步兜底）。
   Future<void> initialize() async {
-    AppLogger.info('LlmService',
-        '初始化完成，当前模式: ${_settings.chatCloudMode ? 'cloud' : 'local'}');
+    _settings.backendListenable.addListener(_onBackendSettingChanged);
+    try {
+      await ensureReady();
+    } catch (e) {
+      AppLogger.warn('LlmService', '启动预热失败（就绪态已转 failed）: $e');
+    }
+  }
+
+  /// 后端相关设置变更的响应（窄通知，design §10.1 #1）。
+  ///
+  /// - 切云端 / 改 BYOK：旧云端交付按指纹即刻废弃（下次使用按新配置重建）；
+  ///   本地资源**延迟释放 + 防抖**（连续切换 / 短暂来回只保留最后一次计时）；
+  ///   就绪态按 BYOK 是否配齐直接给出（云端就绪化是瞬时的）。
+  /// - 切回本地：取消待执行的释放（防抖的反向），再异步补齐本地就绪。
+  void _onBackendSettingChanged() {
+    if (_settings.chatCloudMode) {
+      final fingerprint = _currentCloudFingerprint;
+      if (_cloudFingerprint != null && _cloudFingerprint != fingerprint) {
+        _cloudDelivery?.dispose();
+        _cloudDelivery = null;
+        _cloudFingerprint = null;
+      }
+      if (_localDelivery != null || _localEngine != null) {
+        _releaseTimer?.cancel();
+        _releaseTimer = Timer(_delayedRelease, _releaseLocalResources);
+        AppLogger.info('LlmService',
+            '切至云端，本地引擎将在 ${_delayedRelease.inMilliseconds}ms 后释放（防抖）');
+      }
+      if (_settings.isCloudApiConfigured) {
+        _setReadiness(const LlmReadiness.ready());
+      } else {
+        _setReadiness(LlmReadiness.failed(StateError(
+            '云端模式未配置完整（地址 / Key / 模型名），请先在设置中补全')));
+      }
+    } else {
+      _releaseTimer?.cancel();
+      _releaseTimer = null;
+      unawaited(ensureReady().catchError((Object _) {}));
+    }
+  }
+
+  /// 延迟释放到点：丢弃并释放本地交付与引擎。仅在云端模式下执行
+  /// （定时器只应在该模式下存在；防御通知漏发导致的误释放）。
+  void _releaseLocalResources() {
+    _releaseTimer = null;
+    if (!_settings.chatCloudMode) return;
+    _localReady = null;
+    _localDelivery?.dispose();
+    _localDelivery = null;
+    _localEngine?.dispose();
+    _localEngine = null;
+    AppLogger.info('LlmService', '云端模式下本地引擎已延迟释放');
+  }
+
+  /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
+  void dispose() {
+    _settings.backendListenable.removeListener(_onBackendSettingChanged);
+    _releaseTimer?.cancel();
+    _releaseTimer = null;
+    _localDelivery?.dispose();
+    _cloudDelivery?.dispose();
+    _readiness.dispose();
+  }
+
+  void _setReadiness(LlmReadiness value) {
+    if (_readiness.value != value) _readiness.value = value;
   }
 
   // ─── 对话（多轮）───
@@ -143,16 +237,30 @@ class LlmService implements Llm {
   @override
   Future<void> ensureReady() async {
     if (_settings.chatCloudMode) {
-      _requireCloudConfigured();
+      try {
+        _requireCloudConfigured();
+      } catch (e) {
+        _setReadiness(LlmReadiness.failed(e));
+        rethrow;
+      }
+      _setReadiness(const LlmReadiness.ready());
       return;
     }
-    await _localDeliveryFor();
+    _setReadiness(const LlmReadiness.loading());
+    try {
+      await _localDeliveryFor();
+      _setReadiness(const LlmReadiness.ready());
+    } catch (e) {
+      _setReadiness(LlmReadiness.failed(e));
+      rethrow;
+    }
   }
 
   @override
-  bool get isReady => _settings.chatCloudMode
-      ? _settings.isCloudApiConfigured
-      : (_localDelivery?.isReady ?? false);
+  bool get isReady => _readiness.value.phase == LlmPhase.ready;
+
+  @override
+  ValueListenable<LlmReadiness> get readiness => _readiness;
 
   // ─── 单次补全 ───
 
@@ -225,8 +333,7 @@ class LlmService implements Llm {
     if (override != null) return _overrideDelivery ??= override();
     if (_mode == ChatMode.cloud) {
       _requireCloudConfigured();
-      final fingerprint = '${_settings.cloudApiBaseUrl}\u0000'
-          '${_settings.cloudApiKey}\u0000${_settings.cloudModelName}';
+      final fingerprint = _currentCloudFingerprint;
       if (_cloudDelivery == null || _cloudFingerprint != fingerprint) {
         _cloudDelivery?.dispose();
         _cloudDelivery = CloudDelivery(
@@ -241,10 +348,33 @@ class LlmService implements Llm {
     return _localDeliveryFor();
   }
 
-  Future<LocalDelivery> _localDeliveryFor() async {
+  /// BYOK 三件套指纹（任一变更即要求云端交付重建）。
+  String get _currentCloudFingerprint => '${_settings.cloudApiBaseUrl}\u0000'
+      '${_settings.cloudApiKey}\u0000${_settings.cloudModelName}';
+
+  Future<ChatDelivery> _localDeliveryFor() async {
+    final ready = _localReady;
+    if (ready != null) return ready;
+    final future = _buildLocalDelivery();
+    _localReady = future;
+    try {
+      final delivery = await future;
+      _localDelivery = delivery;
+      return delivery;
+    } catch (e) {
+      // 失败不缓存，允许重试（仅当没有更新的构建发起时才清空）。
+      if (identical(_localReady, future)) _localReady = null;
+      rethrow;
+    }
+  }
+
+  Future<ChatDelivery> _buildLocalDelivery() async {
+    final builder = _localDeliveryBuilder;
+    if (builder != null) return builder();
     final engine = await _ensureLocalEngine();
-    final delivery = _localDelivery ??=
-        LocalDelivery(sessionFactory: () => engine.createChat().then(LlamaChatSession.new));
+    final delivery = LocalDelivery(
+      sessionFactory: () => engine.createChat().then(LlamaChatSession.new),
+    );
     await delivery.ensureReady();
     return delivery;
   }

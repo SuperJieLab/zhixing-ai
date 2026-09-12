@@ -142,8 +142,13 @@ void main() {
   // ============================================================
   testWidgets('ChatPage 渲染 AppBar + 输入框', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: ChatPage(topic: '测试话题', providerFactory: _fakeProviderFactory),
+      // 页面消费 llm.readiness（Task 4）：即便走 providerFactory，
+      // Provider 树也须持有 Llm；fake ensureReady 成功 → 正常视图。
+      MultiProvider(
+        providers: [Provider<Llm>.value(value: FakeLlm())],
+        child: MaterialApp(
+          home: ChatPage(topic: '测试话题', providerFactory: _fakeProviderFactory),
+        ),
       ),
     );
     await tester.pump();
@@ -163,8 +168,11 @@ void main() {
   // ============================================================
   testWidgets('ChatPage 发送消息后展示用户输入内容', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: ChatPage(topic: '职业发展', providerFactory: _fakeProviderFactory),
+      MultiProvider(
+        providers: [Provider<Llm>.value(value: FakeLlm())],
+        child: MaterialApp(
+          home: ChatPage(topic: '职业发展', providerFactory: _fakeProviderFactory),
+        ),
       ),
     );
     await tester.pump();

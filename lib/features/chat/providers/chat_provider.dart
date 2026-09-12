@@ -16,8 +16,9 @@ import 'package:zhixing_ai/features/chat/prompt/conversation_strategy.dart';
 ///
 /// 业务职责只有三件（设计 §5.1）：**持消息列表**（唯一真值源）、
 /// **持压缩状态实例**（[ContextState]，类型在基建）、**每轮传人设**。
-/// 后端模式（本地 / 云端）由 `Llm` 服务内部解析，本类不含任何模式分支，
-/// 也不构造 / 释放后端资源（那是服务的职责）。
+/// 后端模式（本地 / 云端）由 `Llm` 服务内部解析，本类不含任何模式分支；
+/// **也不持有加载 / 释放职责**（引擎生命周期归服务，就绪态经
+/// `llm.readiness` 由页面消费，design §9 #4/#5）。
 ///
 /// 两种生命周期：新对话只传 [topic]（内部加欢迎语，首次发言建 DB 记录）；
 /// 恢复对话传 [conversation]（加载其消息 / ID / 轮次）。
@@ -33,17 +34,9 @@ class ChatProvider extends ChangeNotifier {
   /// 会话压缩状态（业务持有的实例；装配时就地更新）。
   final ContextState _contextState = ContextState();
 
-  /// 本轮注入人设的已有目标（loadModel 时读取，留在业务侧）。
+  /// 本轮注入人设的已有目标（**每轮发言前刷新**，目标取用留在业务侧，
+  /// design §10.1 #8——基建不认识 Dashboard 仓库）。
   List<Goal> _activeGoals = const [];
-
-  bool _isModelLoading = false;
-  String? _modelError;
-  bool _ready = false;
-
-  bool get isModelReady => _ready;
-  bool get isModelLoading => _isModelLoading;
-  String? get modelError => _modelError;
-  bool get hasModelError => _modelError != null;
 
   int _round;
   bool _isThinking = false;
@@ -102,30 +95,16 @@ class ChatProvider extends ChangeNotifier {
     return [ChatMessage(role: MessageRole.ai, content: opening, round: 0)];
   }
 
-  /// 读取已有目标（注入人设）→ 确保后端就绪。
+  /// 刷新本轮要注入人设的已有目标。
   ///
-  /// 目标取用**留在业务侧**：基建不认识 Dashboard 仓库（design §10.1 #8）。
-  Future<void> loadModel() async {
-    _isModelLoading = true;
-    notifyListeners();
-
+  /// 读取失败（如测试环境无 DB）不阻塞对话：沿用上次结果（首次为空），
+  /// 人设退化为「无目标」版本。
+  Future<void> _refreshGoals() async {
     try {
       _activeGoals = await _dashboardRepo.getActiveGoals();
-      await _llm.ensureReady();
-      _ready = true;
     } catch (e) {
-      AppLogger.warn('ChatProvider', '模型加载失败，将使用 Mock 回复: $e');
-      _modelError = e.toString();
-      _ready = false;
-    } finally {
-      _isModelLoading = false;
-      notifyListeners();
+      AppLogger.warn('ChatProvider', '读取活跃目标失败（沿用上次/空）: $e');
     }
-  }
-
-  Future<void> retryLoadModel() async {
-    _modelError = null;
-    await loadModel();
   }
 
   Future<void> sendMessage(String content) async {
@@ -150,7 +129,9 @@ class ChatProvider extends ChangeNotifier {
     ));
 
     try {
-      if (!_ready) {
+      // 后端未就绪（模型缺失 / 云端未配齐）→ Mock 兜底；就绪化由服务驱动
+      // （页面消费 llm.readiness 表达 loading / 错误，这里不阻塞）。
+      if (!_llm.isReady) {
         _messages[aiMessageIndex] = ChatMessage(
           role: MessageRole.ai,
           content: _generateMockResponse(),
@@ -158,6 +139,9 @@ class ChatProvider extends ChangeNotifier {
         );
         return;
       }
+
+      // 每轮刷新目标（人设随轮注入，不缓存于服务）。
+      await _refreshGoals();
 
       // 去掉尾部空 AI 占位符 → 尾部恰为本轮用户消息。
       final history = _messages.sublist(0, _messages.length - 1);

@@ -6,6 +6,7 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 
 /// 记录调用的 fake 后端接缝（[SingleShotAsk] 形态）。
@@ -102,6 +103,37 @@ class _FakeDelivery implements ChatDelivery {
 
   @override
   void dispose() {}
+}
+
+/// 记录释放次数的交付 fake（生命周期测试用：验证延迟释放 / 防抖）。
+class _RecordingDelivery implements ChatDelivery {
+  int disposed = 0;
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<void> ensureReady() async {}
+
+  @override
+  Stream<String> deliver(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) async* {}
+
+  @override
+  void prime(
+    AssembledContext assembled, {
+    required String systemPrompt,
+    bool nudgeTail = true,
+  }) {}
+
+  @override
+  void stop() {}
+
+  @override
+  void dispose() => disposed++;
 }
 
 void main() {
@@ -378,6 +410,159 @@ void main() {
       built.service.stop();
 
       expect(delivery.stopCalls, 1);
+    });
+  });
+
+  group('生命周期（窄通知 + 冷启动预热 + 延迟释放防抖）', () {
+    /// 构建注入本地交付接缝的服务；返回构建出的交付列表供断言。
+    ({LlmService service, List<_RecordingDelivery> built}) buildLifecycle({
+      Duration delayedRelease = const Duration(seconds: 30),
+    }) {
+      final built = <_RecordingDelivery>[];
+      final service = LlmService(
+        settings: settings,
+        localDeliveryBuilder: () async {
+          final d = _RecordingDelivery();
+          built.add(d);
+          return d;
+        },
+        delayedRelease: delayedRelease,
+      );
+      addTearDown(service.dispose);
+      return (service: service, built: built);
+    }
+
+    Future<void> configureCloud() async {
+      await settings.setCloudApiBaseUrl('https://api.example.com');
+      await settings.setCloudApiKey('sk-test');
+      await settings.setCloudModelName('test-model');
+      await settings.setChatCloudMode(true);
+    }
+
+    test('本地模式冷启动：initialize 异步预热 → ready，构建一次', () async {
+      final built = buildLifecycle();
+
+      await built.service.initialize();
+
+      expect(built.built, hasLength(1));
+      expect(built.service.readiness.value.phase, LlmPhase.ready);
+      expect(built.service.isReady, isTrue);
+    });
+
+    test('云端未配齐：initialize → failed（带语义错误），不触碰本地资源', () async {
+      await settings.setChatCloudMode(true); // 三件套为空
+      final built = buildLifecycle();
+
+      await built.service.initialize();
+
+      expect(built.built, isEmpty);
+      expect(built.service.readiness.value.phase, LlmPhase.failed);
+      expect(built.service.readiness.value.error, isA<StateError>());
+      expect(built.service.isReady, isFalse);
+    });
+
+    test('云端配齐：initialize → ready（云端就绪化瞬时），不构建本地交付',
+        () async {
+      await configureCloud();
+      final built = buildLifecycle();
+
+      await built.service.initialize();
+
+      expect(built.built, isEmpty);
+      expect(built.service.readiness.value.phase, LlmPhase.ready);
+    });
+
+    test('ensureReady：本地失败 → failed 并抛出；修复后可重试成功', () async {
+      var shouldFail = true;
+      final service = LlmService(
+        settings: settings,
+        localDeliveryBuilder: () async {
+          if (shouldFail) throw StateError('模型缺失');
+          return _RecordingDelivery();
+        },
+      );
+      addTearDown(service.dispose);
+
+      await expectLater(service.ensureReady(), throwsA(isA<StateError>()));
+      expect(service.readiness.value.phase, LlmPhase.failed);
+
+      shouldFail = false;
+      await service.ensureReady(); // 失败不缓存，允许重试
+      expect(service.readiness.value.phase, LlmPhase.ready);
+    });
+
+    /// 真实短定时器版延迟释放验证。
+    ///
+    /// 不用 fakeAsync：SharedPreferences mock 的写入 Future 在 fakeAsync
+    /// zone 内不完成（探针证实），通知根本不会触发。改用可注入的短窗口
+    /// （150ms）+ 真实等待，裕量 ≥ 50ms，避免 CI 抖动。
+    const releaseWindow = Duration(milliseconds: 150);
+
+    Future<void> pump(int ms) =>
+        Future<void>.delayed(Duration(milliseconds: ms));
+
+    test('切云端：本地资源延迟到点释放一次', () async {
+      final built =
+          buildLifecycle(delayedRelease: releaseWindow);
+      await built.service.initialize();
+
+      await configureCloud();
+      expect(built.built.single.disposed, 0); // 未到点不释放
+      expect(built.service.readiness.value.phase, LlmPhase.ready);
+
+      await pump(releaseWindow.inMilliseconds + 100);
+      expect(built.built.single.disposed, 1); // 到点恰好释放一次
+    });
+
+    test('防抖：切回本地取消释放；再切云端重新计时', () async {
+      final built =
+          buildLifecycle(delayedRelease: releaseWindow);
+      await built.service.initialize();
+
+      await settings.setChatCloudMode(true);
+      await pump(80); // 窗口内
+      expect(built.built.single.disposed, 0);
+
+      await settings.setChatCloudMode(false); // 切回本地：取消释放
+      await settings.setChatCloudMode(true); // 再切云端：重新计时
+      await pump(100); // 距重排 100 < 150
+      expect(built.built.single.disposed, 0); // 计时被重置，未释放
+
+      await pump(100); // 累计 200 ≥ 150
+      expect(built.built.single.disposed, 1);
+      expect(built.built, hasLength(1)); // 全程未重建（切回时实例仍在）
+    });
+
+    test('释放后切回本地：重新构建本地交付并回到 ready', () async {
+      final built =
+          buildLifecycle(delayedRelease: releaseWindow);
+      await built.service.initialize();
+
+      await settings.setChatCloudMode(true);
+      await pump(releaseWindow.inMilliseconds + 100);
+      expect(built.built.single.disposed, 1);
+
+      await settings.setChatCloudMode(false);
+      await pump(50);
+      expect(built.built, hasLength(2)); // 重建
+      expect(built.service.readiness.value.phase, LlmPhase.ready);
+    });
+
+    test('BYOK 指纹变更：旧云端交付即刻废弃，防抖计时重排', () async {
+      final built =
+          buildLifecycle(delayedRelease: releaseWindow);
+      await built.service.initialize();
+
+      await configureCloud();
+      await pump(100); // 窗口内
+      expect(built.built.single.disposed, 0);
+
+      await settings.setCloudApiKey('sk-new'); // 指纹变化 → 重排计时
+      await pump(90); // 距重排 90 < 150
+      expect(built.built.single.disposed, 0);
+
+      await pump(80); // 累计 170 ≥ 150
+      expect(built.built.single.disposed, 1);
     });
   });
 }
