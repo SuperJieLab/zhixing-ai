@@ -161,7 +161,8 @@ class CloudDelivery implements ChatDelivery {
 
     // 帧间空闲超时：超时作为错误事件透传给消费方。
     final buffer = SseBuffer();
-    final subscription = stream
+    StreamSubscription<void>? sub;
+    sub = stream
         .cast<List<int>>()
         .transform(utf8.decoder)
         .timeout(_frameTimeout)
@@ -176,20 +177,33 @@ class CloudDelivery implements ChatDelivery {
             }
           }
         } catch (e) {
-          _safeError(controller, e);
-          controller.close();
+          _failActive(controller, e, sub);
         }
       },
       onError: (Object e) {
-        _safeError(controller, e);
-        controller.close();
+        // 超时 / 网络错误：timeout 不取消源订阅，必须显式 cancel 断开连接，
+        // 否则 HTTP 连接悬挂到服务端断开为止。
+        _failActive(controller, e, sub);
       },
       onDone: () {
         controller.close();
         _clearActive();
       },
     );
-    _bodySubscription = subscription;
+    _bodySubscription = sub;
+  }
+
+  /// 错误收尾：透传错误 + 取消响应体订阅 + 清理活动引用（幂等，可重复进入）。
+  void _failActive(
+    StreamController<String> controller,
+    Object error,
+    StreamSubscription<void>? sub,
+  ) {
+    _safeError(controller, error);
+    unawaited(sub?.cancel());
+    if (identical(_bodySubscription, sub)) _bodySubscription = null;
+    if (!controller.isClosed) controller.close();
+    if (identical(_activeController, controller)) _activeController = null;
   }
 
   /// 取 OpenAI 流式增量：`choices[0].delta.content`。

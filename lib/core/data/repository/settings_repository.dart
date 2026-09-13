@@ -96,7 +96,8 @@ class SettingsRepository {
 
   /// 是否启用「云端对话模式」。
   ///
-  /// true  → 对话内容经服务端转发至 DeepSeek API（离开设备）。
+  /// true  → 对话内容直连用户自配的 OpenAI 兼容端点（BYOK，离开设备；
+  /// 服务端不参与对话，转发链路已删除）。
   /// false → 本地 LLM 引擎离线生成（默认，全程不出设备）。
   ///
   /// 默认 false：用户需在「设置」中开启。模式由 `LlmService` 在每次调用时

@@ -134,7 +134,9 @@ class LlmService implements Llm {
         _cloudDelivery = null;
         _cloudFingerprint = null;
       }
-      if (_localDelivery != null || _localEngine != null) {
+      if (_localDelivery != null ||
+          _localEngine != null ||
+          _localReady != null) {
         _releaseTimer?.cancel();
         _releaseTimer = Timer(_delayedRelease, _releaseLocalResources);
         AppLogger.info('LlmService',
@@ -158,12 +160,23 @@ class LlmService implements Llm {
   void _releaseLocalResources() {
     _releaseTimer = null;
     if (!_settings.chatCloudMode) return;
+    _teardownLocalResources();
+    AppLogger.info('LlmService', '云端模式下本地引擎已延迟释放');
+  }
+
+  /// 本地资源统一拆除（延迟释放 / 服务 dispose 共用）。
+  ///
+  /// 引擎释放**必须走 [LlamaService.release] 的池失效**——直接
+  /// `engine.dispose()` 会留下「池缓存已释放引擎」的脏条目，切回本地时
+  /// ensureReady 命中缓存返回死引擎，本地模式从此永久损坏。
+  void _teardownLocalResources() {
     _localReady = null;
     _localDelivery?.dispose();
     _localDelivery = null;
-    _localEngine?.dispose();
+    final gpuLayers = _settings.gpuLayers;
     _localEngine = null;
-    AppLogger.info('LlmService', '云端模式下本地引擎已延迟释放');
+    unawaited(
+        LlamaService.instance.release(gpuLayers: gpuLayers).catchError((_) {}));
   }
 
   /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
@@ -171,8 +184,9 @@ class LlmService implements Llm {
     _settings.backendListenable.removeListener(_onBackendSettingChanged);
     _releaseTimer?.cancel();
     _releaseTimer = null;
-    _localDelivery?.dispose();
+    _teardownLocalResources();
     _cloudDelivery?.dispose();
+    _cloudDelivery = null;
     _readiness.dispose();
   }
 
@@ -249,9 +263,11 @@ class LlmService implements Llm {
     _setReadiness(const LlmReadiness.loading());
     try {
       await _localDeliveryFor();
-      _setReadiness(const LlmReadiness.ready());
+      // 构建期间切到云端：云端就绪态已由通知源写好（ready/failed），
+      // 本地构建的失败/弃置不得覆盖它。
+      if (!_settings.chatCloudMode) _setReadiness(const LlmReadiness.ready());
     } catch (e) {
-      _setReadiness(LlmReadiness.failed(e));
+      if (!_settings.chatCloudMode) _setReadiness(LlmReadiness.failed(e));
       rethrow;
     }
   }
@@ -359,6 +375,14 @@ class LlmService implements Llm {
     _localReady = future;
     try {
       final delivery = await future;
+      // 构建在途时切到了云端：不缓存（延迟释放可能已把资源清掉，缓存即泄漏）。
+      // 抛错让调用方走各自路径：ensureReady 由下方按当前模式决定是否回写 failed，
+      // converse 由业务降级一轮（下轮起走云端，自愈）。
+      if (_settings.chatCloudMode) {
+        delivery.dispose();
+        if (identical(_localReady, future)) _localReady = null;
+        throw StateError('本地构建完成时已切换云端模式，结果弃置');
+      }
       _localDelivery = delivery;
       return delivery;
     } catch (e) {

@@ -11,6 +11,9 @@ class TailDeduplicator {
 
   final List<String> _recentQuestions = [];
 
+  /// 清空判重窗口（新会话开始：交付实现与 App 同寿命，窗口不得跨会话泄漏）。
+  void reset() => _recentQuestions.clear();
+
   /// 与上一问完全相同或 LCS 相似度 > 0.8 → 重复；
   /// 否则记入窗口（容量 [windowSize]，FIFO）并返回 false。
   bool isDuplicate(String input) {

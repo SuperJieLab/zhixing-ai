@@ -314,6 +314,34 @@ void main() {
         'user:目标A',
       ]);
     });
+
+    test('新会话首问（无摘要+单条消息）→ 清空判重窗口，同问不再误判为重复',
+        () async {
+      await delivery.ensureReady();
+      final session = factory.created.single;
+
+      // 会话 1：问「目标A」并得到回复（问题进入判重窗口）
+      session.tokens = ['回复A'];
+      await delivery
+          .deliver(_ctx([_user('目标A', 1)]), systemPrompt: _system)
+          .join();
+
+      // 会话 2（新对话）：交付实现与 App 同寿命，仅摘要卡为 null 且窗口
+      // 只剩 1 条 → 判定「新会话首问」→ 窗口重置；同样的首问不得被
+      // 上一会话的历史误判为重复而改写。
+      session.ops.clear();
+      session.tokens = ['回复B'];
+      await delivery
+          .deliver(_ctx([_user('目标A', 1)]), systemPrompt: _system)
+          .join();
+
+      expect(session.ops, [
+        'clear',
+        'system:$_system',
+        'user:目标A', // 未改写：跨会话窗口已重置
+        'generate:2048',
+      ]);
+    });
   });
 
   group('LocalDelivery · 取回与 think 剥离', () {

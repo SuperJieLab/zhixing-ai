@@ -106,6 +106,33 @@ class LlamaService {
     }
   }
 
+  /// 释放指定配置的缓存引擎（池失效）。
+  ///
+  /// 供 [LlmService] 的延迟释放调用：只 `engine.dispose()` 而不清池的话，
+  /// 下次 `ensureReady` 会**命中缓存并返回已释放的引擎**（createChat 必炸，
+  /// 且此后每次重试都命中同一条目 → 本地模式永久损坏直至重启）。
+  ///
+  /// [gpuLayers] 须与加载时一致（配置四字段全参与缓存键）；条目不存在时为
+  /// 幂等 no-op。配置不匹配（如释放前用户改了 GPU 设置）时残留旧条目——
+  /// 与历史上池从无逐出机制一致，不做全局 `dispose()`（可能波及模型管理页）。
+  Future<void> release({int? gpuLayers}) async {
+    final config = LlamaConfig(
+      modelPath: AppConstants.defaultModelPath,
+      contextSize: AppConstants.localContextSize,
+      gpuLayers: gpuLayers ?? AppConstants.localGpuLayers,
+      threads: AppConstants.localThreads,
+    );
+    final future = _pool.remove(config);
+    if (future == null) return;
+    try {
+      final engine = await future;
+      engine.dispose();
+      AppLogger.info('LlamaService', '引擎已释放: ${config.modelPath}');
+    } catch (_) {
+      // 加载本身就失败过的条目无可释放
+    }
+  }
+
   /// 释放所有缓存的引擎
   void dispose() {
     AppLogger.info('LlamaService', '正在释放 ${_pool.length} 个引擎...');

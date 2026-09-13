@@ -564,5 +564,45 @@ void main() {
       await pump(80); // 累计 170 ≥ 150
       expect(built.built.single.disposed, 1);
     });
+
+    test('构建在途切云端：构建完成后弃置（dispose 一次）、不缓存、就绪态不被覆盖',
+        () async {
+      // 冷启动预热挂起在引擎加载中途（真实场景：模型加载 ~15s，用户等不及切云端）
+      final gates = <Completer<ChatDelivery>>[Completer(), Completer()];
+      var call = 0;
+      final service = LlmService(
+        settings: settings,
+        localDeliveryBuilder: () => gates[call++].future,
+        delayedRelease: releaseWindow,
+      );
+      addTearDown(service.dispose);
+
+      final init = service.initialize(); // 预热 → 构建挂起
+      await Future<void>.delayed(Duration.zero);
+      expect(call, 1);
+
+      await configureCloud(); // 构建在途切云端 → 释放计时排上，就绪态 ready
+      expect(service.readiness.value.phase, LlmPhase.ready);
+
+      // 构建完成时已是云端模式：交付必须弃置（不缓存成泄漏），且本地构建
+      // 的「失败」不得把云端 ready 覆盖成 failed
+      final orphan = _RecordingDelivery();
+      gates[0].complete(orphan);
+      await init; // initialize 内部吞错
+
+      expect(orphan.disposed, 1);
+      expect(service.readiness.value.phase, LlmPhase.ready);
+
+      // 延迟释放到点（teardown 走池失效）；随后切回本地 → 重新构建而非复用脏缓存
+      await pump(releaseWindow.inMilliseconds + 100);
+      await settings.setChatCloudMode(false);
+      await pump(20);
+      expect(call, 2); // 重新构建
+
+      final rebuilt = _RecordingDelivery();
+      gates[1].complete(rebuilt);
+      await pump(10);
+      expect(service.readiness.value.phase, LlmPhase.ready);
+    });
   });
 }

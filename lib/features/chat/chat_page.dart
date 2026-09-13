@@ -143,7 +143,11 @@ class _ChatPageState extends State<ChatPage> {
                   return child!;
                 case LlmPhase.failed:
                   return _buildModelErrorView(() async {
-                    await _llm.ensureReady(); // 失败会再转 failed
+                    // ensureReady 失败会再转 failed（错误视图本就为此存在）；
+                    // 此处吞掉异常本身，避免成为未处理的异步错误。
+                    try {
+                      await _llm.ensureReady();
+                    } catch (_) {}
                   });
                 case LlmPhase.idle:
                 case LlmPhase.loading:

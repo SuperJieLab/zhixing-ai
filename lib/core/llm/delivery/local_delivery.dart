@@ -222,6 +222,10 @@ class LocalDelivery implements ChatDelivery {
       session.addSystem(summaryCard);
     }
     final messages = assembled.messages;
+    // 新会话首问（无摘要 + 仅一条窗口消息）→ 清空判重窗口：交付实现自
+    // Task 3 起与 App 同寿命（不再随 ChatProvider 每会话新建），判重窗口
+    // 若不重置，上一会话的最后一问会污染新会话首问的去重判定。
+    if (summaryCard == null && messages.length <= 1) _dedup.reset();
     final last = messages.length - 1;
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
