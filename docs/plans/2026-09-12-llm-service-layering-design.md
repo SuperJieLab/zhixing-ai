@@ -1,6 +1,6 @@
 # 知行AI — 大模型服务分层（Llm Service Layering）
 
-> 状态：**设计已确认**（2026-09-12；两轮设计讨论 + 一轮源码级复核；**§10.1 三项开工前待拍已全部拍定**；代码未动）
+> 状态：**✅ 已实施完成**（2026-09-12，Task 1–5 全部落地；实施结果见同日 plan 的各 Task 实施记录）
 > 复核：§11 末「复核记录」列出 13 条自检结论（5 条为实质修正），本文所有行号引用均已回源码核对
 > 前置：`2026-09-11-context-policy-design.md`（ContextPolicy 已落地）、`2026-09-11-local-stateless-replay-design.md`（端侧无状态重放已落地）
 > 依据：`docs/notes/2026-09-11/local-kv-reuse-feasibility.md` **§11**（业界职责归属对照）；讨论结论与源码核实见 `.workbuddy/memory/2026-09-11.md`

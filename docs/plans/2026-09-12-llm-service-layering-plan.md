@@ -1,6 +1,6 @@
 # 知行AI — 大模型服务分层实施计划
 
-> 状态：**实施中——Task 1 / 2 / 3 已完成，Task 4 / 5 待开工**（2026-09-12）
+> 状态：**✅ 全部完成**（Task 1–5 于 2026-09-12 落地；Task 3 拆 a/b 两步提交，Task 5 为文档收尾 + 用户侧冒烟清单。提交链：`bfca44f` → `8b1072d` → `554096c` → `e44dc8a` → `4e75296`）
 > 设计：`docs/plans/2026-09-12-llm-service-layering-design.md`
 > 依据：`docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §11（业界对照）；`.workbuddy/memory/2026-09-11.md`（架构决策链 + 源码核实）
 > 前置纪律：工作区**尚有三份文件未提交**（本 plan / design 两份新文档 + `docs/PROJECT.md` 决策表一行修改；本地领先远端 18 commit）→ 开工前先提交这批文档，形成回退点。
@@ -167,14 +167,14 @@
 - [x] `ChatProvider` 不再持有加载/释放职责（grep：loadModel / ensureReady / isModelLoading 均无）
 - [x] `flutter analyze` 0；全量 `flutter test` 绿（210）
 
-## Task 5：收尾 ⬜ 未开始
+## Task 5：收尾 ✅ 已完成（2026-09-12）
 
-- [ ] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿
-- [ ] 文档：
-  - `docs/PROJECT.md`：`五、架构`（分层与新模块）、`六、目录结构`（`core/llm` 扩写 + `features/chat/engine` 解体）、`十、设计决策`新增「大模型服务分层」行（三层/四段/三关节 + 不变量）
-  - `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`：状态置完成
-  - `.workbuddy/memory/MEMORY.md`：新增「大模型服务分层」条目（业务只调 `converse/ask`、后端差异关进 `core/llm`、类型在基建实例在业务）
-- [ ] 冒烟项（**用户侧**，需真机/模拟器）：
+- [x] 全量回归：`flutter analyze` 0 + 全量 `flutter test` 绿（210 例）
+- [x] 文档：
+  - `docs/PROJECT.md`：五、架构（Llm 服务层 + 业务依赖面 = `Llm` 接口）、六、目录结构（`core/llm` 扩写 + `features/chat/engine` 解体 + 新增 `prompt/` 准入桶）、十、设计决策（交付层 / 上下文管理 / 真相源 / 服务分层四行更新 + 历史版本 v2.2）；5 处 `ChatClient` 陈旧引用已清
+  - `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`：状态置完成（本节）
+  - `.workbuddy/memory/MEMORY.md`：「大模型服务分层」条目置完成
+- [ ] **冒烟项（用户侧，需真机/模拟器，未执行）**：
   - 本地模式：多轮对话、压缩触发、`context full` 自愈
   - 云端模式：对话 SSE、**提取跟随配置**（关键：确认走云端且 JSON 解析成功）
   - 模式切换：本地→云端（延迟释放）、云端→本地（主动加载）、冷启动首帧不卡
