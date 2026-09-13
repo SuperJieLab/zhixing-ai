@@ -141,21 +141,18 @@ class CloudDelivery implements ChatDelivery {
     } on DioException catch (e) {
       // 非 2xx 也走 DioException：带上 status 便于用户定位（401/429/欠费等）。
       final status = e.response?.statusCode;
-      _safeError(
+      _failActive(
         controller,
         Exception('云端 API 请求失败${status != null ? '（HTTP $status）' : ''}'
             ': ${e.message ?? e.type.name}'),
+        null,
       );
-      await controller.close();
-      _clearActive();
       return;
     }
 
     final stream = resp.data?.stream;
     if (stream == null) {
-      _safeError(controller, Exception('云端返回空响应流'));
-      await controller.close();
-      _clearActive();
+      _failActive(controller, Exception('云端返回空响应流'), null);
       return;
     }
 

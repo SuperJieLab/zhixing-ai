@@ -58,10 +58,9 @@ class LlmService implements Llm {
   final ContextPolicy Function()? _policyFactory;
   final ChatDelivery Function()? _deliveryFactory;
 
-  /// 端侧引擎句柄（服务资源态：不持它就无法加载 / 释放）。
-  LlamaEngine? _localEngine;
-
   /// 交付实现（服务资源态）。云端按 BYOK 指纹重建，本地复用同一会话。
+  /// 本地引擎本体不在此缓存——`LlamaService` 池按 config 键控持有（幂等 +
+  /// 并发去重），这里再存一份是双份记账，且 GPU 设置变更后会返回旧引擎。
   ChatDelivery? _localDelivery;
   CloudDelivery? _cloudDelivery;
   String? _cloudFingerprint;
@@ -135,8 +134,8 @@ class LlmService implements Llm {
         _cloudFingerprint = null;
       }
       if (_localDelivery != null ||
-          _localEngine != null ||
-          _localReady != null) {
+          _localReady != null ||
+          LlamaService.instance.hasLoadedEngine) {
         _releaseTimer?.cancel();
         _releaseTimer = Timer(_delayedRelease, _releaseLocalResources);
         AppLogger.info('LlmService',
@@ -173,10 +172,8 @@ class LlmService implements Llm {
     _localReady = null;
     _localDelivery?.dispose();
     _localDelivery = null;
-    final gpuLayers = _settings.gpuLayers;
-    _localEngine = null;
     unawaited(
-        LlamaService.instance.release(gpuLayers: gpuLayers).catchError((_) {}));
+        LlamaService.instance.release(gpuLayers: _settings.gpuLayers).catchError((_) {}));
   }
 
   /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
@@ -331,7 +328,8 @@ class LlmService implements Llm {
     final override = _policyFactory;
     if (override != null) return override();
     if (_mode == ChatMode.cloud) {
-      _requireCloudConfigured();
+      // 配置校验在 _deliveryFor（交付前最后一道）；此处构造的策略即便带着
+      // 空配置也不会被使用——converse 在装配前就会因交付校验失败而抛错。
       return CloudContextPolicy(
         baseUrl: _settings.cloudApiBaseUrl,
         apiKey: _settings.cloudApiKey,
@@ -403,13 +401,10 @@ class LlmService implements Llm {
     return delivery;
   }
 
-  Future<LlamaEngine> _ensureLocalEngine() async {
-    final engine = _localEngine;
-    if (engine != null) return engine;
-    _localEngine =
-        await LlamaService.instance.ensureReady(gpuLayers: _settings.gpuLayers);
-    return _localEngine!;
-  }
+  /// 端侧引擎获取：直走 [LlamaService] 池（按 config 缓存 Future，幂等 +
+  /// 并发去重；GPU 设置变更自动落新条目，不存在旧引擎句柄残留）。
+  Future<LlamaEngine> _ensureLocalEngine() =>
+      LlamaService.instance.ensureReady(gpuLayers: _settings.gpuLayers);
 
   /// 单次补全的后端接缝：模式解析（唯一出处）+ 就绪校验。
   SingleShotAsk _resolveCompleter() {

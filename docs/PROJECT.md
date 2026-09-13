@@ -235,6 +235,7 @@ lib/
 │   │   │   ├── local_delivery.dart         # 端侧交付（无状态重放，唯一 llama SDK 依赖点）
 │   │   │   ├── cloud_delivery.dart         # 云端 BYOK 交付（SSE；prime 空实现保契约对称）
 │   │   │   ├── tail_dedup.dart             # 尾部 LCS 去重（有状态，仅端侧重放用）
+│   │   │   ├── think_stream_filter.dart    # 流式 think 剥离（三阶段状态机，端侧 deliver 用）
 │   │   │   └── sse_parser.dart             # SSE 半包/畸形 JSON 容错
 │   │   ├── context_assembly.dart       # 转换段共享骨架（无状态装配 + ContextState 外置状态）
 │   │   ├── context_budget.dart         # 预算常量（localInputBudget / cloudInputBudget）

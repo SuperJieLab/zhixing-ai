@@ -4,8 +4,8 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
 import 'package:zhixing_ai/core/llm/delivery/tail_dedup.dart';
+import 'package:zhixing_ai/core/llm/delivery/think_stream_filter.dart';
 import 'package:zhixing_ai/core/llm/inference.dart';
-import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 /// 端侧推理会话窄接口：一份多轮消息列表 + 每轮全量渲染生成。
@@ -117,58 +117,16 @@ class LocalDelivery implements ChatDelivery {
     _syncSession(session, assembled,
         systemPrompt: systemPrompt, nudgeTail: nudgeTail);
 
-    // think 剥离流式输出
-    final buffer = StringBuffer();
-    var passedThink = false;
-    var suppressWhitespace = false;
+    // think 剥离流式输出（状态机在 [ThinkStreamFilter]，本方法只做编排）
+    final filter = ThinkStreamFilter();
     try {
       await for (final token
           in session.generate(maxTokens: AppConstants.localMaxTokens)) {
-        if (!passedThink) {
-          buffer.write(token);
-          final text = buffer.toString();
-          final closeIdx1 = text.indexOf('</think>');
-          final closeIdx2 = text.indexOf('</思考>');
-          final closeIdx = closeIdx1 >= 0
-              ? closeIdx1 + '</think>'.length
-              : closeIdx2 >= 0
-                  ? closeIdx2 + '</思考>'.length
-                  : -1;
-
-          if (closeIdx > 0) {
-            passedThink = true;
-            suppressWhitespace = true;
-            final after = text.substring(closeIdx).trimLeft();
-            if (after.isNotEmpty) {
-              suppressWhitespace = false;
-              yield after;
-            }
-            buffer.clear();
-            buffer.write(after);
-          }
-        } else if (suppressWhitespace) {
-          // 吸收 </think> 之后的空白
-          buffer.write(token);
-          final text = buffer.toString();
-          final trimmed = text.trimLeft();
-          if (trimmed.isNotEmpty) {
-            suppressWhitespace = false;
-            buffer.clear();
-            buffer.write(trimmed);
-            yield trimmed;
-          }
-        } else {
-          // token 必须同步写 buffer：结束时提取收尾正文依赖其完整性。
-          buffer.write(token);
-          yield token;
-        }
+        final out = filter.push(token);
+        if (out != null) yield out;
       }
-
-      final fullReply = stripThinkTags(buffer.toString());
-      if (!passedThink && fullReply.isNotEmpty) {
-        // 兜底：非思考模式（无闭合标签）时缓冲内容即正文，不 yield 会空气泡。
-        yield fullReply;
-      }
+      final tail = filter.flush();
+      if (tail != null) yield tail;
     } catch (e) {
       // context full = 真实上下文先于估算撑爆 → 交服务强制收缩自愈
       if (_isContextFullError(e)) {

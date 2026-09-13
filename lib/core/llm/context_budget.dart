@@ -61,8 +61,6 @@ class PackResult {
     required this.used,
   });
 
-  bool get hasEviction => evicted.isNotEmpty;
-
   @override
   String toString() =>
       'PackResult(kept: ${kept.length}, evicted: ${evicted.length}, used: $used)';

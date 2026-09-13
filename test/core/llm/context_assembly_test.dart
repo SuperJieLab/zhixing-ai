@@ -98,7 +98,7 @@ void main() {
       expect(_contents(r.kept), 'bb,cccccc');
       expect(_contents(r.evicted), 'aaaa');
       expect(r.used, 8);
-      expect(r.hasEviction, isTrue);
+      expect(r.evicted, isNotEmpty);
     });
 
     test('长消息少留 / 短消息多留（同一预算）', () {
