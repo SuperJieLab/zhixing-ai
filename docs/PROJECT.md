@@ -239,8 +239,9 @@ lib/
 │   │   │   └── sse_parser.dart             # SSE 半包/畸形 JSON 容错
 │   │   ├── context_assembly.dart       # 转换段共享骨架（无状态装配 + ContextState 外置状态）
 │   │   ├── context_budget.dart         # 预算常量（localInputBudget / cloudInputBudget）
-│   │   ├── local_context_policy.dart   # 端侧策略（token 度量 + LlamaSummarizer）
-│   │   ├── cloud_context_policy.dart   # 云端策略（字符度量 + CloudSummarizer）
+│   │   ├── local_context_policy.dart   # 端侧策略（token 度量）
+│   │   ├── cloud_context_policy.dart   # 云端策略（字符度量）
+│   │   ├── single_shot_summarizer.dart # 统一摘要器（SingleShotAsk 接缝；提示词在此、传输注入）
 │   │   ├── summary_prompt.dart         # 摘要提示词（模型能力差异，App 级覆盖点）
 │   │   ├── inference.dart              # 装箱/事件循环原语
 │   │   ├── cloud_completion.dart       # 云端单次补全（BYOK 端点复用）
@@ -486,7 +487,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
 | 交付层 | `ChatDelivery` 接口双实现（`core/llm/delivery/`）：LocalDelivery（无状态重放——每轮 `clear()` + 按装配结果全量重放；唯一 llama SDK 依赖点兼测试接缝 `ChatSession` 抽象）/ CloudDelivery（BYOK 直连 OpenAI 兼容端点 SSE；`prime` 空实现保契约对称）；**两者同构：都无会话状态**；交付只抛类型化信号（`LlmContextOverflowException`），自愈编排在服务 |
-| 上下文管理 | `ContextPolicy` 抽象（`core/llm/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位；窗口 = `eligible.sublist(k)` 每轮现算）：LocalContextPolicy（token 度量 + 端侧摘要器 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 云端摘要器 + 无收缩）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`） |
+| 上下文管理 | `ContextPolicy` 抽象（`core/llm/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位；窗口 = `eligible.sublist(k)` 每轮现算）：LocalContextPolicy（token 度量 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 无收缩）；摘要器统一为 `SingleShotSummarizer`（`single_shot_summarizer.dart`，提示词在此、传输走服务注入的 `SingleShotAsk` 通道）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`） |
 | 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
 | 端侧消息列表真相源 | **已采纳：无状态重放**（2026-09-11 实施，2026-09-12 迁至交付层）。唯一真相源 = `ChatProvider._messages`；`ChatSession` 不再持有权威副本——每轮 `generate()` 恒为 `clear()` → `addSystem(人设)` → `[addSystem(摘要卡)]` → 按装配结果**全量重放** → `generate()`（`core/llm/delivery/local_delivery.dart` 的 `_syncSession`）。全生命周期只有 **1 个** `ChatSession` 实例。**不变量**：①引擎内消息列表 ≡ 人设 + 摘要卡 + 装配结果（逐字）；②assistant 条目均为 strip 后正文；③交付不持消息列表；④不得再引入依赖「引擎状态与我方索引对齐」的机制。行为变更：模型不再看到自身历史 think（与云端对齐）；token 预算估算变准 → `context full` 显著减少。依据见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10–§11 |
 | 大模型服务分层 | **已实施**（2026-09-12，Task 1–5 全部落地）。骨架 = **三层**（业务 / 基建 `core/llm` / 后端）· **四段**（入口 → 转换 → 交付 → 取回）· **三关节**（单一模式来源 / 统一入口 / 状态归属）。业务层只调 `Llm.converse/ask/askJson`（接口 `core/llm/llm.dart`），后端（本地/云端）差异**全部关进 `core/llm`**；状态**类型在基建、实例在业务**（业务持消息列表 + `ContextState` 实例）。服务**唯一实例 + 构造注入**（唯一性来自「`main()` 只构造一次」，业务依赖接口、不写 `.instance`）。**压缩无业务参数**：度量/预算/保底条数/溢出收缩/摘要模型全部按后端解析，摘要提示词上移 `core/llm/summary_prompt.dart`（模型能力差异，App 级覆盖点）。**生命周期归服务**（Task 4）：`SettingsRepository.backendListenable` 窄通知源 → 切本地主动加载 / 切云端本地引擎延迟释放 + 防抖（30s）；UI 只消费 `llm.readiness` 就绪态。**顺带修的真实缺陷**：目标提取原硬编码本地模式，现随 `Llm` 配置走。落地结果：`features/chat/engine/` **解体**（client→`core/llm/delivery/`、context→`core/llm/context_assembly.dart`、prompt→`features/chat/prompt/`）。机器可查证据：features 下 `LlamaEngine`/`ChatSession`/`ChatMode`/`ContextPolicy`/`LlmService`/`ChatClient` grep 均 0 命中。设计与计划见 `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md` |

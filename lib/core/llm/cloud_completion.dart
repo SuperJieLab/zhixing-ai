@@ -2,8 +2,9 @@ import 'package:dio/dio.dart';
 
 /// 云端单次补全（BYOK 非流式）：`POST {baseUrl}/chat/completions`。
 ///
-/// 从 `CloudSummarizer` 抽出的共享原语——云端 `ask`（经 [LlmService]）与
-/// 云端摘要器（CloudSummarizer）走同一个请求形态，只差提示词与输出上限。
+/// 单次补全通道的云端唯一实现——服务 `_defaultCloudAsk`（`ask` /
+/// `askJson` / 摘要经 [SingleShotSummarizer] 注入）都走这里，只差提示词
+/// 与输出上限。
 ///
 /// 异常语义：网络 / HTTP 错误抛带状态码的 [Exception]；响应缺
 /// `choices[0].message.content` 视为畸形响应并抛错（不静默产出空文本）。

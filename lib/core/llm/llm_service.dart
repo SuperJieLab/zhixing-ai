@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
+import 'package:zhixing_ai/core/llm/active_model_manager.dart';
 import 'package:zhixing_ai/core/llm/cloud_completion.dart';
 import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
@@ -16,17 +18,14 @@ import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/local_context_policy.dart';
+import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
-/// 单次补全的函数形态（后端接缝）：[LlmService] 按模式把 `ask` 委派给其一。
-///
-/// 测试注入 fake 即可覆盖模式路由与解析容错，无需真实引擎 / 网络。
-typedef SingleShotAsk = Future<String> Function({
-  required String system,
-  required String user,
-  int? maxTokens,
-});
+/// 后端接缝类型自 [single_shot_summarizer] 迁入处再导出（既有测试从本文件
+/// import 该 typedef，保持兼容）。
+export 'package:zhixing_ai/core/llm/single_shot_summarizer.dart'
+    show SingleShotAsk;
 
 /// 本地交付构造接缝（**仅测试注入**）：生命周期测试用它替代真实引擎加载
 /// （`LlamaEngine` 是 final class，无法 fake；与 [SingleShotAsk] 同一思路）。
@@ -86,6 +85,14 @@ class LlmService implements Llm {
   /// 测试接缝交付实例：惰性建一次并复用（与生产「稳定实例」语义一致）。
   ChatDelivery? _overrideDelivery;
 
+  /// 最近一次本地引擎加载时的模型路径。模型切换时据此识别「需要释放的是
+  /// 哪个 config 的池条目」——切换后 `defaultModelPath` 已是新值，不记录
+  /// 旧路径就会放跑旧条目（引擎驻留内存）。
+  String? _loadedModelPath;
+
+  /// 模型变更通知源；仅测试注入（默认 [ActiveModelManager.instance]）。
+  final ChangeNotifier _modelChanges;
+
   /// [settings] 缺省用仓库单例；其余接缝（[cloudAsk] / [localAsk] /
   /// [policyFactory] / [deliveryFactory] / [localDeliveryBuilder]）仅测试注入。
   LlmService({
@@ -96,7 +103,9 @@ class LlmService implements Llm {
     ChatDelivery Function()? deliveryFactory,
     LocalDeliveryBuilder? localDeliveryBuilder,
     Duration delayedRelease = const Duration(seconds: 30),
+    ChangeNotifier? modelChanges,
   })  : _settings = settings ?? SettingsRepository.instance,
+        _modelChanges = modelChanges ?? ActiveModelManager.instance,
         _cloudAsk = cloudAsk, // ignore: prefer_initializing_formals
         _localAsk = localAsk, // ignore: prefer_initializing_formals
         _policyFactory = policyFactory, // ignore: prefer_initializing_formals
@@ -108,14 +117,33 @@ class LlmService implements Llm {
   ///
   /// ① 订阅设置的后端通知源（窄 `Listenable`）——此后用户切模式 / 改
   /// BYOK 三件套，服务即时切换 / 重建资源（本地引擎延迟释放 + 防抖）；
-  /// ② 按当前模式预热：本地 → 异步加载引擎；云端 → 校验 BYOK 三件套。
+  /// ② 订阅活跃模型变更——切模型时旧引擎资源立即拆除（见 [_onActiveModelChanged]）；
+  /// ③ 按当前模式预热：本地 → 异步加载引擎；云端 → 校验 BYOK 三件套。
   /// 失败不抛（就绪态转 failed，由 UI 表达；页面进入时还有异步兜底）。
   Future<void> initialize() async {
     _settings.backendListenable.addListener(_onBackendSettingChanged);
+    _modelChanges.addListener(_onActiveModelChanged);
     try {
       await ensureReady();
     } catch (e) {
       AppLogger.warn('LlmService', '启动预热失败（就绪态已转 failed）: $e');
+    }
+  }
+
+  /// 活跃模型变更（下载完成 / 用户切换模型）的响应。
+  ///
+  /// 「使用新模型」**即刻生效**：旧模型引擎连同其上的会话立即废弃（无
+  /// 「误切回旧模型再切回」的场景，不需要云端切换那套延迟释放防抖）。
+  /// 后果：切换瞬间若有在途生成，该轮以错误收尾；下一轮自动加载新模型。
+  void _onActiveModelChanged() {
+    final loaded = _loadedModelPath;
+    final current = AppConstants.defaultModelPath;
+    if (loaded == null || loaded == current) return;
+    _loadedModelPath = null;
+    _teardownLocalResources(modelPath: loaded);
+    AppLogger.info('LlmService', '活跃模型切换（$loaded → $current），旧引擎资源已拆除');
+    if (!_settings.chatCloudMode) {
+      unawaited(ensureReady().catchError((Object _) {}));
     }
   }
 
@@ -163,22 +191,27 @@ class LlmService implements Llm {
     AppLogger.info('LlmService', '云端模式下本地引擎已延迟释放');
   }
 
-  /// 本地资源统一拆除（延迟释放 / 服务 dispose 共用）。
+  /// 本地资源统一拆除（延迟释放 / 模型切换 / 服务 dispose 共用）。
   ///
   /// 引擎释放**必须走 [LlamaService.release] 的池失效**——直接
   /// `engine.dispose()` 会留下「池缓存已释放引擎」的脏条目，切回本地时
   /// ensureReady 命中缓存返回死引擎，本地模式从此永久损坏。
-  void _teardownLocalResources() {
+  ///
+  /// [modelPath] 为要释放的池条目路径；缺省回退当前活跃模型路径
+  /// （模型切换场景必须显式传旧路径，见 [_onActiveModelChanged]）。
+  void _teardownLocalResources({String? modelPath}) {
     _localReady = null;
     _localDelivery?.dispose();
     _localDelivery = null;
-    unawaited(
-        LlamaService.instance.release(gpuLayers: _settings.gpuLayers).catchError((_) {}));
+    unawaited(LlamaService.instance
+        .release(modelPath: modelPath, gpuLayers: _settings.gpuLayers)
+        .catchError((_) {}));
   }
 
   /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
   void dispose() {
     _settings.backendListenable.removeListener(_onBackendSettingChanged);
+    _modelChanges.removeListener(_onActiveModelChanged);
     _releaseTimer?.cancel();
     _releaseTimer = null;
     _teardownLocalResources();
@@ -324,20 +357,22 @@ class LlmService implements Llm {
   }
 
   /// 转换段：按模式给出后端策略（度量 + 预算 + 摘要实现）。
+  ///
+  /// 摘要器统一为 [SingleShotSummarizer]：提示词与输出上限收口在它内部，
+  /// 传输走本服务的单次补全通道（本地 `_defaultLocalAsk` / 云端
+  /// `_defaultCloudAsk`，或测试注入的接缝）——摘要与 `ask` 共用同一实现，
+  /// 不再各自摸后端。
   Future<ContextPolicy> _policyFor() async {
     final override = _policyFactory;
     if (override != null) return override();
     if (_mode == ChatMode.cloud) {
-      // 配置校验在 _deliveryFor（交付前最后一道）；此处构造的策略即便带着
-      // 空配置也不会被使用——converse 在装配前就会因交付校验失败而抛错。
+      // 配置校验在 _deliveryFor（交付前最后一道）；摘要通道同理——此处构造的
+      // 策略即便带着空配置也不会被使用（converse 在装配前就会因交付校验失败抛错）。
       return CloudContextPolicy(
-        baseUrl: _settings.cloudApiBaseUrl,
-        apiKey: _settings.cloudApiKey,
-        modelName: _settings.cloudModelName,
-      );
+          summarizer: SingleShotSummarizer(_cloudAsk ?? _defaultCloudAsk));
     }
-    final engine = await _ensureLocalEngine();
-    return LocalContextPolicy(summarizer: LlamaSummarizer(engine));
+    return LocalContextPolicy(
+        summarizer: SingleShotSummarizer(_localAsk ?? _defaultLocalAsk));
   }
 
   /// 交付段：按模式给出交付实现（模式出口，业务不可见）。
@@ -392,6 +427,8 @@ class LlmService implements Llm {
 
   Future<ChatDelivery> _buildLocalDelivery() async {
     final builder = _localDeliveryBuilder;
+    // 记录本次交付所服务的模型路径（模型切换时据此拆除旧资源）。
+    _loadedModelPath = AppConstants.defaultModelPath;
     if (builder != null) return builder();
     final engine = await _ensureLocalEngine();
     final delivery = LocalDelivery(

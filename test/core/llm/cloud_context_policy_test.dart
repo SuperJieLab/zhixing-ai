@@ -3,18 +3,20 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/llm/cloud_completion.dart';
 import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
 
-// 云端后端策略单元测试：与 lib 侧 cloud_context_policy.dart 镜像对应——该文件把
-// 「度量 + 摘要器 + 装配」三件套收在一处（与端侧 local_context_policy.dart
-// 结构逐位对应），测试也在同一文件覆盖三部分：
+// 云端后端策略单元测试：与 lib 侧 cloud_context_policy.dart 镜像对应。覆盖三部分：
 //
 //   Ⅰ 度量与装配：验证「薄装配」——度量单位、预算、摘要器、溢出语义，以及
 //     复用共享层带来的过滤 / 装窗 / 压缩行为。不触网（摘要器注入 fake）。
-//   Ⅱ CloudSummarizer：起本地 dart:io HttpServer 当 OpenAI 兼容端点，验证
-//     请求体（非流式 / model / max_tokens / Bearer）、响应解析
-//     （choices[0].message.content）、think 剥离与非 2xx 抛错。
+//   Ⅱ CloudCompletion（传输层直测）：起本地 dart:io HttpServer 当 OpenAI 兼容
+//     端点，验证请求体（非流式 / model / max_tokens / Bearer）、响应解析
+//     （choices[0].message.content）与非 2xx / 畸形响应抛错。
+//     （摘要的 think 剥离已随通道收敛进服务 `_defaultCloudAsk`，不在本层。）
+//   Ⅲ SingleShotSummarizer：提示词与输出上限（fake 通道，不触网）。
 //
 // Ⅱ 的 mock 端点与 cloud_chat_client_test 同一约定：服务端必须设
 // `bufferOutput = false`，否则小写入会攒到连接关闭才上线。
@@ -47,14 +49,11 @@ CloudContextPolicy _policy({
   ConversationSummarizer? summarizer,
 }) =>
     CloudContextPolicy(
-      baseUrl: 'https://example.com',
-      apiKey: 'sk-test',
-      modelName: 'test-model',
       budget: budget,
       summarizer: summarizer ?? _FakeSummarizer(),
     );
 
-// ───────────── Ⅱ 摘要器：mock 端点 ─────────────
+// ───────────── Ⅱ CloudCompletion 传输层：mock 端点 ─────────────
 
 const _dummyKey = 'sk-test';
 const _dummyModel = 'test-model';
@@ -107,7 +106,7 @@ String _completion(String content) =>
       ],
     });
 
-CloudSummarizer _summarizer(_Mock m) => CloudSummarizer(
+CloudCompletion _client(_Mock m) => CloudCompletion(
       baseUrl: m.baseUrl,
       apiKey: _dummyKey,
       modelName: _dummyModel,
@@ -193,50 +192,24 @@ void main() {
     expect(state.k, 0);
   });
 
-  // ═══════════ Ⅱ CloudSummarizer（本地 mock 端点） ═══════════
+  // ═══════════ Ⅱ CloudCompletion（本地 mock 端点） ═══════════
 
-  // ── 请求体：非流式、model、max_tokens、Bearer；提示词复用 buildSummaryPrompt ──
-  test('请求体为非流式小请求，提示词复用共享摘要提示词', () async {
-    final m = await _startMock(responseJson: _completion('摘要正文'));
-    final result = await _summarizer(m).summarize('', _evicted());
+  // ── 请求体：非流式、model、max_tokens、Bearer ──
+  test('请求体为非流式补全请求，带 model 与 Bearer', () async {
+    final m = await _startMock(responseJson: _completion('任意正文'));
+    final result = await _client(m).complete(
+          system: 'sys',
+          user: 'usr',
+          maxTokens: SingleShotSummarizer.maxTokens,
+        );
     await m.close();
 
-    expect(result, '摘要正文');
+    expect(result, '任意正文');
     final body = m.body!;
     expect(body['model'], _dummyModel);
     expect(body['stream'], isFalse); // 非流式
-    expect(body['max_tokens'], CloudSummarizer.maxTokens);
+    expect(body['max_tokens'], SingleShotSummarizer.maxTokens);
     expect(m.auth, 'Bearer $_dummyKey');
-
-    final messages = body['messages'] as List;
-    expect(messages.length, 2);
-    expect(messages[0]['role'], 'system');
-    expect(messages[0]['content'], contains('你是对话摘要器'));
-    expect(messages[0]['content'], contains('【待压缩对话】'));
-    expect(messages[0]['content'], contains('用户: 我想找 iOS 工作'));
-    expect(messages[1]['role'], 'user');
-    expect(messages[1]['content'], contains('请输出摘要'));
-  });
-
-  // ── 递归压实：旧摘要并入提示词 ──
-  test('previousSummary 非空时并入提示词（递归压实）', () async {
-    final m = await _startMock(responseJson: _completion('合并后的摘要'));
-    final result = await _summarizer(m).summarize('旧摘要内容', _evicted());
-    await m.close();
-
-    expect(result, '合并后的摘要');
-    expect(m.body!['messages'][0]['content'], contains('【此前摘要】'));
-    expect(m.body!['messages'][0]['content'], contains('旧摘要内容'));
-  });
-
-  // ── think 剥离：思考模型先输出 <think> 块 ──
-  test('响应正文剥离 think 标签', () async {
-    final m = await _startMock(
-        responseJson: _completion('<think>先思考一下</think>真正的摘要'));
-    final result = await _summarizer(m).summarize('', _evicted());
-    await m.close();
-
-    expect(result, '真正的摘要');
   });
 
   // ── 非 2xx：抛错且含状态码（由策略兜底回落）──
@@ -247,7 +220,7 @@ void main() {
     );
     Object? caught;
     try {
-      await _summarizer(m).summarize('', _evicted());
+      await _client(m).complete(system: 's', user: 'u');
     } catch (e) {
       caught = e;
     } finally {
@@ -263,7 +236,7 @@ void main() {
     final m = await _startMock(responseJson: '{}');
     Object? caught;
     try {
-      await _summarizer(m).summarize('', _evicted());
+      await _client(m).complete(system: 's', user: 'u');
     } catch (e) {
       caught = e;
     } finally {
@@ -284,7 +257,7 @@ void main() {
         }));
     Object? caught;
     try {
-      await _summarizer(m).summarize('', _evicted());
+      await _client(m).complete(system: 's', user: 'u');
     } catch (e) {
       caught = e;
     } finally {
@@ -293,4 +266,60 @@ void main() {
     expect(caught, isNotNull);
     expect(caught.toString(), contains('content'));
   });
+
+  // ═══════════ Ⅲ SingleShotSummarizer（fake 通道，不触网） ═══════════
+
+  // ── 提示词复用 buildSummaryPrompt，输出上限与触发语固定 ──
+  test('summarize：system 为共享摘要提示词，user 与 maxTokens 固定', () async {
+    final ask = _CapturingAsk();
+    final result =
+        await SingleShotSummarizer(ask.call).summarize('', _evicted());
+
+    expect(result, '通道返回'); // 原样透传，不做二次加工
+    expect(ask.system, contains('你是对话摘要器'));
+    expect(ask.system, contains('【待压缩对话】'));
+    expect(ask.system, contains('用户: 我想找 iOS 工作'));
+    expect(ask.system, contains('助手: 目标已记录'));
+    expect(ask.user, '请输出摘要。');
+    expect(ask.maxTokens, SingleShotSummarizer.maxTokens);
+  });
+
+  // ── 递归压实：旧摘要并入提示词 ──
+  test('previousSummary 非空时并入提示词（递归压实）', () async {
+    final ask = _CapturingAsk();
+    await SingleShotSummarizer(ask.call).summarize('旧摘要内容', _evicted());
+
+    expect(ask.system, contains('【此前摘要】'));
+    expect(ask.system, contains('旧摘要内容'));
+  });
+
+  // ── 通道异常原样上抛（由 BaseContextPolicy 兜底回落）──
+  test('通道抛错 → 原样上抛', () async {
+    final ask = _CapturingAsk()..reply = Exception('boom');
+    await expectLater(
+      SingleShotSummarizer(ask.call).summarize('', _evicted()),
+      throwsA(isException),
+    );
+  });
+}
+
+/// 记录调用参数的 fake 单次补全通道（[SingleShotAsk] 形态）。
+class _CapturingAsk {
+  String? system;
+  String? user;
+  int? maxTokens;
+  Object? reply = '通道返回';
+
+  Future<String> call({
+    required String system,
+    required String user,
+    int? maxTokens,
+  }) {
+    this.system = system;
+    this.user = user;
+    this.maxTokens = maxTokens;
+    final r = reply;
+    if (r is Exception) return Future.error(r);
+    return Future.value(r as String);
+  }
 }
