@@ -247,7 +247,7 @@ class LlmService implements Llm {
     required ContextState state,
   }) async* {
     final policy = await _policyFor();
-    final delivery = await _deliveryFor();
+    final delivery = await deliveryFor();
     final assembled = await policy.assemble(
       history,
       state: state,
@@ -405,8 +405,9 @@ class LlmService implements Llm {
         summarizer: SingleShotSummarizer(_localAsk ?? _defaultLocalAsk));
   }
 
-  /// 交付段：按模式给出交付实现（模式出口，业务不可见）。
-  Future<ChatDelivery> _deliveryFor() async {
+  /// 交付段：按模式给出交付实现（**公开**：T3 过渡期作为 ModelGateway 的
+  /// 生产交付工厂经 composition root 注入——池化与 BYOK 指纹重建留在 llm 域）。
+  Future<ChatDelivery> deliveryFor() async {
     final override = _deliveryFactory;
     // 惰性建一次并复用：交付实现是「稳定实例」（端侧靠它复用同一会话）
     if (override != null) return _overrideDelivery ??= override();

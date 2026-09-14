@@ -71,6 +71,16 @@ class ContextState {
     pendingForceKeep = null;
   }
 
+  /// 仅重置窗口游标与挤出记账，**保留摘要正文**。
+  ///
+  /// 供后端模式切换使用（design D3）：两端窗口宽度不同（度量单位、预算都
+  /// 不同），游标 `k` 跨模式语义会漂；而摘要正文与后端无关，可跨模式保留。
+  void resetWindow() {
+    k = 0;
+    lastEligibleLength = 0;
+    pendingForceKeep = null;
+  }
+
   @override
   String toString() => 'ContextState(k: $k, summary: '
       '${summary.isEmpty ? 'none' : '${summary.length}字'}, '

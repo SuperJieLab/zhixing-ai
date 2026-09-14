@@ -52,7 +52,9 @@
 - [x] 模式切换 → `service.mode.value` 即时正确（含 BYOK 三件套变更不误触发模式值变化）
 - [x] 既有 llm_service 用例全绿（行为不变）
 
-## Task 3：ModelGateway 对话面（编排平移，双轨并存）
+## Task 3：ModelGateway 对话面（编排平移，双轨并存）✅ 已完成（2026-09-14）
+
+> **实施记录**：analyze 0 + 全量 229 绿（+9 网关用例）。两处实施拍定——① **D3 的 reset 落为 `ContextState.resetWindow()` 新方法**：既有 `reset()` 连摘要一起清，与 D3「保摘要、清游标」矛盾，故在 `context_assembly.dart` 增窗口级重置（k / lastEligibleLength / pendingForceKeep 清零、summary 不动）；② **交付接缝形态**：网关不缓存工厂结果（每轮经工厂取实例，稳定实例语义归工厂——生产侧 `LlmService.deliveryFor`（本 Task 由 `_deliveryFor` 转公开）自持池化 + BYOK 指纹重建，测试侧返回自持稳定 fake）；网关生产缺省工厂缺省时报语义错误（composition root 未注入即显式失败）。摘要统一走 `llm.ask`（D4）已随策略构造落地；`await for` 红线保持。`LlmService.converse` 双轨保留，业务未切。
 
 **目标**：新建门面，持 `ContextState`、编排装配 → 生成 → 自愈（逻辑自 `LlmService.converse` **逐字平移**，D2–D4）。`LlmService.converse` 暂留，业务未切。
 
