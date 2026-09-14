@@ -15,6 +15,7 @@ import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
 import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
 import 'package:zhixing_ai/core/llm/delivery/local_delivery.dart';
 import 'package:zhixing_ai/core/llm/inference.dart';
+import 'package:zhixing_ai/core/llm/input_guard.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/local_context_policy.dart';
@@ -319,6 +320,10 @@ class LlmService implements Llm {
     // async：模式解析 / 就绪校验的同步抛错也收敛为 Future 错误，
     // 调用方（业务）只面对一种失败形态。
     final completer = _resolveCompleter();
+    // 输入预算守门（design D5）：补全唯一通道单点施加——`askJson` 经本方法
+    // 透传自动覆盖（其 JSON-only directive 固定且极短，随本处一并度量）。
+    // 超预算在触达后端前 fail-fast：不发生网络 / 引擎动作。
+    ensureInputWithinBudget(mode: _mode, system: system, user: user);
     return completer(system: system, user: user, maxTokens: maxTokens);
   }
 
