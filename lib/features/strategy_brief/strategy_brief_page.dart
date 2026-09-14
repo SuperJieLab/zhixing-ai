@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
-import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/strategy_brief/providers/strategy_brief_provider.dart';
@@ -281,16 +280,8 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
           const SizedBox(height: 8),
           ...extraction.goalUpdates.asMap().entries.map((entry) {
             final update = entry.value;
-            final relatedGoal = state.existingGoals.firstWhere(
-              (g) => g.title == update.goalTitle,
-              orElse: () => Goal(
-                  title: '',
-                  createdAt: DateTime.now(),
-                  updatedAt: DateTime.now()),
-            );
-            final relatedStrategies = state.existingGoals.isNotEmpty
-                ? <Strategy>[]
-                : <Strategy>[];
+            final relatedGoal = matchGoal(state.existingGoals,
+                goalId: update.goalId, goalTitle: update.goalTitle);
 
             return Padding(
               padding:
@@ -298,16 +289,23 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
               child: Card(
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: relatedGoal.title.isNotEmpty
-                      ? () => Navigator.push(
+                  onTap: relatedGoal != null
+                      ? () async {
+                          // 详情页展示该目标在库中的真实策略（原为恒空死表达式，
+                          // 详情页永远「暂无策略」）。
+                          final strategies =
+                              await _provider.strategiesForGoal(relatedGoal);
+                          if (!mounted) return;
+                          Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => StrategyDetailPage(
                                 goal: relatedGoal,
-                                strategies: relatedStrategies,
+                                strategies: strategies,
                               ),
                             ),
-                          )
+                          );
+                        }
                       : null,
                   child: Padding(
                     padding: const EdgeInsets.all(14),
@@ -322,7 +320,7 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                                       fontSize: 15,
                                       fontWeight: FontWeight.w600)),
                             ),
-                            if (relatedGoal.title.isNotEmpty)
+                            if (relatedGoal != null)
                               const Icon(Icons.chevron_right,
                                   size: 18,
                                   color: AppTheme.textSecondary),

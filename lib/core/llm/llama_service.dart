@@ -108,16 +108,17 @@ class LlamaService {
 
   /// 释放指定配置的缓存引擎（池失效）。
   ///
-  /// 供 [LlmService] 的延迟释放调用：只 `engine.dispose()` 而不清池的话，
+  /// 供 [LlmService] 的延迟释放 / 模型切换调用：只 `engine.dispose()` 而不清池的话，
   /// 下次 `ensureReady` 会**命中缓存并返回已释放的引擎**（createChat 必炸，
   /// 且此后每次重试都命中同一条目 → 本地模式永久损坏直至重启）。
   ///
-  /// [gpuLayers] 须与加载时一致（配置四字段全参与缓存键）；条目不存在时为
-  /// 幂等 no-op。配置不匹配（如释放前用户改了 GPU 设置）时残留旧条目——
-  /// 与历史上池从无逐出机制一致，不做全局 `dispose()`（可能波及模型管理页）。
-  Future<void> release({int? gpuLayers}) async {
+  /// [modelPath] 须与加载时一致（默认回退当前 `AppConstants.defaultModelPath`——
+  /// 模型切换后它已是新路径，释放旧引擎必须显式传旧值）；[gpuLayers] 同理。
+  /// 条目不存在时为幂等 no-op。配置不匹配时残留旧条目——与历史上池从无逐出
+  /// 机制一致，不做全局 `dispose()`。
+  Future<void> release({String? modelPath, int? gpuLayers}) async {
     final config = LlamaConfig(
-      modelPath: AppConstants.defaultModelPath,
+      modelPath: modelPath ?? AppConstants.defaultModelPath,
       contextSize: AppConstants.localContextSize,
       gpuLayers: gpuLayers ?? AppConstants.localGpuLayers,
       threads: AppConstants.localThreads,

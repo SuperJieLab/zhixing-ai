@@ -52,16 +52,17 @@ class StrategistExtractor {
 5. 发现跨对话的模式或矛盾
 6. 严格只输出 JSON，不要带 markdown 代码块标记
 7. 新目标初始为「待确认」状态，需用户确认后才生效；已有目标状态变更仅为「建议」，不会自动执行
+8. goal_updates 与 strategies 若关联「用户已有的目标」，必须携带 goal_id（取下方已有目标列表中方括号内的 id）；关联本次新提取的目标时省略 goal_id，只填 goal_title。goal_title 始终必填。
 
 new_goals 格式（新建目标，初始为待确认）：
 {"title":"...","category":"career|finance|relationship|health|growth|other","priority":1-5,"deadline":null或"2026-09-01","notes":"..."}
 
 goal_updates 格式（仅建议，需用户确认后执行）：
-{"goal_title":"已有目标标题(精确匹配)","suggested_status":"completed|paused","reason":"为什么建议变更"}
+{"goal_id":<已有目标列表中的id>,"goal_title":"已有目标标题(精确匹配)","suggested_status":"completed|paused","reason":"为什么建议变更"}
 # 注意：只能建议 status 变更（completed 或 paused），不能建议改 title/category/priority
 
 strategies 格式：
-{"goal_title":"关联的目标标题","description":"...","type":"selfAction|aiAssist|externalDep","next_step":"下一步具体动作"}
+{"goal_id":<id或省略>,"goal_title":"关联的目标标题","description":"...","type":"selfAction|aiAssist|externalDep","next_step":"下一步具体动作"}
 
 cross_patterns 格式：
 {"label":"模式名称","description":"详细描述"}
@@ -80,7 +81,8 @@ cross_patterns 格式：
     }
 
     final existingGoalsText = existingGoals.isNotEmpty
-        ? '\n## 用户已有的目标\n${existingGoals.map((g) => "- [${g.status.name}] ${g.title}").join('\n')}\n'
+        ? '\n## 用户已有的目标\n'
+            '${existingGoals.map((g) => "- [id=${g.id}] [${g.status.name}] ${g.title}").join('\n')}\n'
         : '';
 
     // 度量与对话客户端同一口径（LlamaTemplateEstimator：token + 每条 +16）。

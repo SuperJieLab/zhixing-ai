@@ -234,6 +234,14 @@ class StrategyBriefProvider {
     return list.map((e) => e as int).toSet();
   }
 
+  /// 目标详情页数据源：该目标在库中的真实策略
+  /// （修复 relatedStrategies 恒空的死表达式，StrategyDetailPage 不再永远「暂无策略」）。
+  Future<List<Strategy>> strategiesForGoal(Goal goal) async {
+    if (goal.id == null) return const [];
+    final all = await _dashboardRepo.getAllStrategies();
+    return all.where((s) => s.goalId == goal.id).toList();
+  }
+
   void confirmNewGoal(int index) {
     final goal = _state.extraction?.newGoals[index];
     if (goal == null) return;
@@ -265,12 +273,9 @@ class StrategyBriefProvider {
     final update = _state.extraction?.goalUpdates[index];
     if (update == null) return;
 
-    final existingGoal = _state.existingGoals.firstWhere(
-      (g) => g.title == update.goalTitle,
-      orElse: () => Goal(
-          title: '', createdAt: DateTime.now(), updatedAt: DateTime.now()),
-    );
-    if (existingGoal.title.isNotEmpty && update.newStatus != null) {
+    final existingGoal = matchGoal(_state.existingGoals,
+        goalId: update.goalId, goalTitle: update.goalTitle);
+    if (existingGoal != null && update.newStatus != null) {
       existingGoal.status = update.newStatus!;
       _dashboardRepo.updateGoal(existingGoal);
 
@@ -325,4 +330,27 @@ class StrategyBriefProvider {
         return {};
     }
   }
+}
+
+/// 在已有目标中定位提取结果关联的目标：优先按 [goalId]（提取契约 v2 起
+/// LLM 回传），回退按 [goalTitle] 精确匹配。都未命中返回 null。
+///
+/// 纯函数（无 DB 依赖）以便单测；title 回退兼容旧缓存与模型未回传 id 的情况，
+/// 修复「重名目标时 firstWhere 恒命中第一条」的误配。
+Goal? matchGoal(
+  List<Goal> goals, {
+  int? goalId,
+  String? goalTitle,
+}) {
+  if (goalId != null) {
+    for (final g in goals) {
+      if (g.id == goalId) return g;
+    }
+  }
+  if (goalTitle != null && goalTitle.isNotEmpty) {
+    for (final g in goals) {
+      if (g.title == goalTitle) return g;
+    }
+  }
+  return null;
 }

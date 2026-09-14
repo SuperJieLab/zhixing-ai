@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
@@ -10,8 +12,7 @@ import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 
 /// 记录调用的 fake 后端接缝（[SingleShotAsk] 形态）。
-class _Recorder {
-  final List<({String system, String user, int? maxTokens})> calls = [];
+class _Recorder {  final List<({String system, String user, int? maxTokens})> calls = [];
   String Function()? reply;
   Object? throwOnCall;
 
@@ -134,6 +135,11 @@ class _RecordingDelivery implements ChatDelivery {
 
   @override
   void dispose() => disposed++;
+}
+
+/// 可从测试触发的模型变更通知源（真实 ActiveModelManager 无法外部 notify）。
+class _TestModelChangeSource extends ChangeNotifier {
+  void simulateSwitch() => notifyListeners();
 }
 
 void main() {
@@ -603,6 +609,69 @@ void main() {
       gates[1].complete(rebuilt);
       await pump(10);
       expect(service.readiness.value.phase, LlmPhase.ready);
+    });
+  });
+
+  group('活跃模型切换（旧引擎资源立即拆除）', () {
+    Future<void> pump(int ms) =>
+        Future<void>.delayed(Duration(milliseconds: ms));
+
+    test('本地模式切模型：旧交付 dispose、按新模型重建、回到 ready', () async {
+      final source = _TestModelChangeSource();
+      AppConstants.defaultModelPath = '/tmp/model-a.gguf';
+      addTearDown(() => AppConstants.defaultModelPath = '');
+
+      final built = <_RecordingDelivery>[];
+      final service = LlmService(
+        settings: settings,
+        localDeliveryBuilder: () async {
+          final d = _RecordingDelivery();
+          built.add(d);
+          return d;
+        },
+        modelChanges: source,
+      );
+      addTearDown(service.dispose);
+
+      await service.initialize();
+      expect(built, hasLength(1));
+      expect(service.readiness.value.phase, LlmPhase.ready);
+
+      // 切换模型：改路径 + 通知（ActiveModelManager.switchToModel 的语义）
+      AppConstants.defaultModelPath = '/tmp/model-b.gguf';
+      source.simulateSwitch();
+      await pump(20);
+
+      expect(built.first.disposed, 1); // 旧交付（旧模型会话）立即拆除
+      expect(built, hasLength(2)); // 为新模型重建
+      expect(service.readiness.value.phase, LlmPhase.ready);
+    });
+
+    test('同路径通知（如下载完成的重复通知）：不拆除不重建', () async {
+      final source = _TestModelChangeSource();
+      AppConstants.defaultModelPath = '/tmp/model-a.gguf';
+      addTearDown(() => AppConstants.defaultModelPath = '');
+
+      final built = <_RecordingDelivery>[];
+      final service = LlmService(
+        settings: settings,
+        localDeliveryBuilder: () async {
+          final d = _RecordingDelivery();
+          built.add(d);
+          return d;
+        },
+        modelChanges: source,
+      );
+      addTearDown(service.dispose);
+
+      await service.initialize();
+      expect(built, hasLength(1));
+
+      source.simulateSwitch(); // 路径未变
+      await pump(20);
+
+      expect(built, hasLength(1));
+      expect(built.single.disposed, 0);
     });
   });
 }

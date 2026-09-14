@@ -10,14 +10,25 @@ import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 ///
 /// 支持 JSON 序列化（用于 extraction_json 缓存）和 DB 写入。
 
+/// 容忍模型把 id 回传成字符串。
+int? _parseIntOrNull(Object? value) {
+  if (value is int) return value;
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
 class GoalUpdate {
   final String goalTitle;
+
+  /// 关联的已有目标 id（提取契约 v2：LLM 从已有目标列表回传；旧缓存/未回传为 null）。
+  final int? goalId;
   final GoalStatus? newStatus;
   final String? newNotes;
   final String reason;
 
   GoalUpdate({
     required this.goalTitle,
+    this.goalId,
     this.newStatus,
     this.newNotes,
     this.reason = '',
@@ -28,6 +39,7 @@ class GoalUpdate {
         json['new_status'] as String?;
     return GoalUpdate(
       goalTitle: json['goal_title'] as String? ?? '',
+      goalId: _parseIntOrNull(json['goal_id']),
       newStatus: statusStr != null
           ? GoalStatus.values.firstWhere(
               (e) => e.name == statusStr,
@@ -72,7 +84,7 @@ class ExtractionResult {
           [],
       strategies: (json['strategies'] as List<dynamic>?)
               ?.map((s) => Strategy(
-                    goalId: 0,
+                    goalId: _parseIntOrNull(s['goal_id']) ?? 0,
                     description: s['description'] as String? ?? '',
                     type: _parseStrategyType(s['type'] as String?),
                     nextStep: s['next_step'] as String?,
@@ -96,6 +108,7 @@ class ExtractionResult {
     return {
       'new_goals': newGoals.map((g) => g.toMap()).toList(),
       'goal_updates': goalUpdates.map((u) => {
+            if (u.goalId != null) 'goal_id': u.goalId,
             'goal_title': u.goalTitle,
             'suggested_status': u.newStatus?.name,
             'reason': u.reason,

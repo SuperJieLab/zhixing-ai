@@ -1,4 +1,5 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 // ============================================================
@@ -32,6 +33,10 @@ class PushService {
   factory PushService() => _instance;
   PushService._();
 
+  /// mock token 的持久化键（修复：原实现带时间戳，每次重启漂移，
+  /// 服务端同步 store 里的旧设备数据成孤儿、cron 永远扫到死 token）。
+  static const String _kMockToken = 'mock_push_token';
+
   String? _token;
 
   bool _initialized = false;
@@ -60,9 +65,26 @@ class PushService {
         AppLogger.info('Push', 'FCM token refreshed');
       });
     } catch (e) {
-      // Firebase 未配置时降级为 Mock token
-      _token = 'mock_token_${DateTime.now().millisecondsSinceEpoch}';
+      // Firebase 未配置时降级为 Mock token（跨重启稳定）
+      _token = await _stableMockToken();
       AppLogger.info('Push', 'FCM 不可用，使用 Mock token: $_token');
+    }
+  }
+
+  /// 稳定的 mock 设备标识：首次生成后持久化，重启复用（等价真实 FCM
+  /// token 的「重启不变」特性）。持久化不可用时退回一次性时间戳（旧行为）。
+  Future<String> _stableMockToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final existing = prefs.getString(_kMockToken);
+      if (existing != null && existing.isNotEmpty) return existing;
+      final token =
+          'mock_token_${DateTime.now().millisecondsSinceEpoch}';
+      await prefs.setString(_kMockToken, token);
+      return token;
+    } catch (e) {
+      AppLogger.warn('Push', 'mock token 持久化失败（退回一次性标识）: $e');
+      return 'mock_token_${DateTime.now().millisecondsSinceEpoch}';
     }
   }
 
