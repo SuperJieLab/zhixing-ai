@@ -112,7 +112,11 @@ class LlmService implements Llm {
         _policyFactory = policyFactory, // ignore: prefer_initializing_formals
         _deliveryFactory = deliveryFactory, // ignore: prefer_initializing_formals
         _localDeliveryBuilder = localDeliveryBuilder, // ignore: prefer_initializing_formals
-        _delayedRelease = delayedRelease; // ignore: prefer_initializing_formals
+        _delayedRelease = delayedRelease { // ignore: prefer_initializing_formals
+    // 模式通知源按当前设置初始化（构造期一次；后续由通知源驱动）。
+    _modeNotifier = ValueNotifier(
+        _settings.chatCloudMode ? ChatMode.cloud : ChatMode.local);
+  }
 
   /// 启动期初始化（composition root 调用，`unawaited` 异步不卡首帧）。
   ///
@@ -155,6 +159,10 @@ class LlmService implements Llm {
   ///   就绪态按 BYOK 是否配齐直接给出（云端就绪化是瞬时的）。
   /// - 切回本地：取消待执行的释放（防抖的反向），再异步补齐本地就绪。
   void _onBackendSettingChanged() {
+    // 模式源同步（D2）：写前现读设置 = 入口复核语义；值不变时 ValueNotifier
+    // 不通知（BYOK 变更不误触发模式监听者）。
+    _modeNotifier.value =
+        _settings.chatCloudMode ? ChatMode.cloud : ChatMode.local;
     if (_settings.chatCloudMode) {
       final fingerprint = _currentCloudFingerprint;
       if (_cloudFingerprint != null && _cloudFingerprint != fingerprint) {
@@ -218,6 +226,7 @@ class LlmService implements Llm {
     _teardownLocalResources();
     _cloudDelivery?.dispose();
     _cloudDelivery = null;
+    _modeNotifier.dispose();
     _readiness.dispose();
   }
 
@@ -350,10 +359,26 @@ class LlmService implements Llm {
 
   // ─── 模式解析（唯一出处）───
 
-  /// **唯一的模式解析点**：每次调用时读设置（入口复核——即使将来通知
-  /// 漏发，这里也不会用错后端）。
-  ChatMode get _mode =>
-      _settings.chatCloudMode ? ChatMode.cloud : ChatMode.local;
+  /// 模式通知源（design D2：供 ModelGateway 注入的模式源）。
+  ///
+  /// **双写点、同值不通知**：① [_mode] getter 读取时顺手同步（保底——
+  /// 即使通知漏发，任何一次模式解析都会纠正通知源）；②
+  /// [_onBackendSettingChanged] 收到通知时提前同步（让监听者不必等下一次
+  /// 模式解析才看到变更，D3 的切换 reset 依赖这一点）。解析语义只存在于
+  /// [_mode]——单一模式解析点不变。
+  late final ValueNotifier<ChatMode> _modeNotifier;
+
+  /// 模式解析（唯一出处）：**每次现读设置**（入口复核——通知漏发也不会用
+  /// 错后端），并把现值同步进通知源（值不变时 `ValueNotifier` 不通知）。
+  ChatMode get _mode {
+    final current =
+        _settings.chatCloudMode ? ChatMode.cloud : ChatMode.local;
+    if (_modeNotifier.value != current) _modeNotifier.value = current;
+    return current;
+  }
+
+  /// 模式源（可监听）：供 ModelGateway 注入，业务不可见。
+  ValueListenable<ChatMode> get mode => _modeNotifier;
 
   void _requireCloudConfigured() {
     if (!_settings.isCloudApiConfigured) {

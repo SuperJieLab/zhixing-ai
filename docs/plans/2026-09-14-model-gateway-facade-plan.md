@@ -34,7 +34,9 @@
 - [x] 守门失败时 fake 补全函数零调用（fail-fast，不发生网络/引擎动作）
 - [x] `flutter analyze` 0；全量测试绿（基线 + 新增）
 
-## Task 2：LlmService 暴露模式源（T3 的前置）
+## Task 2：LlmService 暴露模式源（T3 的前置）✅ 已完成（2026-09-14）
+
+> **实施记录**：analyze 0 + 全量 220 绿（+2 用例）。**实施中拍定 notifier 写入语义**：计划原稿的「单写」不可行——旧测试不经 `initialize()` 不注册监听，纯通知驱动的 notifier 会丢 v1「每次现读设置」的入口复核语义（单测当场抓住）。落为**双写点、同值不通知**：① `_mode` getter 现读设置时顺手同步（保底纠偏）；② `_onBackendSettingChanged` 收通知时提前同步（让 D3 的监听者不必等下一次模式解析才看到变更）。`_mode` 之外的解析语义为零，单一解析点不变。
 
 **目标**：给网关提供可注入的 `ValueListenable<ChatMode>`，保持唯一模式解析点仍在 `LlmService._mode`（D2）。
 

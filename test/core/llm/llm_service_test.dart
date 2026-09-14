@@ -674,4 +674,27 @@ void main() {
       expect(built.single.disposed, 0);
     });
   });
+
+  group('模式源（D2：供 ModelGateway 注入）', () {
+    test('构造时按当前设置初始化', () {
+      expect(service.mode.value, ChatMode.local);
+    });
+
+    test('切换模式 → notifier 同步更新；BYOK 变更不误触发', () async {
+      // initialize 注册 backendListenable 监听（生产路径必经），通知提前同步。
+      unawaited(service.initialize().catchError((Object _) {}));
+      final changes = <ChatMode>[];
+      service.mode.addListener(() => changes.add(service.mode.value));
+
+      await settings.setChatCloudMode(true);
+      await settings.setCloudApiBaseUrl('https://api.example.com');
+      expect(service.mode.value, ChatMode.cloud);
+
+      await settings.setChatCloudMode(false);
+      expect(service.mode.value, ChatMode.local);
+
+      // 本地→本地（BYOK 变更触发通知但模式未变）：不产生变更事件
+      expect(changes, [ChatMode.cloud, ChatMode.local]);
+    });
+  });
 }
