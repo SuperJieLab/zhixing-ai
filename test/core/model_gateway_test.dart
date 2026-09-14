@@ -45,13 +45,6 @@ class _FakeLlm implements Llm {
 
   @override
   Future<void> ensureReady() async {}
-
-  @override
-  Stream<String> converse(
-    List<ChatMessage> history, {
-    required String systemPrompt,
-    required ContextState state,
-  }) async* {}
 }
 
 /// 脚本化 fake 转换段：记录装配入参与状态实例、可脚本化装配结果与溢出。

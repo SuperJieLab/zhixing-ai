@@ -5,12 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/active_model_manager.dart';
 import 'package:zhixing_ai/core/llm/cloud_completion.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
 import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
 import 'package:zhixing_ai/core/llm/delivery/local_delivery.dart';
@@ -18,7 +15,6 @@ import 'package:zhixing_ai/core/llm/inference.dart';
 import 'package:zhixing_ai/core/llm/input_guard.dart';
 import 'package:zhixing_ai/core/llm/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
-import 'package:zhixing_ai/core/llm/local_context_policy.dart';
 import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
 import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
@@ -50,12 +46,9 @@ class LlmService implements Llm {
   final SingleShotAsk? _cloudAsk;
   final SingleShotAsk? _localAsk;
 
-  /// 转换 / 交付接缝（**仅测试注入**）；null 时按模式解析生产实现。
-  ///
-  /// 端侧引擎与 `EngineChat` 均为 `final class` 无法 fake，故用函数接缝让
-  /// [converse] 的编排（装配 → 交付 → 溢出承接自愈）可单测——与
-  /// [SingleShotAsk] 同一思路。
-  final ContextPolicy Function()? _policyFactory;
+  /// 交付工厂接缝（**仅测试注入**）：替代真实交付（惰性建一次并复用，
+  /// 与生产「稳定实例」语义一致）。多轮编排的 policy 接缝已随 converse
+  /// 上移门面（T5），此处只保留交付维度。
   final ChatDelivery Function()? _deliveryFactory;
 
   /// 交付实现（服务资源态）。云端按 BYOK 指纹重建，本地复用同一会话。
@@ -95,12 +88,11 @@ class LlmService implements Llm {
   final ChangeNotifier _modelChanges;
 
   /// [settings] 缺省用仓库单例；其余接缝（[cloudAsk] / [localAsk] /
-  /// [policyFactory] / [deliveryFactory] / [localDeliveryBuilder]）仅测试注入。
+  /// [deliveryFactory] / [localDeliveryBuilder]）仅测试注入。
   LlmService({
     SettingsRepository? settings,
     SingleShotAsk? cloudAsk,
     SingleShotAsk? localAsk,
-    ContextPolicy Function()? policyFactory,
     ChatDelivery Function()? deliveryFactory,
     LocalDeliveryBuilder? localDeliveryBuilder,
     Duration delayedRelease = const Duration(seconds: 30),
@@ -109,7 +101,6 @@ class LlmService implements Llm {
         _modelChanges = modelChanges ?? ActiveModelManager.instance,
         _cloudAsk = cloudAsk, // ignore: prefer_initializing_formals
         _localAsk = localAsk, // ignore: prefer_initializing_formals
-        _policyFactory = policyFactory, // ignore: prefer_initializing_formals
         _deliveryFactory = deliveryFactory, // ignore: prefer_initializing_formals
         _localDeliveryBuilder = localDeliveryBuilder, // ignore: prefer_initializing_formals
         _delayedRelease = delayedRelease { // ignore: prefer_initializing_formals
@@ -235,51 +226,9 @@ class LlmService implements Llm {
   }
 
   // ─── 对话（多轮）───
-
-  /// 服务内部编排上下文交付链：入口确保就绪 → 转换（装配）→ 交付 → 取回。
-  ///
-  /// 端侧溢出（context full）在此承接自愈：强制收缩 → 重新装配 →
-  /// 预置会话（下一轮直接可用），本轮以兜底文案收尾。
-  @override
-  Stream<String> converse(
-    List<ChatMessage> history, {
-    required String systemPrompt,
-    required ContextState state,
-  }) async* {
-    final policy = await _policyFor();
-    final delivery = await deliveryFor();
-    final assembled = await policy.assemble(
-      history,
-      state: state,
-      systemPrompt: systemPrompt,
-    );
-
-    try {
-      // **必须用 `await for` 而非 `yield*`**：`yield*` 委托时内层流的错误会直
-      // 接转投到输出流，**绕过本 try**，下面的溢出承接将永远不触发。`await for`
-      // 才会把内层错误抛进本函数的 try 作用域（用 `yield*` 的写法曾被单测当场
-      // 抓住——自愈静默失效）。
-      await for (final token
-          in delivery.deliver(assembled, systemPrompt: systemPrompt)) {
-        yield token;
-      }
-    } on LlmContextOverflowException {
-      AppLogger.warn('LlmService', '端侧上下文撑爆，强制收缩后重放');
-      try {
-        policy.handleOverflow(state);
-        final healed = await policy.assemble(
-          history,
-          state: state,
-          systemPrompt: systemPrompt,
-        );
-        // 二次重放不再判定尾部去重（isDuplicate 有状态，本轮已判定过）
-        delivery.prime(healed, systemPrompt: systemPrompt, nudgeTail: false);
-      } catch (re) {
-        AppLogger.error('LlmService', '自愈重放失败', re);
-      }
-      yield kLlmFailureReply;
-    }
-  }
+  // 多轮编排已上移 `core/model_gateway.dart`（design T5 收口）：本类不再
+  // 持 converse / 装配 / 溢出自愈，只保留交付工厂 [deliveryFor]（池化 +
+  // BYOK 指纹重建）与单次补全通道。
 
   @override
   void stop() {
@@ -386,26 +335,9 @@ class LlmService implements Llm {
     }
   }
 
-  /// 转换段：按模式给出后端策略（度量 + 预算 + 摘要实现）。
+  /// 转换段：按模式给出后端策略——**已随 converse 上移门面（T5）**。
   ///
-  /// 摘要器统一为 [SingleShotSummarizer]：提示词与输出上限收口在它内部，
-  /// 传输走本服务的单次补全通道（本地 `_defaultLocalAsk` / 云端
-  /// `_defaultCloudAsk`，或测试注入的接缝）——摘要与 `ask` 共用同一实现，
-  /// 不再各自摸后端。
-  Future<ContextPolicy> _policyFor() async {
-    final override = _policyFactory;
-    if (override != null) return override();
-    if (_mode == ChatMode.cloud) {
-      // 配置校验在 _deliveryFor（交付前最后一道）；摘要通道同理——此处构造的
-      // 策略即便带着空配置也不会被使用（converse 在装配前就会因交付校验失败抛错）。
-      return CloudContextPolicy(
-          summarizer: SingleShotSummarizer(_cloudAsk ?? _defaultCloudAsk));
-    }
-    return LocalContextPolicy(
-        summarizer: SingleShotSummarizer(_localAsk ?? _defaultLocalAsk));
-  }
-
-  /// 交付段：按模式给出交付实现（**公开**：T3 过渡期作为 ModelGateway 的
+  /// 交付段：按模式给出交付实现（**公开**：作为 ModelGateway 的
   /// 生产交付工厂经 composition root 注入——池化与 BYOK 指纹重建留在 llm 域）。
   Future<ChatDelivery> deliveryFor() async {
     final override = _deliveryFactory;

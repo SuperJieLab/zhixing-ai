@@ -4,10 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 
@@ -27,84 +26,6 @@ class _Recorder {  final List<({String system, String user, int? maxTokens})> ca
   }
 }
 
-/// 脚本化 fake 转换段：记录装配入参、返回定制的装配结果。
-class _FakePolicy implements ContextPolicy {
-  final List<List<ChatMessage>> assembleCalls = [];
-  int overflowCalls = 0;
-
-  /// 第 n 次装配（0 起）返回什么；缺省原样透传历史。
-  AssembledContext Function(int callIndex)? build;
-
-  /// 指定次数的装配抛错（验证自愈失败不影响兜底）。
-  int? throwOnAssembleCallIndex;
-
-  @override
-  Future<AssembledContext> assemble(
-    List<ChatMessage> history, {
-    required ContextState state,
-    String systemPrompt = '',
-  }) async {
-    final index = assembleCalls.length;
-    assembleCalls.add(history);
-    if (throwOnAssembleCallIndex == index) throw StateError('assemble boom');
-    return build?.call(index) ?? AssembledContext(messages: history);
-  }
-
-  @override
-  void handleOverflow(ContextState state) {
-    overflowCalls++;
-    state.pendingForceKeep = 2; // 模拟真实策略：置位强制收缩
-  }
-}
-
-/// 脚本化 fake 交付段：记录 deliver / prime 入参，可脚本化溢出与异常。
-class _FakeDelivery implements ChatDelivery {
-  final List<({AssembledContext ctx, String systemPrompt})> delivered = [];
-  final List<({AssembledContext ctx, String systemPrompt, bool nudgeTail})>
-      primed = [];
-  int stopCalls = 0;
-  bool ready = true;
-
-  /// 交付时抛出的异常（null = 正常）。抛 [LlmContextOverflowException] 即模拟
-  /// 端侧 context full，抛别的即模拟普通失败。
-  Object? throwOnDeliver;
-  List<String> tokens = const [];
-
-  @override
-  bool get isReady => ready;
-
-  @override
-  Future<void> ensureReady() async {}
-
-  @override
-  Stream<String> deliver(
-    AssembledContext assembled, {
-    required String systemPrompt,
-    bool nudgeTail = true,
-  }) async* {
-    delivered.add((ctx: assembled, systemPrompt: systemPrompt));
-    final error = throwOnDeliver;
-    if (error != null) throw error;
-    for (final t in tokens) {
-      yield t;
-    }
-  }
-
-  @override
-  void prime(
-    AssembledContext assembled, {
-    required String systemPrompt,
-    bool nudgeTail = true,
-  }) {
-    primed.add((ctx: assembled, systemPrompt: systemPrompt, nudgeTail: nudgeTail));
-  }
-
-  @override
-  void stop() => stopCalls++;
-
-  @override
-  void dispose() {}
-}
 
 /// 记录释放次数的交付 fake（生命周期测试用：验证延迟释放 / 防抖）。
 class _RecordingDelivery implements ChatDelivery {
@@ -300,124 +221,6 @@ void main() {
     });
   });
 
-  group('converse（编排：转换 → 交付 → 溢出承接）', () {
-    late _FakePolicy policy;
-    late _FakeDelivery delivery;
-    late ContextState state;
-
-    ChatMessage user(String content) =>
-        ChatMessage(role: MessageRole.user, content: content, round: 1);
-
-    setUp(() {
-      policy = _FakePolicy();
-      delivery = _FakeDelivery();
-      state = ContextState();
-    });
-
-    /// 注入接缝的服务 + 交付实例构造计数（验证「稳定实例」语义）。
-    ({LlmService service, int Function() builtCount}) buildService() {
-      var built = 0;
-      final service = LlmService(
-        settings: settings,
-        policyFactory: () => policy,
-        deliveryFactory: () {
-          built++;
-          return delivery;
-        },
-      );
-      return (service: service, builtCount: () => built);
-    }
-
-    test('串联：先装配（拿到业务状态实例）再交付，人设原样透传', () async {
-      final built = buildService();
-      delivery.tokens = ['你', '好'];
-      final history = [user('q')];
-
-      final out = await built.service
-          .converse(history, systemPrompt: '人设X', state: state)
-          .toList();
-
-      expect(out, ['你', '好']);
-      expect(policy.assembleCalls.single, same(history)); // 业务列表原样进转换段
-      expect(policy.overflowCalls, 0);
-      expect(delivery.delivered.single.systemPrompt, '人设X');
-      expect(delivery.primed, isEmpty);
-    });
-
-    test('交付实例稳定：连续两轮复用同一实例（端侧会话不复建）', () async {
-      final built = buildService();
-      delivery.tokens = ['回复'];
-
-      await built.service
-          .converse([user('a')], systemPrompt: 'S', state: state)
-          .toList();
-      await built.service
-          .converse([user('a'), user('b')], systemPrompt: 'S', state: state)
-          .toList();
-
-      expect(delivery.delivered.length, 2);
-      expect(built.builtCount(), 1); // 只建一次
-    });
-
-    test('端侧溢出：强制收缩 → 重新装配 → prime(nudgeTail:false) → 兜底文案',
-        () async {
-      final built = buildService();
-      delivery.throwOnDeliver = const LlmContextOverflowException();
-      // 首次装配给「全量」，自愈重装配给「收缩后」
-      policy.build = (i) => AssembledContext(
-            messages: [user(i == 0 ? '全量窗口' : '收缩后窗口')],
-          );
-
-      final out = await built.service
-          .converse([user('q')], systemPrompt: 'S', state: state)
-          .toList();
-
-      expect(out, [kLlmFailureReply]); // 本轮以兜底文案收尾
-      expect(policy.overflowCalls, 1); // 承接钩子被调用一次
-      expect(state.pendingForceKeep, 2); // 状态实例被就地更新（业务持有）
-      expect(policy.assembleCalls.length, 2); // 首次 + 自愈重装配
-      expect(delivery.delivered.length, 1);
-      expect(delivery.primed.length, 1);
-      // 二次重放不再判定尾部去重（isDuplicate 有状态，本轮已判定过）
-      expect(delivery.primed.single.nudgeTail, isFalse);
-      expect(delivery.primed.single.ctx.messages.single.content, '收缩后窗口');
-    });
-
-    test('自愈重装配失败：吞掉并仍以兜底文案收尾（不二次抛错）', () async {
-      final built = buildService();
-      delivery.throwOnDeliver = const LlmContextOverflowException();
-      policy.throwOnAssembleCallIndex = 1; // 自愈那一次装配抛错
-
-      final out = await built.service
-          .converse([user('q')], systemPrompt: 'S', state: state)
-          .toList();
-
-      expect(out, [kLlmFailureReply]);
-      expect(delivery.primed, isEmpty);
-    });
-
-    test('非溢出异常原样上抛（超时等由业务决定降级）', () async {
-      final built = buildService();
-      delivery.throwOnDeliver = TimeoutException('帧间空闲');
-      delivery.tokens = ['半截'];
-
-      await expectLater(
-        built.service.converse([user('q')], systemPrompt: 'S', state: state),
-        emitsError(isA<TimeoutException>()),
-      );
-    });
-
-    test('stop 转发到当前交付实例（含测试接缝实例）', () async {
-      final built = buildService();
-      await built.service
-          .converse([user('q')], systemPrompt: 'S', state: state)
-          .toList();
-
-      built.service.stop();
-
-      expect(delivery.stopCalls, 1);
-    });
-  });
 
   group('生命周期（窄通知 + 冷启动预热 + 延迟释放防抖）', () {
     /// 构建注入本地交付接缝的服务；返回构建出的交付列表供断言。

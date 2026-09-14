@@ -1,15 +1,14 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/model_gateway.dart';
 
-/// 测试用 [Llm] fake（替代 Task 3 退场的 `ChatClient` fake）。
+/// 测试用 [Llm] fake（T5 后 `Llm` 收窄为补全面：ask / askJson / readiness /
+/// stop / isReady / ensureReady）。
 ///
-/// 业务侧只认 `converse / ask / askJson / ensureReady / stop / isReady /
-/// readiness`，故页面 / Provider / 冒烟测试共用这一个可脚本化实现，
-/// 无需真实引擎或网络。
+/// 对话面的脚本化字段（[onConverse] / [converseCalls]）保留在本类，由
+/// [FakeGateway.converse] 写入——业务测试经门面 fake 驱动，不必感知编排。
 ///
 /// **不模拟**后端差异（本地 / 云端）：模式解析是服务内部职责，业务测试
 /// 不应感知；服务的模式路由由 `test/core/llm/llm_service_test.dart` 覆盖。
@@ -21,11 +20,11 @@ class FakeLlm implements Llm {
       ValueNotifier<LlmReadiness>(const LlmReadiness.idle());
 
   /// 脚本化单轮回复流（入参：本轮历史）。缺省为空流（不产出任何 token）。
+  /// 由 [FakeGateway.converse] 消费。
   Stream<String> Function(List<ChatMessage> history)? onConverse;
 
-  /// 每轮 `converse` 的入参快照（历史 / 人设 / 压缩状态实例）。
-  final List<
-      ({List<ChatMessage> history, String systemPrompt, ContextState state})>
+  /// 每轮对话的入参快照（历史 / 人设）。由 [FakeGateway.converse] 写入。
+  final List<({List<ChatMessage> history, String systemPrompt})>
       converseCalls = [];
 
   int ensureReadyCalls = 0;
@@ -49,17 +48,6 @@ class FakeLlm implements Llm {
     }
     ready = true;
     _readiness.value = const LlmReadiness.ready();
-  }
-
-  @override
-  Stream<String> converse(
-    List<ChatMessage> history, {
-    required String systemPrompt,
-    required ContextState state,
-  }) {
-    converseCalls
-        .add((history: history, systemPrompt: systemPrompt, state: state));
-    return onConverse?.call(history) ?? const Stream.empty();
   }
 
   /// 单次补全：业务测试通常不关心；需要时在子类覆盖。
@@ -94,9 +82,10 @@ class FakeGateway implements ModelGateway {
   Stream<String> converse(
     List<ChatMessage> history, {
     required String systemPrompt,
-  }) =>
-      llm.converse(history,
-          systemPrompt: systemPrompt, state: ContextState());
+  }) {
+    llm.converseCalls.add((history: history, systemPrompt: systemPrompt));
+    return llm.onConverse?.call(history) ?? const Stream.empty();
+  }
 
   @override
   Future<String> ask({

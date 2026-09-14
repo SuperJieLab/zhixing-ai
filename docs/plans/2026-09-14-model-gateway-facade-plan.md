@@ -98,18 +98,18 @@
 - [x] `grep -rn "ContextState" lib/features` **为空**（状态收回完成）
 - [x] 对话 / 提取行为与 Task 3 前一致（全量测试绿，业务用例不改断言）
 
-## Task 5：收口（删旧路径 + composition root）
+## Task 5：收口（删旧路径 + composition root）✅ 已完成（2026-09-14）
 
-**文件**
+**实施记录**（与原计划的偏差已标注）：
 
-1. 删 `Llm.converse`（`lib/core/llm/llm.dart:77-81`）与 `LlmService.converse`（`llm_service.dart:229-272`）及其编排测试（已平移到网关）；
-2. 删 `LlmService` 的 policy/delivery 编排残留（`_policyFor` / `_deliveryFor` / `_localDeliveryFor` 等仅 converse 用的部分——`_localDeliveryBuilder` 等接缝若网关已自持则一并移除）；
-3. 改 `lib/main.dart`——`Provider<Llm>.value`（`:78`）改 `Provider<ModelGateway>.value`；构造顺序：`LlmService` → `unawaited(initialize())` → `ModelGateway(llm: llmService, modeSource: llmService.mode)`。
+1. 删 `Llm.converse`（接口 + `ChatMessage`/`context_assembly` import）与 `LlmService.converse`；`_policyFor` / `_policyFactory` 接缝一并删除（仅 converse 使用）。**保留** `deliveryFor`（公开，生产交付工厂经 main 注入网关）与 `_deliveryFactory` / `_overrideDelivery` / `_localDeliveryBuilder`（生命周期测试仍依赖）——原计划第 2 点「若网关已自持则一并移除」判定为不移除：交付稳定实例语义归工厂（T3 拍定）。
+2. 删 `llm_service_test` 的 converse 编排组（6 用例，已平移网关测试）+ `_FakePolicy` / `_FakeDelivery`；`FakeLlm` 删 `converse` override（`Llm` 已无此方法），脚本化字段（`onConverse` / `converseCalls`）保留、由 `FakeGateway.converse` 写入——业务测试 API 零改动。
+3. `main.dart` 在 T4 已完成注入收口（仅 `Provider<ModelGateway>`），本任务无改动。
 
 **验证**
-- [x] `grep -rn "converse" lib/core/llm` 仅剩网关实现
-- [x] `LlmService` 职责收敛为：模式解析 + ask/askJson/readiness/生命周期
-- [x] `flutter analyze` 0；全量测试绿
+- [x] `grep -rn "converse" lib/core/llm` 零残留（编排只存在于 `core/model_gateway.dart`）
+- [x] `LlmService` 职责收敛为：模式解析 + ask/askJson/readiness/生命周期/交付工厂
+- [x] `flutter analyze` 0；全量 223 绿（删 6 旧用例后基线 229→223）
 
 ## Task 6：文档与记忆同步
 
