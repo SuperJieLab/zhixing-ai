@@ -3,17 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
 
 import '../../support/fake_llm.dart';
 
 /// ChatPage 的 Widget 测试
 ///
-/// 页面不再驱动加载（Task 4）：就绪态由服务（[Llm.readiness]）表达，
-/// 页面据此切换 loading / 错误 / 正常视图。本文件把 [FakeLlm] 注入
-/// Provider 树，走默认 provider 构造路径，分别构造
-/// 「就绪 → 正常视图」与「ensure 失败 → 错误视图」两种场景。
+/// 页面不再驱动加载（Task 4）：就绪态由服务（[LlmReadiness]，经
+/// ModelGateway 透传）表达，页面据此切换 loading / 错误 / 正常视图。
+/// 本文件把 [FakeGateway] 注入 Provider 树，走默认 provider 构造路径，
+/// 分别构造「就绪 → 正常视图」与「ensure 失败 → 错误视图」两种场景。
 
 void main() {
   // ChatPage 内部创建 ChatProvider，须先初始化 SettingsRepository
@@ -24,8 +24,8 @@ void main() {
 
   Widget buildTestWidget({String topic = '职业发展', FakeLlm? llm}) {
     return MaterialApp(
-      home: Provider<Llm>.value(
-        value: llm ?? FakeLlm(),
+      home: Provider<ModelGateway>.value(
+        value: FakeGateway(llm: llm ?? FakeLlm()),
         child: ChatPage(topic: topic),
       ),
     );
@@ -55,7 +55,7 @@ void main() {
   // ============================================================
   // 测试 3：就绪失败展示错误视图；重试成功回到正常视图
   // ============================================================
-  testWidgets('ChatPage 就绪失败展示错误视图，重试走 llm.ensureReady',
+  testWidgets('ChatPage 就绪失败展示错误视图，重试走 gateway.ensureReady',
       (tester) async {
     final llm = FakeLlm()..throwOnEnsureReady = StateError('模型缺失');
     await tester.pumpWidget(buildTestWidget(llm: llm));

@@ -111,7 +111,7 @@ void main() {
         topic: topic,
         conversation: skipDb ? _dummyConv() : null,
         conversationService: conversationService ?? _NoopConversationService(),
-        llm: llm ?? FakeLlm(),
+        gateway: FakeGateway(llm: llm ?? FakeLlm()),
         dashboardRepo: dashboardRepo,
       );
 
@@ -217,7 +217,7 @@ void main() {
       expect(call.history.where((m) => m.content.isEmpty), isEmpty);
     });
 
-    test('压缩状态实例由业务持有并跨轮复用（类型在基建、实例在业务）', () async {
+    test('压缩状态已收回门面：Provider 不再持状态（v2 门面重构）', () async {
       final llm = FakeLlm();
       final provider = makeProvider(llm: llm, dashboardRepo: _OkDashboardRepo());
       llm.ready = true;
@@ -226,8 +226,9 @@ void main() {
       await provider.sendMessage('a');
       await provider.sendMessage('b');
 
+      // 两轮均正常发出即可——状态实例归 ModelGateway 私有，
+      // 其跨轮复用由 test/core/model_gateway_test.dart 覆盖。
       expect(llm.converseCalls.length, 2);
-      expect(llm.converseCalls[0].state, same(llm.converseCalls[1].state));
     });
 
     test('stopGeneration：半截内容保留，正常收尾且转发 stop 到服务', () async {

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:zhixing_ai/core/data/conversation_service.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
@@ -53,7 +53,7 @@ class StrategyBriefState {
 
 class StrategyBriefProvider {
   final Conversation _conversation;
-  final Llm _llm;
+  final ModelGateway _gateway;
   final DashboardRepository _dashboardRepo = DashboardRepository();
   final ConversationService _convService = ConversationService();
 
@@ -62,10 +62,10 @@ class StrategyBriefProvider {
 
   final List<void Function(StrategyBriefState)> _listeners = [];
 
-  /// [llm] 由页面经 Provider 树注入（composition root 构造的唯一实例）；
+  /// [gateway] 由页面经 Provider 树注入（composition root 构造的唯一实例）；
   /// 提取的后端模式跟随全局配置（云端 / 本地），本类不感知。
-  StrategyBriefProvider(this._conversation, {required Llm llm})
-      : _llm = llm; // ignore: prefer_initializing_formals
+  StrategyBriefProvider(this._conversation, {required ModelGateway gateway})
+      : _gateway = gateway; // ignore: prefer_initializing_formals
 
   void addListener(void Function(StrategyBriefState) listener) {
     _listeners.add(listener);
@@ -142,7 +142,7 @@ class StrategyBriefProvider {
       );
       _notify();
 
-      final extractor = StrategistExtractor(_llm);
+      final extractor = StrategistExtractor(_gateway);
       final result = await extractor.extract(
         conversation: _conversation,
         existingGoals: existingGoals,

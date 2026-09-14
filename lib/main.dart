@@ -7,8 +7,8 @@ import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/active_model_manager.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/platform/push_service.dart';
 import 'package:zhixing_ai/core/platform/push_socket_service.dart';
 import 'package:zhixing_ai/core/ui/in_app_banner.dart';
@@ -72,10 +72,17 @@ Future<void> main() async {
   final llm = LlmService(settings: SettingsRepository.instance);
   unawaited(llm.initialize());
 
+  // 业务唯一门面（v2 分层）：组合 llm 基建 + 模式源 + 生产交付工厂。
+  final gateway = ModelGateway(
+    llm: llm,
+    modeSource: llm.mode,
+    deliveryFactory: llm.deliveryFor,
+  );
+
   runApp(
     MultiProvider(
       providers: [
-        Provider<Llm>.value(value: llm),
+        Provider<ModelGateway>.value(value: gateway),
         ChangeNotifierProvider<ActiveModelManager>.value(value: ActiveModelManager.instance),
       ],
       child: ZhixingApp(navigatorKey: navigatorKey),

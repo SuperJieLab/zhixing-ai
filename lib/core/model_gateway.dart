@@ -25,7 +25,8 @@ import 'package:zhixing_ai/core/logger.dart';
 ///
 /// 业务禁止 import `Llm` / `LlmService` / 策略类型——公开类型经下方
 /// re-export 提供。
-export 'package:zhixing_ai/core/llm/llm.dart' show ChatMode, LlmReadiness;
+export 'package:zhixing_ai/core/llm/llm.dart'
+    show ChatMode, LlmPhase, LlmReadiness;
 
 /// 业务唯一门面：对话编排 + 单次补全透传。
 class ModelGateway {
@@ -155,6 +156,9 @@ class ModelGateway {
       _llm.askJson(system: system, user: user, maxTokens: maxTokens);
 
   void stop() => _llm.stop();
+
+  /// 确保后端就绪（幂等透传；页面失败重试触发兜底加载用）。
+  Future<void> ensureReady() => _llm.ensureReady();
 
   bool get isReady => _llm.isReady;
 

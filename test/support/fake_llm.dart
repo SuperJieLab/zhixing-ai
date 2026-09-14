@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 
 /// 测试用 [Llm] fake（替代 Task 3 退场的 `ChatClient` fake）。
 ///
@@ -80,4 +81,51 @@ class FakeLlm implements Llm {
 
   @override
   void stop() => stopCalls++;
+}
+
+/// 测试用 [ModelGateway] fake（v2 门面）：内部持 [FakeLlm]，公开面全部
+/// 委托——业务测试只关心「塞什么、拿到什么」，不感知编排与压缩细节。
+class FakeGateway implements ModelGateway {
+  final FakeLlm llm;
+
+  FakeGateway({FakeLlm? llm}) : llm = llm ?? FakeLlm();
+
+  @override
+  Stream<String> converse(
+    List<ChatMessage> history, {
+    required String systemPrompt,
+  }) =>
+      llm.converse(history,
+          systemPrompt: systemPrompt, state: ContextState());
+
+  @override
+  Future<String> ask({
+    required String system,
+    required String user,
+    int? maxTokens,
+  }) =>
+      llm.ask(system: system, user: user, maxTokens: maxTokens);
+
+  @override
+  Future<Map<String, dynamic>?> askJson({
+    required String system,
+    required String user,
+    int? maxTokens,
+  }) =>
+      llm.askJson(system: system, user: user, maxTokens: maxTokens);
+
+  @override
+  Future<void> ensureReady() => llm.ensureReady();
+
+  @override
+  void stop() => llm.stop();
+
+  @override
+  bool get isReady => llm.isReady;
+
+  @override
+  ValueListenable<LlmReadiness> get readiness => llm.readiness;
+
+  @override
+  void dispose() {}
 }

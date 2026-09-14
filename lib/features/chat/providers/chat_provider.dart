@@ -3,36 +3,32 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:zhixing_ai/core/data/conversation_service.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 import 'package:zhixing_ai/core/data/repository/dashboard_repository.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/features/chat/prompt/conversation_strategy.dart';
 
 /// 对话状态管理。
 ///
-/// 业务职责只有三件（设计 §5.1）：**持消息列表**（唯一真值源）、
-/// **持压缩状态实例**（[ContextState]，类型在基建）、**每轮传人设**。
-/// 后端模式（本地 / 云端）由 `Llm` 服务内部解析，本类不含任何模式分支；
-/// **也不持有加载 / 释放职责**（引擎生命周期归服务，就绪态经
-/// `llm.readiness` 由页面消费，design §9 #4/#5）。
+/// 业务职责只有两件（v2 门面重构）：**持消息列表**（唯一真值源）、
+/// **每轮传人设**。会话压缩状态（[ContextState]）已收回 [ModelGateway]
+/// 私有——业务不感知摘要卡 / 挤出游标；后端模式由门面经注入的模式源解析，
+/// 本类不含任何模式分支，也**不持有加载 / 释放职责**（就绪态经
+/// `gateway.readiness` 由页面消费）。
 ///
 /// 两种生命周期：新对话只传 [topic]（内部加欢迎语，首次发言建 DB 记录）；
 /// 恢复对话传 [conversation]（加载其消息 / ID / 轮次）。
 class ChatProvider extends ChangeNotifier {
   final String _topic;
   final ConversationService _conversationService;
-  final Llm _llm;
+  final ModelGateway _gateway;
   final DashboardRepository _dashboardRepo;
 
   /// 人设出处（业务；唯一）。
   final ConversationStrategy _strategy = ConversationStrategy();
-
-  /// 会话压缩状态（业务持有的实例；装配时就地更新）。
-  final ContextState _contextState = ContextState();
 
   /// 本轮注入人设的已有目标（**每轮发言前刷新**，目标取用留在业务侧，
   /// design §10.1 #8——基建不认识 Dashboard 仓库）。
@@ -65,11 +61,12 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider({
     required String topic,
-    required this._llm,
+    required ModelGateway gateway,
     Conversation? conversation,
     ConversationService? conversationService,
     DashboardRepository? dashboardRepo,
-  })  : _dashboardRepo = dashboardRepo ?? DashboardRepository(),
+  })  : _gateway = gateway, // ignore: prefer_initializing_formals
+        _dashboardRepo = dashboardRepo ?? DashboardRepository(),
         _topic = topic,
         _messages = conversation?.messages ?? _buildWelcome(topic),
         _round = conversation != null
@@ -130,8 +127,8 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       // 后端未就绪（模型缺失 / 云端未配齐）→ Mock 兜底；就绪化由服务驱动
-      // （页面消费 llm.readiness 表达 loading / 错误，这里不阻塞）。
-      if (!_llm.isReady) {
+      // （页面消费 gateway.readiness 表达 loading / 错误，这里不阻塞）。
+      if (!_gateway.isReady) {
         _messages[aiMessageIndex] = ChatMessage(
           role: MessageRole.ai,
           content: _generateMockResponse(),
@@ -146,10 +143,9 @@ class ChatProvider extends ChangeNotifier {
       // 去掉尾部空 AI 占位符 → 尾部恰为本轮用户消息。
       final history = _messages.sublist(0, _messages.length - 1);
       await _consume(
-        _llm.converse(
+        _gateway.converse(
           history,
           systemPrompt: _strategy.buildSystemPrompt(existingGoals: _activeGoals),
-          state: _contextState,
         ),
         aiMessageIndex,
       );
@@ -223,7 +219,7 @@ class ChatProvider extends ChangeNotifier {
   Completer<void>? _generationCompleter;
   StreamSubscription<String>? _activeSubscription;
 
-  /// 停止按钮：[_llm.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
+  /// 停止按钮：[_gateway.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
   /// 已生成文本保留。完成器标记为「正常完成」→ 走 sendMessage 的 finally
   /// 正常推进轮次并保存半截内容，不进 catch 降级分支。
   void stopGeneration() {
@@ -231,7 +227,7 @@ class ChatProvider extends ChangeNotifier {
     if (sub == null) return;
     _activeSubscription = null;
 
-    _llm.stop();
+    _gateway.stop();
     sub.cancel();
 
     if (_generationCompleter != null && !_generationCompleter!.isCompleted) {

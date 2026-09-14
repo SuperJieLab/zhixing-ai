@@ -1,7 +1,7 @@
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart' show MessageRole;
 import 'package:zhixing_ai/core/llm/context_budget.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
@@ -20,13 +20,13 @@ import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart
 /// 装箱/度量与对话客户端同一原语（`packTailWithinBudget` + `LlamaTemplateEstimator`，
 /// 含每条 +16 模板开销），保证预算内输入 + 一整轮生成仍在窗口内。
 /// 输出保护：maxTokens=[AppConstants.localMaxTokens]，足够丰富的 JSON 提取结果。
-/// 依赖：Llm（单次补全走统一入口，模式跟随全局配置）+ context_budget + chat_utils
+/// 依赖：ModelGateway（单次补全走统一门面，模式跟随全局配置）+ context_budget + chat_utils
 /// 消费方：StrategyBriefProvider（唯一）
 
 class StrategistExtractor {
-  final Llm _llm;
+  final ModelGateway _gateway;
 
-  StrategistExtractor(this._llm);
+  StrategistExtractor(this._gateway);
 
   static const _systemPrompt = '''
 你是一位助手。请首先判断以下对话是否包含值得关注的目标或策略。
@@ -109,7 +109,7 @@ cross_patterns 格式：
     try {
       // 结构化输出契约统一走 askJson：JSON-only 约束 + 剥 think/围栏 +
       // 刮 {...} 的容错都在统一入口内（双后端共用），本类只管解析后的语义。
-      final parsed = await _llm.askJson(
+      final parsed = await _gateway.askJson(
         system: _systemPrompt,
         user: '$existingGoalsText\n## 本轮对话\n$conversationText',
         maxTokens: AppConstants.localMaxTokens,

@@ -78,7 +78,9 @@
 - [x] 业务零改动（`ChatProvider` / `strategy_brief` 仍走旧路径）
 - [x] `flutter analyze` 0；全量测试绿
 
-## Task 4：业务切换（消费方迁到门面）
+## Task 4：业务切换（消费方迁到门面）✅ 已完成（2026-09-14）
+
+> **实施记录**：analyze 0 + 全量 229 绿。两处偏差——① 网关补 `ensureReady()` 透传（design §四漏列）：`chat_page` 的失败重试 / 兜底加载依赖它，一行委托与 readiness 同性质；② re-export 增补 `LlmPhase`（页面 switch 就绪态用）。`main.dart` 双 Provider 并存（`ModelGateway` 上线、`Llm` 保留至 T5 删）。`FakeGateway` 落 `test/support/fake_llm.dart`（内部持 `FakeLlm` 全委托），chat_provider_test 断言不改语义、仅「状态跨轮同实例」用例改写为「状态已收回门面」（该不变量已由 model_gateway_test 覆盖）。红线核过：`lib/features` 无 `Llm` 接口引用、无 `ContextState` 使用（仅 doc 注释）。
 
 **目标**：两个消费方切到 `ModelGateway`，旧路径进入只读保留期。
 

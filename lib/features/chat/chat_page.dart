@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
-import 'package:zhixing_ai/core/llm/llm.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/features/chat/utils/snackbar_throttle.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/chat/providers/chat_provider.dart';
@@ -40,8 +40,8 @@ class _ChatPageState extends State<ChatPage> {
   int _lastMessageCount = -1;
   bool _errorListenerSetup = false;
 
-  /// 大模型服务（就绪态消费 + 进入页面兜底加载；由 Provider 树提供）。
-  late final Llm _llm = context.read<Llm>();
+  /// 模型服务门面（就绪态消费 + 进入页面兜底加载；由 Provider 树提供）。
+  late final ModelGateway _gateway = context.read<ModelGateway>();
 
   /// 持有的 ChatProvider 引用（用于 dispose 时移除 listener）
   ChatProvider? _listenedProvider;
@@ -53,8 +53,8 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     // 进会话未就绪 → 异步兜底（design §9 #4；服务冷启动已预热，此处只补漏）。
     // 失败不抛——就绪态转 failed 由下方错误视图表达。
-    if (_llm.readiness.value.phase != LlmPhase.ready) {
-      unawaited(_llm.ensureReady().catchError((Object _) {}));
+    if (_gateway.readiness.value.phase != LlmPhase.ready) {
+      unawaited(_gateway.ensureReady().catchError((Object _) {}));
     }
   }
 
@@ -113,14 +113,14 @@ class _ChatPageState extends State<ChatPage> {
     return ChangeNotifierProvider(
       create: (context) {
         final factory = widget.providerFactory;
-        // 大模型服务实例由 composition root 构造、Provider 树持有（业务只认接口）。
-        // 加载 / 就绪归服务（llm.readiness），这里不再触发 loadModel。
+        // 门面实例由 composition root 构造、Provider 树持有（业务只认门面）。
+        // 加载 / 就绪归服务（gateway.readiness），这里不再触发 loadModel。
         final provider = factory != null
             ? factory(topic: widget.topic, conversation: widget.conversation)
             : ChatProvider(
                 topic: widget.topic,
                 conversation: widget.conversation,
-                llm: context.read<Llm>(),
+                gateway: context.read<ModelGateway>(),
               );
         return provider;
       },
@@ -136,7 +136,7 @@ class _ChatPageState extends State<ChatPage> {
           // 就绪态由服务表达（不感知本地 / 云端）：loading / 失败 /
           // 正常三种视图。idle 视同 loading（兜底 ensure 在 initState 已发起）。
           return ValueListenableBuilder<LlmReadiness>(
-            valueListenable: _llm.readiness,
+            valueListenable: _gateway.readiness,
             builder: (context, readiness, child) {
               switch (readiness.phase) {
                 case LlmPhase.ready:
@@ -146,7 +146,7 @@ class _ChatPageState extends State<ChatPage> {
                     // ensureReady 失败会再转 failed（错误视图本就为此存在）；
                     // 此处吞掉异常本身，避免成为未处理的异步错误。
                     try {
-                      await _llm.ensureReady();
+                      await _gateway.ensureReady();
                     } catch (_) {}
                   });
                 case LlmPhase.idle:
