@@ -3,6 +3,8 @@
 > 来源：全项目死代码 + 设计合理性审查（Explore 子代理扫描 + 逐条 grep 复核）。
 > 本文档为追踪清单：每项处理完勾选并在结果列补 commit hash。
 > 分层规范（page 不碰 engine/repository、跨 feature 隔离）核查无违规，未列入。
+>
+> **路径说明（2026-09-15 补）**：表中「位置」是 2026-09-10 当时的目录。此后经历大模型服务分层 T1–T7 与目录重组，**这些路径多数已不存在**（尤以 `lib/features/chat/engine/*` 为主，2026-09-12 已解体）。对照关系见文末「路径对照」。
 
 ## 状态图例
 
@@ -40,17 +42,18 @@
 - 落地：构造期校验 engine/kvSessionFactory 至少其一（`ArgumentError`）；summarizer 改为**显式可空**（kvSessionFactory-only 时为 null，压缩时明确 warn 回落），不再用抛异常闭包伪装能力
 - 状态：[x]
 
-### D2. 本地 stop() 无法真中断引擎
+### D2. 本地 stop() 无法真中断引擎 ✅ 已落为「有意保留」
 
-- 位置：`local_chat_client.dart` stop 实现 / ChatClient 接口
+- 位置：`lib/core/llm/generation/local_generation.dart:154`（当时为 `lib/features/chat/engine/local_chat_client.dart`）
 - 问题：Provider 取消订阅只是丢弃输出流，底层 llama 生成继续跑完（CPU 白烧）；接口携带 no-op 成员
-- 建议：短期补注释声明「本地为尽力而为取消」；长期看插件是否暴露中断 API
-- 状态：[ ]
+- 落地（2026-09-15 复核）：按「短期」建议补了注释声明为尽力而为取消——`stop()` 空实现 + 注释「本地流中断由消费方取消订阅完成，无遗留状态需清理：下一轮会 clear 重放」；底层 llama 中断 API 至今未暴露
+- 状态：[x] 有意保留（非缺陷，不再作为待办）
 
 ### D3. 压缩同步阻塞首 token
 
-- 位置：`generateResponse` 内 compact 调用点
+- 位置：`lib/core/context/context_assembly.dart:170`（装配路径内 `await summarizer.summarize(...)`；当时为 `generateResponse` 内 compact 调用点）
 - 问题：超阈值那轮，用户要先等完整摘要推理（2B 模型数秒）才见到第一个字
+- 复核（2026-09-15）：**问题仍然成立**——摘要发生在装配阶段且为 await，T1–T7 的重命名与搬迁未改变该行为
 - 建议：v1 已拍板接受；后续可优化为「轮次结束后台预压缩」
 - 状态：[ ]（低优先级，已拍板 v1 接受）
 
@@ -82,3 +85,22 @@
 - **服务端 `CHAT_SYSTEM_PROMPT` 兜底**（`llm-engine.js`）：候选②拍板的降级路径，兼容不带 systemPrompt 的旧客户端。已知代价是与客户端人设漂移；若在意可把兜底缩成一句中性提示。
 - **`/api/debug-push`**：已有 `NODE_ENV === 'production' → 404` 守卫。
 - **`LlamaService.dispose()`**：生命周期钩子，保留合理。
+
+---
+
+## 五、路径对照（2026-09-15）
+
+本文档撰写之后经历了大模型服务分层（T1–T7）与目录重组，清单里的路径 → 现状：
+
+| 当时 | 现在 |
+|---|---|
+| `lib/core/engine/llama_service.dart` | `lib/core/llm/engine/llama_service.dart` |
+| `lib/core/services/push_service.dart` | `lib/core/platform/push_service.dart` |
+| `lib/core/model_manager.dart` | `lib/features/model_manager/engine/model_download_service.dart` |
+| `lib/core/repository/*` | `lib/core/data/repository/*` |
+| `lib/core/models/*` | `lib/core/data/models/*` |
+| `lib/features/chat/engine/local_chat_client.dart` | `lib/core/llm/generation/local_generation.dart`（`chat/engine/` 已于 2026-09-12 解体） |
+| `lib/features/chat/engine/context/context_policy.dart` | `lib/core/context/context_assembly.dart` + `context_state.dart` |
+| `lib/features/chat/engine/prompt/conversation_strategy.dart` | 人设留 `lib/features/chat/prompt/`；摘要提示词 → `lib/core/context/summary_prompt.dart`；尾部去重 → `lib/core/llm/generation/tail_dedup.dart` |
+
+补全通道也已换代：补全/守门走 `LlmService.ask`（`lib/core/llm/single_shot/input_guard.dart`），业务侧一律经 `ModelGateway`。

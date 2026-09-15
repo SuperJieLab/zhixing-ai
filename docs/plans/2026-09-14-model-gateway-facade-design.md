@@ -1,7 +1,7 @@
 # 设计文档：ModelGateway 门面重构（大模型服务分层 v2）
 
 日期：2026-09-14
-状态：待评审
+状态：**已实施**（T1–T7，2026-09-14/15；实施记录与两处偏差见 plan 文档）。以下保留设计当时的决策口径，落点差异见文末「实施后对照」。
 前置：`docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`（v1 分层，本次在其基础上调整门面方向，不推翻底座）
 
 ## 一、问题陈述
@@ -98,11 +98,16 @@ class ModelGateway {
   // ── 补全面（无状态透传 + 守门）──
   Future<String> ask({required String system, required String user, int? maxTokens});
   Future<Map<String, dynamic>?> askJson({required String system, required String user, int? maxTokens});
+  // 实施后增补（偏差②收口）：单次补全的输入截断
+  List<ChatMessage> truncateForAsk(List<ChatMessage> messages,
+      {required String system, String? prefix, int minKeep = 0});
 
   // ── 通用透传 ──
   void stop();
   bool get isReady;
   ValueListenable<LlmReadiness> get readiness;
+  // 实施后增补：页面失败重试 / 兜底加载依赖
+  Future<void> ensureReady();
 }
 
 /// 单次补全输入超预算（fail-fast，业务决定降级）
@@ -140,7 +145,7 @@ core/
     local_context_policy.dart     #   端侧参数档案（预算/最小保留；度量器注入）
     cloud_context_policy.dart     #   云端参数档案
     context_budget.dart           #   预算常量与口径
-    summarizer.dart               #   摘要接口 + 提示词（传输实现由门面注入）
+    summary_prompt.dart           #   摘要提示词（原拟独立 summarizer.dart；因传输实现同时依赖两域，实际内聚为门面内公开的 AskSummarizer）
   llm/                            # 大模型服务域（纯底座，不知道上下文规则）
     llm.dart                      #   基建接缝接口（ask/askJson/readiness/stop）
     llm_service.dart              #   基建实现（唯一模式解析点 + 生命周期）
@@ -196,3 +201,15 @@ core/
 - 不改 BYOK、推送、提取业务逻辑；
 - 不引入 grammar / `response_format` 硬约束；
 - Gateway 不做接口抽象（单实现）。
+
+## 八、实施后对照（2026-09-15 补）
+
+设计稿与最终落点的差异，逐条登记（细节见 plan 文档的实施记录）：
+
+| 设计稿 | 实际落点 |
+|---|---|
+| `context/summarizer.dart`（摘要接口 + 提示词） | 提示词落 `context/summary_prompt.dart`；接口 `ConversationSummarizer` 留在 `context/context_assembly.dart`；传输实现内聚为门面内公开的 `AskSummarizer`（同时依赖两域类型，只能住门面） |
+| T1 的 `llm/input_guard.dart` | T7 随分桶移入 `llm/single_shot/input_guard.dart`，并重写为 llm 域自足（不再 import context） |
+| §四 签名未含 `truncateForAsk` / `ensureReady` | 实施后增补，见 §四 内注释 |
+| 「`llm` 不依赖 `context`」 | 修正为**禁 `context → llm`**；`llm → context` 的单向契约依赖允许（generation 消费 `AssembledContext` / `kLlmFailureReply`） |
+| 「业务只 import `ModelGateway`」 | 唯一例外 `StrategistExtractor` 曾直连装箱原语与预算常量，已于 2026-09-15 收口为 `ModelGateway.truncateForAsk`（commit `a8058bc`），业务对两域内件零直连 |

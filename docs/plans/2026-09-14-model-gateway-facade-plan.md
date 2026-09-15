@@ -1,6 +1,6 @@
 # 知行AI — ModelGateway 门面重构实施计划
 
-> 状态：**⬜ 未开工**（Task 1–7 待实施）
+> 状态：**✅ 全部完成**（Task 1–7 已实施并提交：T1–T5 `a65e1c0`/`38d9cb5`/`fedb1c9`/`cf96df5`/`77cbdaf`，T6 `d231229`，T7 `5a2a698`；偏差②收口 `a8058bc`，2026-09-15）
 > 设计：`docs/plans/2026-09-14-model-gateway-facade-design.md`（D1–D7 决策已拍定，可开工）
 > 前置：v1 分层已完成（`2026-09-12-llm-service-layering-{design,plan}.md`，基线 `main`）；本次**不推翻底座**——Policy / Generation（原 Delivery）/ 自愈逻辑平移复用，动的是门面方向、状态归属与目录。
 > 提交纪律：每 Task 实现 → 自查 → 全量回归 → 改动留工作区，由用户确认后提交（**不自动 commit**）
@@ -17,7 +17,7 @@
 
 **文件**
 
-1. 新增 `lib/core/llm/input_guard.dart`
+1. 新增 `lib/core/llm/input_guard.dart`（T7 后实际落点：`lib/core/llm/single_shot/input_guard.dart`）
    - `void ensureInputWithinBudget({required ChatMode mode, required String system, required String user})`：按模式选度量器——本地 `LlamaTemplateEstimator`（`context_budget.dart:35`，与 `converse` 同 nCtx 口径）、云端 `CharCountEstimator` 对 `cloudInputBudget`（`cloud_context_policy.dart:10` / 预算常量）度量 `system + user`；
    - 超预算抛 `GatewayInputOverflowException`（类型化，message 带模式与实际/上限数值）；
    - 红线：纯函数、无状态；**不截断、不自愈**（D5：截断 = 提取「成功但错误」无信号；单次调用无可牺牲历史）。
@@ -111,10 +111,12 @@
 - [x] `LlmService` 职责收敛为：模式解析 + ask/askJson/readiness/生命周期/交付工厂
 - [x] `flutter analyze` 0；全量 223 绿（删 6 旧用例后基线 229→223）
 
-## Task 6：文档与记忆同步
+## Task 6：文档与记忆同步 ✅ 已完成（2026-09-14，commit `d231229`）
 
 1. `docs/PROJECT.md` 大模型服务分层章节：补 v2 门面结构（gateway / context / generation / single_shot 星形依赖图、ContextState 归属变更、守门契约）；
 2. `.workbuddy/memory/MEMORY.md`：更新「大模型服务分层」节——`Llm` 降为基建接缝、业务唯一入口 `ModelGateway`、目录新约定；标注 v1 描述过时项。
+
+> **2026-09-15 补充（文档漂移复查）**：PROJECT.md / README 的结构、类名、技术栈按 T7 终版重校——目录树改为 `generation`/`single_shot`/`engine` + 独立 `core/context`；交付→生成；删除未实现能力描述（CoreML / NNAPI）；删除 `/api/sync` 的 `vectors` 字段；数据流按 `StrategyBriefProvider` 实际链路改写；补测试命令（清代理变量）与 v2.4 版本行。
 
 ## Task 7：目录重组（D7 终版，纯移动 + 注入改造）✅ 已完成（2026-09-14）
 
@@ -134,6 +136,7 @@
 - [x] 依赖红线：`context → llm` 零命中；业务零直连（除上述已登记例外）；门面是唯一组合点
 - [x] **零行为变更**（全量测试绿，无断言修改——改名导致的引用修正除外）
 - [x] `flutter analyze` 0；全量 223 绿
+- [x] 偏差②收口后复跑（2026-09-15）：`flutter analyze` 0；全量 **227** 绿（新增 4 个 `truncateForAsk` 网关用例）
 
 ## 风险与回退
 

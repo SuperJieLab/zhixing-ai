@@ -37,7 +37,7 @@
 |------|------|
 | UI | Flutter 3.x + Provider |
 | 端侧推理 | llama.cpp + Qwen3.5-2B (Q4_K_M) |
-| 加速 | CoreML (iOS) / Metal (macOS) / NNAPI (Android) |
+| 加速 | Metal（GPU 层数可调，默认纯 CPU） |
 | 本地存储 | sqflite (SQLite) |
 | 服务端 | Node.js + Express + node-cron |
 | 推送通道 | 服务端触发 + WebSocket 站内横幅（不走系统推送） |
@@ -57,7 +57,7 @@ flutter run
 cd server && cp .env.example .env && npm install && npm start
 ```
 
-启动后在 App 设置页下载模型（~1.06GB）即可开始使用。推送功能依赖服务端运行，未启动时 App 照常工作，只是没有推送提醒。
+启动后在 App 设置页下载模型（Qwen3.5-2B Q4_K_M，约 1.27GB）即可开始使用。推送功能依赖服务端运行，未启动时 App 照常工作，只是没有推送提醒。
 
 ## 项目结构
 
@@ -66,7 +66,9 @@ lib/
 ├── core/
 │   ├── constants.dart      # 全局常量（端侧模型参数 local* / 云端输入预算 cloud* / 服务端地址）
 │   ├── logger.dart         # 统一日志
-│   ├── llm/                # 端侧 LLM 推理域（LlamaService/ActiveModelManager/think 剥离）
+│   ├── model_gateway.dart  # 业务唯一门面（对话面编排 + 单次补全透传/截断）
+│   ├── context/            # 上下文管理域（装配骨架 / 双端策略 / 摘要提示词，零 llm 依赖）
+│   ├── llm/                # 大模型服务域：generation（流式生成）/ single_shot（单次）/ engine（端侧引擎池）
 │   ├── data/               # 数据域（models/ + repository/ + ConversationService）
 │   ├── platform/           # 平台基建（推送/WS/同步）
 │   └── ui/                 # 跨 feature UI 基建（主题/路由观察/横幅）
@@ -75,33 +77,37 @@ lib/
 │   ├── dashboard/          # 全局面板（三区视图）
 │   ├── strategy_brief/     # 对话结束提取确认页
 │   ├── history/            # 对话历史列表
+│   ├── settings/           # 偏好设置（云端 BYOK / GPU 加速）
 │   └── model_manager/      # 模型下载管理 UI
 └── main.dart
 
 server/                     # 服务端推送
 ├── src/
-│   ├── index.js            # Express 入口 + cron 调度
+│   ├── index.js            # Express 入口 + cron 调度 + WS /ws
 │   ├── routes/sync.js      # POST /api/sync 接收端侧数据
 │   └── services/
 │       ├── push.js         # 推送决策分发
 │       ├── rules-engine.js # 规则模式
-│       └── llm-engine.js   # DeepSeek LLM 模式
+│       ├── llm-engine.js   # DeepSeek LLM 模式
+│       └── wsHub.js        # token → socket 登记与下发
+├── tests/                  # server 侧测试（push / wsHub）
 ├── .env.example
 └── package.json
 
-test/                       # 测试（目录结构与 lib/ 一一对应）
-├── smoke_test.dart         # 全流程冒烟测试（app 级，留根目录）
+test/                       # 测试（目录结构与 lib/ 同构）
 ├── core/
-│   └── platform/           # PushSocketService 等平台服务测试
+│   ├── model_gateway_test.dart  # 门面编排（装配 → 生成 → 溢出自愈）
+│   ├── context/            # 装配 / 双端策略 / 摘要提示词
+│   ├── llm/                # generation（端侧重放、云端 SSE）/ single_shot（输入守门）/ llm_service
+│   ├── data/repository/    # 设置仓库
+│   └── platform/           # PushSocketService
 ├── features/
-│   ├── chat/
-│   │   ├── engine/         # ChatClient/策略/SSE/Markdown 块切分测试
-│   │   ├── providers/      # ChatProvider 测试
-│   │   ├── widgets/        # 气泡/输入框渲染测试
-│   │   └── *_page_test.dart
+│   ├── chat/               # page / providers / widgets / utils / prompt
 │   ├── dashboard/          # Dashboard 渲染测试
 │   ├── history/            # History 页面测试
+│   ├── strategy_brief/     # 目标匹配测试
 │   └── model_manager/      # 模型下载测试
+└── support/fake_llm.dart   # FakeGateway + FakeLlm（业务侧测试统一假件）
 tool/
 └── llama_integration_test.dart   # 端侧推理集成测试（dart run 独立运行）
 ```
