@@ -8,14 +8,14 @@
 /// - **不自愈**——单次调用无可牺牲的历史（输入即全部），超限只能交业务
 ///   降级（如跳过本轮提取）。
 ///
-/// 度量口径与对话装配对齐：本地 token（`LlamaService.estimateTokens` +
+/// 度量口径与对话装配对齐：本地 token（`estimateTokens` +
 /// 每条 +16 模板开销，同 `LlamaTemplateEstimator`）、云端字符数（同
 /// `CharCountEstimator`）。预算取 `AppConstants` 同源常量——本文件属 llm
 /// 域，**不 import context 域**（星形依赖红线），度量实现在此内联。
 library;
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
+import 'package:zhixing_ai/core/llm/engine/token_estimator.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
@@ -60,9 +60,7 @@ void ensureInputWithinBudget({
   // （与对话逐条累加口径对齐，宁保守勿漏放：本地 +16/条，云端 +16 字符/条）。
   final measured = switch (mode) {
     ChatMode.local =>
-      LlamaService.estimateTokens(system) +
-          LlamaService.estimateTokens(user) +
-          2 * 16,
+      estimateTokens(system) + estimateTokens(user) + 2 * 16,
     ChatMode.cloud => system.length + user.length + 2 * 16,
   };
   if (measured > budget) {

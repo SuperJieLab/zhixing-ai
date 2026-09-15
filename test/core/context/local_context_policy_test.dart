@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
+import 'package:zhixing_ai/core/llm/engine/token_estimator.dart';
 import 'package:zhixing_ai/core/llm/engine/llama_template_estimator.dart';
 import 'package:zhixing_ai/core/context/local_context_policy.dart';
 
@@ -29,11 +29,9 @@ void main() {
   group('LlamaTemplateEstimator', () {
     final estimator = LlamaTemplateEstimator();
 
-    test('estimateText 委托 LlamaService.estimateTokens', () {
-      expect(estimator.estimateText('你好'),
-          LlamaService.estimateTokens('你好'));
-      expect(estimator.estimateText('hello world'),
-          LlamaService.estimateTokens('hello world'));
+    test('estimateText 委托 estimateTokens 纯函数', () {
+      expect(estimator.estimateText('你好'), estimateTokens('你好'));
+      expect(estimator.estimateText('hello world'), estimateTokens('hello world'));
     });
 
     test('estimateMessage = token 估算 + 每条模板包装开销', () {

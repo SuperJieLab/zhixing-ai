@@ -12,17 +12,26 @@ import 'package:zhixing_ai/core/data/models/available_model.dart';
 /// 只负责回答一个问题：本地是否有可用模型？
 /// 不涉及下载、进度、速度等 UI 相关的下载管理逻辑。
 ///
-/// 在 main() 的 MultiProvider 中全局注入，
-/// TopicSelectionPage、ChatPage 等通过 watch 消费就绪状态。
+/// **非单例**：由 composition root（main）构造一次，UI 侧经 Provider 树
+/// `context.watch<ActiveModelManager>()` 消费；需要"当前活跃模型"的 core 服务
+/// （`LlmService`）经构造注入拿到同一个实例的 [activeModelPath] 源。
+/// 这样实例可被测试直接替换，无需全局开关或手动复位。
 class ActiveModelManager extends ChangeNotifier {
-  static final ActiveModelManager instance = ActiveModelManager._();
-
-  ActiveModelManager._();
+  ActiveModelManager();
 
   String? _activeModelId;
 
   /// 已下载到本地的模型 ID 集合（所有，不只是当前活跃的）
   final Set<String> _downloadedModelIds = {};
+
+  /// 当前活跃模型的文件路径；null = 尚无可用模型。
+  ///
+  /// 形态同 `LlmService.mode`：**状态源以 ValueListenable 注入消费方**，
+  /// 而非放在全局常量里。`LlmService` 监听它就能知道「换成了哪个模型」，
+  /// 并据此拆除旧引擎池条目；同值重复通知不会触发重建。
+  final ValueNotifier<String?> _activeModelPath = ValueNotifier<String?>(null);
+
+  ValueListenable<String?> get activeModelPath => _activeModelPath;
 
   /// 当前活跃模型的 ID
   String? get activeModelId => _activeModelId;
@@ -41,7 +50,7 @@ class ActiveModelManager extends ChangeNotifier {
   /// 优先加载上次用户选择的模型；如果该模型不在本地，
   /// 则回退到第一个可用的已下载模型。
   ///
-  /// 在 main() 的 Provider create 中调用（异步，不 await）。
+  /// 在 composition root 中调用（异步，不 await）。
   /// 完成后 notifyListeners() → 依赖方自动重建。
   Future<void> checkLocalModels() async {
     // 读取上次选择
@@ -59,7 +68,7 @@ class ActiveModelManager extends ChangeNotifier {
     if (preferred != null && _downloadedModelIds.contains(preferred)) {
       _activeModelId = preferred;
       final model = AvailableModel.available.firstWhere((m) => m.id == preferred);
-      AppConstants.defaultModelPath = await savePath(model);
+      _activeModelPath.value = await savePath(model);
     } else if (_downloadedModelIds.isNotEmpty) {
       // 回退：第一个可用的模型
       final fallbackId = AvailableModel.available
@@ -67,7 +76,7 @@ class ActiveModelManager extends ChangeNotifier {
           .id;
       _activeModelId = fallbackId;
       final model = AvailableModel.available.firstWhere((m) => m.id == fallbackId);
-      AppConstants.defaultModelPath = await savePath(model);
+      _activeModelPath.value = await savePath(model);
     }
 
     notifyListeners();
@@ -77,7 +86,7 @@ class ActiveModelManager extends ChangeNotifier {
   void setModelReady(String modelId, String savePath) {
     _downloadedModelIds.add(modelId);
     _activeModelId = modelId;
-    AppConstants.defaultModelPath = savePath;
+    _activeModelPath.value = savePath;
     _savePreference(modelId);
     notifyListeners();
   }
@@ -87,9 +96,15 @@ class ActiveModelManager extends ChangeNotifier {
     if (!_downloadedModelIds.contains(modelId)) return;
     _activeModelId = modelId;
     final model = AvailableModel.available.firstWhere((m) => m.id == modelId);
-    AppConstants.defaultModelPath = await savePath(model);
+    _activeModelPath.value = await savePath(model);
     _savePreference(modelId);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _activeModelPath.dispose();
+    super.dispose();
   }
 
   // ================================================================
@@ -120,6 +135,8 @@ class ActiveModelManager extends ChangeNotifier {
       } catch (_) {
         // 偏好写入失败不影响核心功能，下次启动回退到第一个可用模型
       }
+    }).catchError((Object _) {
+      // 沙盒路径不可用时（如测试环境）忽略：偏好只是加速恢复，非必需
     });
   }
 }

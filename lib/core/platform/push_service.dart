@@ -11,8 +11,8 @@ import 'package:zhixing_ai/core/logger.dart';
 // App 启动时自动获取 token，后续 SyncService 用它作为设备标识上报到服务端。
 //
 // 【在架构中的位置】
-//   main.dart → PushService().initialize()（App 启动时调用，不阻塞启动）
-//   SyncService → PushService().getToken()（同步前获取设备 token）
+//   main.dart → PushService.instance.initialize()（App 启动时调用，不阻塞启动）
+//   PushSocketService / SyncService → PushService.instance.getToken()（取设备 token）
 //
 // 【两种运行模式】
 //   - Firebase 已配置：正常获取 FCM token，App 能收到真实推送
@@ -20,7 +20,10 @@ import 'package:zhixing_ai/core/logger.dart';
 //     （MVP 阶段：没有 Firebase 项目时 App 照常运行，只是推送走 console.log）
 //
 // 【面试可聊】
-//   - 为什么用单例？→ token 全局唯一，多处需要（main.dart、SyncService）
+//   - 为什么用单例？→ token 全局唯一，进程级共享（main.dart、PushSocketService、
+//     SyncService 默认依赖）。写法与 PushSocketService / SettingsRepository
+//     统一为 `static final instance`——不用 `factory X()`，避免调用点看起来像
+//     在 new 一个对象
 //   - Firebase 未配置时为什么降级而非崩溃？→ 渐进式集成：先跑通链路，再加 Firebase
 //   - onTokenRefresh 做什么？→ token 可能因 App 重装/清数据而变，监听刷新保证同步
 //
@@ -29,8 +32,8 @@ import 'package:zhixing_ai/core/logger.dart';
 //   - firebase_core（Firebase 初始化，在 main.dart 中）
 
 class PushService {
-  static final PushService _instance = PushService._();
-  factory PushService() => _instance;
+  static final PushService instance = PushService._();
+
   PushService._();
 
   /// mock token 的持久化键（修复：原实现带时间戳，每次重启漂移，

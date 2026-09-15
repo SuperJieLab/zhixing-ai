@@ -36,7 +36,10 @@ import 'package:zhixing_ai/core/platform/push_service.dart';
 //   ——推送是"锦上添花"，不是核心功能，不能因为推送服务挂了 App 就崩
 //
 // 【面试可聊】
-//   - 为什么用单例 + 公开字段而非 Provider？→ SyncService 不驱动 UI，只是副作用
+//   - 为什么是普通类而非单例？→ 它是无状态副作用服务（不驱动 UI、不持有需释放
+//     的资源），唯一性交给装配处（composition root 只造一次）；依赖
+//     PushService / SettingsRepository 走构造注入，测试可直接替换实例，
+//     不需要「全局开关」这种补丁
 //   - 为什么 connectionTimeout 5 秒？→ 移动端网络不稳定，快速失败优于长时间等待
 //   - 隐私：上传的是结构化摘要（title/deadline），不传对话原文
 //
@@ -46,13 +49,12 @@ import 'package:zhixing_ai/core/platform/push_service.dart';
 //   - DashboardModels（Goal / Strategy 数据模型）
 
 class SyncService {
-  /// 测试开关：false 时 syncDashboard 直接跳过（widget 测试的 FakeAsync zone
-  /// 中 Dio 连接 Timer 不会触发，挂到测试收尾报 "Timer is still pending"）。
-  static bool enabled = true;
+  SyncService({PushService? pushService, SettingsRepository? settings})
+      : _push = pushService ?? PushService.instance,
+        _settings = settings ?? SettingsRepository.instance;
 
-  static final SyncService _instance = SyncService._();
-  factory SyncService() => _instance;
-  SyncService._();
+  final PushService _push;
+  final SettingsRepository _settings;
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: AppConstants.serverBaseUrl,
@@ -65,14 +67,13 @@ class SyncService {
     required List<Goal> goals,
     required List<Strategy> strategies,
   }) async {
-    if (!enabled) return;
-    final token = await PushService().getToken();
+    final token = await _push.getToken();
     if (token == null) return;
 
     try {
       await _dio.post('/api/sync', data: {
         'device_token': token,
-        'mode': SettingsRepository.instance.useAiOptimizedPush ? 'llm' : 'rules',
+        'mode': _settings.useAiOptimizedPush ? 'llm' : 'rules',
         'goals': goals.map((g) => {
           'title': g.title,
           'category': g.category.name,

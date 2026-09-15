@@ -37,20 +37,25 @@ class ModelDownloadState {
 /// 不使用 Provider 全局注入——由 [ModelManagePage] 内部自行管理，
 /// 通过 [ChangeNotifierProvider] 在页面 widget tree 内注入。
 class ModelDownloadProvider extends ChangeNotifier {
-  final ModelDownloadService _service;
-
-  ModelDownloadProvider({ModelDownloadService? service})
-      : _service = service ?? ModelDownloadService() {
+  /// [manager] 是必需的：模型就绪状态归 core 层，由页面从 Provider 树注入
+  /// （测试可自行构造实例，无需触碰全局状态）。
+  ModelDownloadProvider({
+    required ActiveModelManager manager,
+    ModelDownloadService? service,
+  })  : _manager = manager, // ignore: prefer_initializing_formals
+        _service = service ?? ModelDownloadService() {
     _initStates();
   }
+
+  final ActiveModelManager _manager;
+  final ModelDownloadService _service;
 
   final Map<String, ModelDownloadState> _states = {};
 
   /// 从 ActiveModelManager 同步已下载模型的状态，避免已下载的模型显示"下载"按钮
   void _initStates() {
-    final manager = ActiveModelManager.instance;
     for (final model in AvailableModel.available) {
-      if (manager.isDownloaded(model.id)) {
+      if (_manager.isDownloaded(model.id)) {
         _states[model.id] = const ModelDownloadState(
           status: DownloadStatus.completed,
           progress: 1.0,
@@ -67,7 +72,7 @@ class ModelDownloadProvider extends ChangeNotifier {
       _states[modelId] ?? const ModelDownloadState();
 
   Future<void> startDownload(AvailableModel model) async {
-    final savePath = await ActiveModelManager.instance.savePath(model);
+    final savePath = await _manager.savePath(model);
 
     _states[model.id] = const ModelDownloadState(status: DownloadStatus.downloading);
     notifyListeners();
@@ -88,7 +93,7 @@ class ModelDownloadProvider extends ChangeNotifier {
           totalBytes: model.sizeBytes,
         );
         // 通知 core 层：模型就绪
-        ActiveModelManager.instance.setModelReady(model.id, savePath);
+        _manager.setModelReady(model.id, savePath);
       } else {
         _states[model.id] = const ModelDownloadState(status: DownloadStatus.cancelled);
       }

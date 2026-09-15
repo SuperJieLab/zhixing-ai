@@ -1,6 +1,6 @@
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/context/context_budget.dart';
-import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
+import 'package:zhixing_ai/core/llm/engine/token_estimator.dart';
 
 /// 端侧度量（策略位②实现，llm 域侧）：token 估算 + 每条消息的 chat template
 /// 包装开销。
@@ -14,8 +14,8 @@ class LlamaTemplateEstimator extends ContextEstimator {
 
   @override
   int estimateMessage(ChatMessage message) =>
-      LlamaService.estimateTokens(message.content) + perMessageOverhead;
+      estimateTokens(message.content) + perMessageOverhead;
 
   @override
-  int estimateText(String text) => LlamaService.estimateTokens(text);
+  int estimateText(String text) => estimateTokens(text);
 }

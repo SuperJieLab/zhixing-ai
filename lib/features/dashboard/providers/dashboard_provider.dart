@@ -50,7 +50,14 @@ class DashboardState {
 }
 
 class DashboardProvider {
-  final DashboardRepository _repo = DashboardRepository();
+  /// [repository] / [syncService] 缺省各自新建（页面侧一般从 Provider 树
+  /// 取共享实例传入）；显式注入缝供测试替换。
+  DashboardProvider({DashboardRepository? repository, SyncService? syncService})
+      : _repo = repository ?? DashboardRepository(),
+        _sync = syncService ?? SyncService();
+
+  final DashboardRepository _repo;
+  final SyncService _sync;
 
   DashboardState _state = DashboardState();
   DashboardState get state => _state;
@@ -97,7 +104,7 @@ class DashboardProvider {
   }
 
   void _syncToServer() {
-    SyncService().syncDashboard(
+    _sync.syncDashboard(
       goals: _state.goals,
       strategies: _state.strategies,
     );

@@ -4,9 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
 import 'package:zhixing_ai/core/llm/single_shot/cloud_request.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/llm/generation/cloud_generation.dart';
@@ -79,25 +77,30 @@ class LlmService implements Llm {
   ChatGeneration? _overrideDelivery;
 
   /// 最近一次本地引擎加载时的模型路径。模型切换时据此识别「需要释放的是
-  /// 哪个 config 的池条目」——切换后 `defaultModelPath` 已是新值，不记录
-  /// 旧路径就会放跑旧条目（引擎驻留内存）。
+  /// 哪个 config 的池条目」——切换后源里已是新值，不记录旧路径就会放跑旧
+  /// 条目（引擎驻留内存）。
   String? _loadedModelPath;
 
-  /// 模型变更通知源；仅测试注入（默认 [ActiveModelManager.instance]）。
-  final ChangeNotifier _modelChanges;
+  /// 活跃模型路径源（生产注入 `ActiveModelManager.activeModelPath`）。
+  ///
+  /// 形态与 [mode] 一致：**状态源以 ValueListenable 注入**。监听它即可在
+  /// 「换模型」时拆除旧引擎池条目；读 [ValueListenable.value] 即当前应加载的
+  /// 模型路径（null = 尚无可用模型）。
+  final ValueListenable<String?> _activeModelPath;
 
-  /// [settings] 缺省用仓库单例；其余接缝（[cloudAsk] / [localAsk] /
+  /// [settings] 缺省用仓库单例；[activeModelPath] 必传（唯一性来自
+  /// composition root 装配）；其余接缝（[cloudAsk] / [localAsk] /
   /// [deliveryFactory] / [localDeliveryBuilder]）仅测试注入。
   LlmService({
     SettingsRepository? settings,
+    required ValueListenable<String?> activeModelPath,
     SingleShotAsk? cloudAsk,
     SingleShotAsk? localAsk,
     ChatGeneration Function()? deliveryFactory,
     LocalDeliveryBuilder? localDeliveryBuilder,
     Duration delayedRelease = const Duration(seconds: 30),
-    ChangeNotifier? modelChanges,
   })  : _settings = settings ?? SettingsRepository.instance,
-        _modelChanges = modelChanges ?? ActiveModelManager.instance,
+        _activeModelPath = activeModelPath, // ignore: prefer_initializing_formals
         _cloudAsk = cloudAsk, // ignore: prefer_initializing_formals
         _localAsk = localAsk, // ignore: prefer_initializing_formals
         _deliveryFactory = deliveryFactory, // ignore: prefer_initializing_formals
@@ -117,7 +120,7 @@ class LlmService implements Llm {
   /// 失败不抛（就绪态转 failed，由 UI 表达；页面进入时还有异步兜底）。
   Future<void> initialize() async {
     _settings.backendListenable.addListener(_onBackendSettingChanged);
-    _modelChanges.addListener(_onActiveModelChanged);
+    _activeModelPath.addListener(_onActiveModelChanged);
     try {
       await ensureReady();
     } catch (e) {
@@ -130,13 +133,23 @@ class LlmService implements Llm {
   /// 「使用新模型」**即刻生效**：旧模型引擎连同其上的会话立即废弃（无
   /// 「误切回旧模型再切回」的场景，不需要云端切换那套延迟释放防抖）。
   /// 后果：切换瞬间若有在途生成，该轮以错误收尾；下一轮自动加载新模型。
+  ///
+  /// 三种情形：首次有可用模型（previous == null，无旧资源可拆）→ 直接加载；
+  /// 换模型（两者均非 null 且不同）→ 先拆旧条目再加载；其余（无模型 /
+  /// 同路径重复通知）→ 不动。同路径重复通知由 ValueNotifier 同值不通知
+  /// 与本判断双重兜底。
   void _onActiveModelChanged() {
-    final loaded = _loadedModelPath;
-    final current = AppConstants.defaultModelPath;
-    if (loaded == null || loaded == current) return;
+    final previous = _loadedModelPath;
+    final current = _activeModelPath.value;
+    if (current == null || current == previous) return;
     _loadedModelPath = null;
-    _teardownLocalResources(modelPath: loaded);
-    AppLogger.info('LlmService', '活跃模型切换（$loaded → $current），旧引擎资源已拆除');
+    if (previous != null) {
+      _teardownLocalResources(modelPath: previous);
+      AppLogger.info(
+          'LlmService', '活跃模型切换（$previous → $current），旧引擎资源已拆除');
+    } else {
+      AppLogger.info('LlmService', '活跃模型就绪（$current），开始加载');
+    }
     if (!_settings.chatCloudMode) {
       unawaited(ensureReady().catchError((Object _) {}));
     }
@@ -196,21 +209,24 @@ class LlmService implements Llm {
   /// `engine.dispose()` 会留下「池缓存已释放引擎」的脏条目，切回本地时
   /// ensureReady 命中缓存返回死引擎，本地模式从此永久损坏。
   ///
-  /// [modelPath] 为要释放的池条目路径；缺省回退当前活跃模型路径
+  /// [modelPath] 为要释放的池条目路径；缺省取当前活跃模型路径
   /// （模型切换场景必须显式传旧路径，见 [_onActiveModelChanged]）。
   void _teardownLocalResources({String? modelPath}) {
+    final path = modelPath ?? _activeModelPath.value;
     _localReady = null;
     _localDelivery?.dispose();
     _localDelivery = null;
+    // 尚无活跃模型 → 池中不可能有该模型的条目，无需释放。
+    if (path == null) return;
     unawaited(LlamaService.instance
-        .release(modelPath: modelPath, gpuLayers: _settings.gpuLayers)
+        .release(modelPath: path, gpuLayers: _settings.gpuLayers)
         .catchError((_) {}));
   }
 
   /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
   void dispose() {
     _settings.backendListenable.removeListener(_onBackendSettingChanged);
-    _modelChanges.removeListener(_onActiveModelChanged);
+    _activeModelPath.removeListener(_onActiveModelChanged);
     _releaseTimer?.cancel();
     _releaseTimer = null;
     _teardownLocalResources();
@@ -390,7 +406,7 @@ class LlmService implements Llm {
   Future<ChatGeneration> _buildLocalDelivery() async {
     final builder = _localDeliveryBuilder;
     // 记录本次交付所服务的模型路径（模型切换时据此拆除旧资源）。
-    _loadedModelPath = AppConstants.defaultModelPath;
+    _loadedModelPath = _activeModelPath.value;
     if (builder != null) return builder();
     final engine = await _ensureLocalEngine();
     final delivery = LocalGeneration(
@@ -402,8 +418,17 @@ class LlmService implements Llm {
 
   /// 端侧引擎获取：直走 [LlamaService] 池（按 config 缓存 Future，幂等 +
   /// 并发去重；GPU 设置变更自动落新条目，不存在旧引擎句柄残留）。
-  Future<LlamaEngine> _ensureLocalEngine() =>
-      LlamaService.instance.ensureReady(gpuLayers: _settings.gpuLayers);
+  Future<LlamaEngine> _ensureLocalEngine() => LlamaService.instance
+      .ensureReady(modelPath: _requireActiveModelPath(), gpuLayers: _settings.gpuLayers);
+
+  /// 当前活跃模型路径；尚无可用模型时抛（调用方表现为就绪失败 / 本轮降级）。
+  String _requireActiveModelPath() {
+    final path = _activeModelPath.value;
+    if (path == null) {
+      throw StateError('未找到可用的本地模型，请先在设置中下载');
+    }
+    return path;
+  }
 
   /// 单次补全的后端接缝：模式解析（唯一出处）+ 就绪校验。
   SingleShotAsk _resolveCompleter() {
@@ -440,8 +465,10 @@ class LlmService implements Llm {
     required String user,
     int? maxTokens,
   }) async {
-    final engine = await LlamaService.instance
-        .ensureReady(gpuLayers: _settings.gpuLayers);
+    final engine = await LlamaService.instance.ensureReady(
+      modelPath: _requireActiveModelPath(),
+      gpuLayers: _settings.gpuLayers,
+    );
     final chat = await engine.createChat();
     return completeText(
       chat,

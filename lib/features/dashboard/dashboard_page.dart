@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:zhixing_ai/core/platform/sync_service.dart';
 import 'package:zhixing_ai/core/ui/route_observer.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
@@ -21,7 +23,9 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> with RouteAware {
-  final DashboardProvider _provider = DashboardProvider();
+  /// 同步服务由 composition root 构造、Provider 树持有（页面不直连 core 服务）。
+  late final DashboardProvider _provider =
+      DashboardProvider(syncService: context.read<SyncService>());
   final ScrollController _scrollController = ScrollController();
 
   @override

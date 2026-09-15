@@ -52,7 +52,7 @@ class PushSocketService {
     if (_disposed || _channel != null || _connecting) return;
     _connecting = true;
     try {
-      final token = await PushService().getToken();
+      final token = await PushService.instance.getToken();
       if (_disposed) return;
       if (token == null) {
         AppLogger.info('PushWS', 'token 为空，跳过连接');

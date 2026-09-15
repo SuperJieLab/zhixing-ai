@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:zhixing_ai/core/platform/sync_service.dart';
 import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 
 /// DashboardPage 渲染测试
@@ -7,16 +9,21 @@ import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 /// DashboardPage 通过 DashboardProvider 管理状态（Provider → DashboardRepository → sqflite）。
 /// 在测试环境中 sqflite 不可用，load() 会抛异常，页面应展示错误视图而非崩溃。
 ///
+/// 页面依赖的共享服务（SyncService）由 composition root 提供，测试补最小 Provider 树。
+///
 /// v2 Dashboard 三区结构：
 /// - 目标与策略（GoalCard）
 /// - 执行路线（StrategyTimeline）
 /// - 洞察（CrossPatternCard）
+Widget _app() => Provider<SyncService>.value(
+      value: SyncService(),
+      child: const MaterialApp(home: DashboardPage()),
+    );
+
 void main() {
   group('DashboardPage', () {
     testWidgets('在 DB 不可用时不崩溃并展示错误视图', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: DashboardPage()),
-      );
+      await tester.pumpWidget(_app());
 
       // 等待 load 完成（失败后会设置 error state）
       await tester.pumpAndSettle();
@@ -26,9 +33,7 @@ void main() {
     });
 
     testWidgets('AppBar 显示"首页"标题 + 模型管理/历史记录图标', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: DashboardPage()),
-      );
+      await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
       // AppBar 标题
@@ -40,9 +45,7 @@ void main() {
     });
 
     testWidgets('FAB "新对话" 按钮存在', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: DashboardPage()),
-      );
+      await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
       // FAB 的标签文本

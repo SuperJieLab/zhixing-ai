@@ -17,7 +17,8 @@ class ModelManagePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => ModelDownloadProvider(),
+      create: (context) =>
+          ModelDownloadProvider(manager: context.read<ActiveModelManager>()),
       child: _ModelManageContent(),
     );
   }

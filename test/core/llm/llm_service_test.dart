@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
@@ -59,15 +58,16 @@ class _RecordingDelivery implements ChatGeneration {
 }
 
 /// 可从测试触发的模型变更通知源（真实 ActiveModelManager 无法外部 notify）。
-class _TestModelChangeSource extends ChangeNotifier {
-  void simulateSwitch() => notifyListeners();
-}
-
 void main() {
   late SettingsRepository settings;
   late _Recorder local;
   late _Recorder cloud;
   late LlmService service;
+
+  /// 活跃模型路径源（生产注入 `ActiveModelManager.activeModelPath`）。
+  /// 直接改 value 即模拟「下载完成 / 切换模型」——ValueNotifier 自动通知，
+  /// 同值赋值不通知（覆盖「重复通知」场景）；无需全局常量与手动开关。
+  late ValueNotifier<String?> modelPath;
 
   setUpAll(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -83,8 +83,11 @@ void main() {
     await settings.setCloudModelName('');
     local = _Recorder();
     cloud = _Recorder();
+    modelPath = ValueNotifier<String?>(null);
+    addTearDown(modelPath.dispose);
     service = LlmService(
       settings: settings,
+      activeModelPath: modelPath,
       localAsk: local.ask,
       cloudAsk: cloud.ask,
     );
@@ -230,6 +233,7 @@ void main() {
       final built = <_RecordingDelivery>[];
       final service = LlmService(
         settings: settings,
+        activeModelPath: modelPath,
         localDeliveryBuilder: () async {
           final d = _RecordingDelivery();
           built.add(d);
@@ -285,6 +289,7 @@ void main() {
       var shouldFail = true;
       final service = LlmService(
         settings: settings,
+        activeModelPath: modelPath,
         localDeliveryBuilder: () async {
           if (shouldFail) throw StateError('模型缺失');
           return _RecordingDelivery();
@@ -381,6 +386,7 @@ void main() {
       var call = 0;
       final service = LlmService(
         settings: settings,
+        activeModelPath: modelPath,
         localDeliveryBuilder: () => gates[call++].future,
         delayedRelease: releaseWindow,
       );
@@ -420,19 +426,17 @@ void main() {
         Future<void>.delayed(Duration(milliseconds: ms));
 
     test('本地模式切模型：旧交付 dispose、按新模型重建、回到 ready', () async {
-      final source = _TestModelChangeSource();
-      AppConstants.defaultModelPath = '/tmp/model-a.gguf';
-      addTearDown(() => AppConstants.defaultModelPath = '');
+      modelPath.value = '/tmp/model-a.gguf';
 
       final built = <_RecordingDelivery>[];
       final service = LlmService(
         settings: settings,
+        activeModelPath: modelPath,
         localDeliveryBuilder: () async {
           final d = _RecordingDelivery();
           built.add(d);
           return d;
         },
-        modelChanges: source,
       );
       addTearDown(service.dispose);
 
@@ -440,9 +444,8 @@ void main() {
       expect(built, hasLength(1));
       expect(service.readiness.value.phase, LlmPhase.ready);
 
-      // 切换模型：改路径 + 通知（ActiveModelManager.switchToModel 的语义）
-      AppConstants.defaultModelPath = '/tmp/model-b.gguf';
-      source.simulateSwitch();
+      // 切换模型：改路径即通知（ActiveModelManager.switchToModel 的语义）
+      modelPath.value = '/tmp/model-b.gguf';
       await pump(20);
 
       expect(built.first.disposed, 1); // 旧交付（旧模型会话）立即拆除
@@ -450,27 +453,25 @@ void main() {
       expect(service.readiness.value.phase, LlmPhase.ready);
     });
 
-    test('同路径通知（如下载完成的重复通知）：不拆除不重建', () async {
-      final source = _TestModelChangeSource();
-      AppConstants.defaultModelPath = '/tmp/model-a.gguf';
-      addTearDown(() => AppConstants.defaultModelPath = '');
+    test('同路径重复赋值（如下载完成的重复通知）：不通知、不拆除不重建', () async {
+      modelPath.value = '/tmp/model-a.gguf';
 
       final built = <_RecordingDelivery>[];
       final service = LlmService(
         settings: settings,
+        activeModelPath: modelPath,
         localDeliveryBuilder: () async {
           final d = _RecordingDelivery();
           built.add(d);
           return d;
         },
-        modelChanges: source,
       );
       addTearDown(service.dispose);
 
       await service.initialize();
       expect(built, hasLength(1));
 
-      source.simulateSwitch(); // 路径未变
+      modelPath.value = '/tmp/model-a.gguf'; // 同值 → ValueNotifier 不通知
       await pump(20);
 
       expect(built, hasLength(1));

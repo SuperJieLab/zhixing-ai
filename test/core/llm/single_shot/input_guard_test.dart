@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/llm/single_shot/input_guard.dart';
@@ -61,14 +62,20 @@ void main() {
     late SettingsRepository settings;
     late _NoCallRecorder backend;
 
+    /// 守门测试不触达引擎，模型路径源只需满足注入契约。
+    late ValueNotifier<String?> modelPath;
+
     setUp(() async {
       settings = SettingsRepository.instance;
       await settings.setChatCloudMode(false);
       backend = _NoCallRecorder();
+      modelPath = ValueNotifier<String?>(null);
+      addTearDown(modelPath.dispose);
     });
 
     test('本地模式：ask 超预算抛异常，后端接缝零触达', () async {
-      final service = LlmService(settings: settings, localAsk: backend.ask);
+      final service = LlmService(
+          settings: settings, activeModelPath: modelPath, localAsk: backend.ask);
       await expectLater(
         service.ask(system: 's', user: '长' * 5000),
         throwsA(isA<GatewayInputOverflowException>()),
@@ -77,7 +84,8 @@ void main() {
     });
 
     test('本地模式：askJson 经 ask 透传同样被守门', () async {
-      final service = LlmService(settings: settings, localAsk: backend.ask);
+      final service = LlmService(
+          settings: settings, activeModelPath: modelPath, localAsk: backend.ask);
       await expectLater(
         service.askJson(system: 's', user: '长' * 5000),
         throwsA(isA<GatewayInputOverflowException>()),
@@ -90,7 +98,8 @@ void main() {
       await settings.setCloudApiBaseUrl('https://api.example.com');
       await settings.setCloudApiKey('sk-test');
       await settings.setCloudModelName('test-model');
-      final service = LlmService(settings: settings, cloudAsk: backend.ask);
+      final service = LlmService(
+          settings: settings, activeModelPath: modelPath, cloudAsk: backend.ask);
 
       await expectLater(
         service.ask(system: 's', user: 'a' * AppConstants.cloudInputBudget),
@@ -100,7 +109,8 @@ void main() {
     });
 
     test('正常小输入不受影响：守门放行，后端正常调用', () async {
-      final service = LlmService(settings: settings, localAsk: backend.ask);
+      final service = LlmService(
+          settings: settings, activeModelPath: modelPath, localAsk: backend.ask);
       final out = await service.ask(system: 's', user: 'u');
       expect(out, 'ok');
       expect(backend.calls, hasLength(1));

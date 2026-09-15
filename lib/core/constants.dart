@@ -31,11 +31,6 @@ class AppConstants {
   /// 端侧 CPU 推理线程数
   static const int localThreads = 4;
 
-  /// 默认模型路径（运行时由下载系统动态设置）
-  /// 初始为空字符串，表示尚未下载任何模型。
-  /// 下载完成后 [ModelDownloadProvider] 会将其设为沙盒路径。
-  static String defaultModelPath = '';
-
   /// 沙盒内模型存储子目录
   static const String modelSubDir = 'models';
 

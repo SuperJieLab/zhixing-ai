@@ -37,7 +37,8 @@ class LlamaConfig {
 ///
 /// 使用方式：
 /// ```dart
-/// final engine = await LlamaService.instance.ensureReady();
+/// final engine = await LlamaService.instance
+///     .ensureReady(modelPath: '/path/to/model.gguf', gpuLayers: 0);
 /// final chat = await engine.createChat();
 /// chat.addSystem('...');
 /// ```
@@ -54,26 +55,17 @@ class LlamaService {
   // 三层 API
   // ================================================================
 
-  /// 默认模型 + 默认配置（99% 的使用场景）
+  /// 按模型路径加载引擎（其余配置取 [AppConstants] 默认值）
   ///
-  /// 使用 [AppConstants.defaultModelPath]，搭配默认 contextSize / threads。
-  /// [gpuLayers] 不传时回退 [AppConstants.localGpuLayers]（一般应传
+  /// [modelPath] 模型文件的绝对路径，**由调用方提供**（生产是
+  /// `ActiveModelManager.activeModelPath`）。引擎层不持有「当前活跃模型」
+  /// 这个概念，故不再回退全局默认路径。
+  /// [gpuLayers] 不传时回退 [AppConstants.localGpuLayers]（生产应传
   /// [SettingsRepository.gpuLayers]，由用户设置决定 GPU / CPU）。
-  Future<LlamaEngine> ensureReady({int? gpuLayers}) async {
-    return ensureReadyWithModel(
-      AppConstants.defaultModelPath,
-      gpuLayers: gpuLayers,
-    );
-  }
-
-  /// 指定模型路径（配置用默认值）
-  ///
-  /// [modelPath] 模型文件的绝对路径。
-  /// [gpuLayers] 不传时回退 [AppConstants.localGpuLayers]。
-  Future<LlamaEngine> ensureReadyWithModel(
-    String modelPath, {
+  Future<LlamaEngine> ensureReady({
+    required String modelPath,
     int? gpuLayers,
-  }) async {
+  }) {
     return ensureReadyWithConfig(LlamaConfig(
       modelPath: modelPath,
       contextSize: AppConstants.localContextSize,
@@ -112,13 +104,13 @@ class LlamaService {
   /// 下次 `ensureReady` 会**命中缓存并返回已释放的引擎**（createChat 必炸，
   /// 且此后每次重试都命中同一条目 → 本地模式永久损坏直至重启）。
   ///
-  /// [modelPath] 须与加载时一致（默认回退当前 `AppConstants.defaultModelPath`——
-  /// 模型切换后它已是新路径，释放旧引擎必须显式传旧值）；[gpuLayers] 同理。
+  /// [modelPath] 须与加载时一致（模型切换后须显式传旧路径，否则放跑旧条目）；
+  /// [gpuLayers] 同理。
   /// 条目不存在时为幂等 no-op。配置不匹配时残留旧条目——与历史上池从无逐出
   /// 机制一致，不做全局 `dispose()`。
-  Future<void> release({String? modelPath, int? gpuLayers}) async {
+  Future<void> release({required String modelPath, int? gpuLayers}) async {
     final config = LlamaConfig(
-      modelPath: modelPath ?? AppConstants.defaultModelPath,
+      modelPath: modelPath,
       contextSize: AppConstants.localContextSize,
       gpuLayers: gpuLayers ?? AppConstants.localGpuLayers,
       threads: AppConstants.localThreads,
@@ -146,28 +138,6 @@ class LlamaService {
 
   /// 是否有已加载（或加载中）的引擎——供 [LlmService.isReady] 表达端侧就绪态。
   bool get hasLoadedEngine => _pool.isNotEmpty;
-
-  // ================================================================
-  // Token 估算工具（保留）
-  // ================================================================
-
-  /// 通用 token 估算工具（静态方法）
-  ///
-  /// 中文 CJK 字符 ≈ 1.5 tokens，其他字符 ≈ 0.25 tokens。
-  static int estimateTokens(String text) {
-    int chineseCount = 0;
-    int otherCount = 0;
-    for (final char in text.runes) {
-      if ((char >= 0x4E00 && char <= 0x9FFF) ||
-          (char >= 0x3400 && char <= 0x4DBF) ||
-          (char >= 0x3000 && char <= 0x303F)) {
-        chineseCount++;
-      } else {
-        otherCount++;
-      }
-    }
-    return (chineseCount * 1.5 + otherCount * 0.25).ceil();
-  }
 
   // ================================================================
   // 私有

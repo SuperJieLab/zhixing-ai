@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zhixing_ai/core/data/models/available_model.dart';
+import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
 import 'package:zhixing_ai/features/model_manager/providers/model_download_provider.dart';
 
 void main() {
@@ -30,7 +32,7 @@ void main() {
 
   group('ModelDownloadProvider state', () {
     test('initial state returns idle for unknown model', () {
-      final provider = ModelDownloadProvider();
+      final provider = ModelDownloadProvider(manager: ActiveModelManager());
       addTearDown(provider.dispose);
 
       final state = provider.stateOf('unknown-model');
@@ -39,6 +41,18 @@ void main() {
       expect(state.error, isNull);
       expect(state.receivedBytes, 0);
       expect(state.totalBytes, 0);
+    });
+
+    test('注入的 manager 已下载状态同步到初始 state', () {
+      final manager = ActiveModelManager();
+      final model = AvailableModel.available.first;
+      manager.setModelReady(model.id, '/tmp/${model.fileName}');
+
+      final provider = ModelDownloadProvider(manager: manager);
+      addTearDown(provider.dispose);
+
+      expect(provider.stateOf(model.id).status, DownloadStatus.completed);
+      expect(provider.stateOf(model.id).progress, 1.0);
     });
   });
 }
