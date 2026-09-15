@@ -62,6 +62,16 @@ class LlmReadiness {
   String toString() => 'LlmReadiness($phase, error: $error)';
 }
 
+/// 单次补全的函数形态（后端接缝）：`LlmService` 按模式把 `ask` 委派给其一。
+///
+/// 测试注入 fake 即可覆盖模式路由与解析容错，无需真实引擎 / 网络。
+/// （原 `single_shot_summarizer.dart` 定义，T7 迁入接口文件。）
+typedef SingleShotAsk = Future<String> Function({
+  required String system,
+  required String user,
+  int? maxTokens,
+});
+
 /// 大模型服务基建接口：单次补全 + 结构化补全 + 就绪态 + 中断。
 abstract class Llm {
   /// 一次补全：给 system + user，回一段文本（内部收流、剥 think）。

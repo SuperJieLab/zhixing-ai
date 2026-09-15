@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zhixing_ai/core/llm/input_guard.dart';
+import 'package:zhixing_ai/core/llm/single_shot/input_guard.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';

@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 
@@ -28,7 +28,7 @@ class _Recorder {  final List<({String system, String user, int? maxTokens})> ca
 
 
 /// 记录释放次数的交付 fake（生命周期测试用：验证延迟释放 / 防抖）。
-class _RecordingDelivery implements ChatDelivery {
+class _RecordingDelivery implements ChatGeneration {
   int disposed = 0;
 
   @override
@@ -377,7 +377,7 @@ void main() {
     test('构建在途切云端：构建完成后弃置（dispose 一次）、不缓存、就绪态不被覆盖',
         () async {
       // 冷启动预热挂起在引擎加载中途（真实场景：模型加载 ~15s，用户等不及切云端）
-      final gates = <Completer<ChatDelivery>>[Completer(), Completer()];
+      final gates = <Completer<ChatGeneration>>[Completer(), Completer()];
       var call = 0;
       final service = LlmService(
         settings: settings,

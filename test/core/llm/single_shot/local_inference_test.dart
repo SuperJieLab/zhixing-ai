@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
-import 'package:zhixing_ai/core/llm/inference.dart';
+import 'package:zhixing_ai/core/llm/single_shot/local_inference.dart';
 
 /// 原语单测：`eventsToText`（SDK 事件流 → 纯文本 token 流）。
 ///

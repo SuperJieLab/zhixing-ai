@@ -1,21 +1,20 @@
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
 
-// LlamaTemplateEstimator（端侧度量，策略位②）在 `context_budget.dart`——
-// 它与装箱原语同属共享层。
-
-/// 端侧上下文策略（后端策略）：度量 + 预算 + 摘要通道注入。
+/// 端侧上下文策略（后端策略）：预算档案 + 度量/摘要注入。
 ///
 /// 装配算法在 [BaseContextPolicy]（无状态），会话态由调用方持有的
-/// [ContextState] 承载；本类只提供端侧参数：
-/// - 度量：token（模板规则精确估算，含每条 +16 包装开销）
-/// - 预算 = `nCtx − 生成上限 − 余量`（端侧物理硬上限）
-/// - 溢出（context full）自愈：硬留最后 4 条，保证保留内容真的减少
+/// [ContextState] 承载；本类只提供端侧参数档案：
+/// - 度量：**由注入的 [estimator] 决定**（生产为 token 度量
+///   `LlamaTemplateEstimator`，归 `core/llm/engine/`——llama 知识不进本域）；
+/// - 预算 = `nCtx − 生成上限 − 余量`（端侧物理硬上限）；
+/// - 溢出（context full）自愈：硬留最后 4 条，保证保留内容真的减少。
 class LocalContextPolicy extends BaseContextPolicy {
-  LocalContextPolicy({super.summarizer, int? budget})
-      : super(
-          estimator: LlamaTemplateEstimator(),
+  LocalContextPolicy({
+    required super.estimator,
+    super.summarizer,
+    int? budget,
+  }) : super(
           budget: budget ?? AppConstants.localInputBudget,
           minKeep: 2,
           overflowKeep: 4,

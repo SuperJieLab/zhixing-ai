@@ -1,14 +1,18 @@
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_state.dart';
 
-/// 转换段（基建）：对话历史 + 会话压缩状态 → 本次请求实际要发送的上下文。
+/// 转换段（context 域）：对话历史 + 会话压缩状态 → 本次请求实际要发送的上下文。
 ///
 /// 从 `features/chat/engine/context/context_policy.dart` 上移 + **状态外置**
 /// （2026-09-12 设计 §10.1 #4 拍定 A）：装配算法无状态，会话态由调用方持有的
-/// [ContextState] 实例承载——**类型在基建、实例在业务**。
+/// [ContextState] 实例承载——v2 起**实例由 ModelGateway 私有持有**。
 ///
-/// 本层红线：不得出现任何后端专属概念（nCtx / llama / EngineChat）；双端差异
+/// 本域红线：不得出现任何后端专属概念（nCtx / llama / BYOK）；双端差异
 /// 全部经构造参数注入（度量 / 预算 / 摘要器 / 保底 / 溢出收缩）。
+
+/// [ContextState] 独立成文件；此处再导出保持单一 import 面。
+export 'package:zhixing_ai/core/context/context_state.dart';
 
 /// 摘要卡的标记前缀（双端一致；交付实现以一条 system 消息注入到人设之后）。
 const String kSummaryCardPrefix = '【此前对话摘要】';
@@ -33,58 +37,6 @@ class AssembledContext {
   @override
   String toString() => 'AssembledContext(messages: ${messages.length}, '
       'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'})';
-}
-
-/// 会话压缩状态（**实例由业务持有**，类型定义在基建）。
-///
-/// 采用「方案 A」形态：保留窗口**不被存下来**，只存覆盖游标 [k]——窗口恒为
-/// `eligible[k..]`（全量列表的一条后缀），每轮由全量列表现算。⇒ 状态小到可
-/// 序列化（将来能持久化 / 随会话迁移），且少一处可能与消息列表漂移的副本。
-///
-/// [lastEligibleLength] 与 [k] 的两条防御共同保证与「存完整窗口列表」等价：
-/// ① 长度比上次**变短** → [reset]；② 游标越界 → [reset]。
-class ContextState {
-  /// 滚动摘要正文（首次为空串）。
-  String summary;
-
-  /// 覆盖游标：保留窗口起点在 eligible 中的下标（前 k 条已折进摘要 / 被丢弃）。
-  int k;
-
-  /// 上次装配时 eligible 的长度（历史变短检测）。
-  int lastEligibleLength;
-
-  /// 待执行的强制收缩条数（由 [ContextPolicy.handleOverflow] 置位，下次装配生效）。
-  int? pendingForceKeep;
-
-  ContextState({
-    this.summary = '',
-    this.k = 0,
-    this.lastEligibleLength = 0,
-    this.pendingForceKeep,
-  });
-
-  /// 回到初始状态（新对话 / 重新初始化 / 历史回退）。
-  void reset() {
-    summary = '';
-    k = 0;
-    lastEligibleLength = 0;
-    pendingForceKeep = null;
-  }
-
-  /// 仅重置窗口游标与挤出记账，**保留摘要正文**。
-  ///
-  /// 供后端模式切换使用（design D3）：两端窗口宽度不同（度量单位、预算都
-  /// 不同），游标 `k` 跨模式语义会漂；而摘要正文与后端无关，可跨模式保留。
-  void resetWindow() {
-    k = 0;
-    lastEligibleLength = 0;
-    pendingForceKeep = null;
-  }
-
-  @override
-  String toString() => 'ContextState(k: $k, summary: '
-      '${summary.isEmpty ? 'none' : '${summary.length}字'}, '
-      'lastEligibleLength: $lastEligibleLength)';
 }
 
 /// 上下文策略：对话历史 → 实际发送的消息。

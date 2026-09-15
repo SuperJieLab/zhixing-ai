@@ -1,8 +1,8 @@
 /// 云端交付冒烟测试
 ///
-/// 自行用 dart:io 起一个 mock SSE 服务端，验证 [CloudDelivery]：
+/// 自行用 dart:io 起一个 mock SSE 服务端，验证 [CloudGeneration]：
 ///   1. 正确拼接并解码跨 chunk 边界的 UTF-8 SSE 帧（delta 流）；
-///   2. [CloudDelivery.stop] 能提前终止正在进行的流。
+///   2. [CloudGeneration.stop] 能提前终止正在进行的流。
 ///
 /// 运行：dart run tool/cloud_smoke.dart（在项目根目录执行，package: 解析才生效）
 library;
@@ -12,8 +12,8 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/cloud_generation.dart';
 
 /// 冒烟用人设（真实人设由业务经 `systemPrompt` 提供，这里只需非空）。
 const _systemPrompt = '你是知行AI助手。';
@@ -67,7 +67,7 @@ Future<void> main() async {
     '[DONE]',
   ]);
   final baseUrl = 'http://127.0.0.1:${server.port}';
-  final delivery = CloudDelivery(
+  final delivery = CloudGeneration(
     baseUrl: baseUrl,
     apiKey: 'sk-smoke',
     modelName: 'smoke-model',
@@ -93,7 +93,7 @@ Future<void> main() async {
   final slowFrames = List.generate(
       10, (i) => '{"choices":[{"delta":{"content":"帧$i"}}]}');
   final slowServer = await startMockServer(slowFrames, delayMs: 50);
-  final slowDelivery = CloudDelivery(
+  final slowDelivery = CloudGeneration(
     baseUrl: 'http://127.0.0.1:${slowServer.port}',
     apiKey: 'sk-smoke',
     modelName: 'smoke-model',

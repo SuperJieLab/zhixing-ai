@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
-import 'package:zhixing_ai/core/llm/local_context_policy.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_template_estimator.dart';
+import 'package:zhixing_ai/core/context/local_context_policy.dart';
 
 /// 端侧后端策略装配测试：度量单位（token + 模板开销）、预算/保底/溢出口径。
 ///
@@ -54,7 +54,7 @@ void main() {
 
   group('LocalContextPolicy 参数装配', () {
     test('预算默认 = localInputBudget（nCtx − 生成上限 − 余量）', () {
-      final policy = LocalContextPolicy();
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator());
       expect(policy.budget, AppConstants.localInputBudget);
       expect(policy.budget,
           AppConstants.localContextSize -
@@ -63,19 +63,19 @@ void main() {
     });
 
     test('保底 2 条、溢出自愈硬留最后 4 条', () {
-      final policy = LocalContextPolicy();
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator());
       expect(policy.minKeep, 2);
       expect(policy.overflowKeep, 4);
     });
 
     test('预算可覆盖（测试注入小值强制触发压缩）', () {
-      expect(LocalContextPolicy(budget: 7).budget, 7);
+      expect(LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 7).budget, 7);
     });
 
     test('超预算时移出消息交给注入的摘要器（能力对等，端侧用端侧模型）', () async {
       final summarizer = _EchoSummarizer();
       // 预算极小 → 除保底 2 条外全部移出
-      final policy = LocalContextPolicy(budget: 1, summarizer: summarizer);
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 1, summarizer: summarizer);
 
       final ctx = await policy.assemble([
         _user('第一问很长很长的问题'),
@@ -91,7 +91,7 @@ void main() {
     });
 
     test('无摘要器（sessionFactory-only）：移出即丢弃，不产出摘要卡', () async {
-      final policy = LocalContextPolicy(budget: 1);
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 1);
 
       final ctx = await policy.assemble([
         _user('第一问很长很长的问题'),

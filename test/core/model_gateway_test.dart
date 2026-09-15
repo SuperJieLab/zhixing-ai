@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/model_gateway.dart';
 
@@ -80,7 +80,7 @@ class _FakePolicy implements ContextPolicy {
 }
 
 /// 脚本化 fake 交付段：记录 deliver / prime 入参，可脚本化溢出与异常。
-class _FakeDelivery implements ChatDelivery {
+class _FakeDelivery implements ChatGeneration {
   final List<({AssembledContext ctx, String systemPrompt})> delivered = [];
   final List<({AssembledContext ctx, String systemPrompt, bool nudgeTail})>
       primed = [];

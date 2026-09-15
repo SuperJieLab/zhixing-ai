@@ -1,13 +1,14 @@
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
 
-/// 上下文预算原语（基建共享层）：度量接口、端侧度量实现、装箱算法。
+/// 上下文预算原语（context 域共享层）：度量接口、装箱算法。
 ///
-/// 红线：本文件**不得**依赖任何 feature；度量单位由实现决定
-/// （token / 字符都是合法单位），算法只面对 [ContextEstimator] 抽象。
+/// 红线：本文件**不得**依赖任何 feature，也**不得**出现任何后端专属概念
+/// （nCtx / llama / BYOK）；度量单位由实现决定（token / 字符都是合法单位），
+/// 算法只面对 [ContextEstimator] 抽象。端侧 token 度量实现见
+/// `core/llm/engine/llama_template_estimator.dart`（由门面注入）。
 ///
 /// 从 `features/chat/engine/context/context_policy.dart` 平移（Task 1 原语下沉，
-/// 零行为变更）；`context_policy.dart` 以 `export` 保持既有 import 路径可用。
+/// 零行为变更）。
 
 /// 度量能力（策略位）：把消息 / 文本换算成预算单位。
 ///
@@ -26,22 +27,6 @@ abstract class ContextEstimator {
   /// 一组消息的代价；默认逐条累加。
   int estimateMessages(List<ChatMessage> messages) =>
       messages.fold(0, (sum, m) => sum + estimateMessage(m));
-}
-
-/// 端侧度量：token 估算 + 每条消息的 chat template 包装开销。
-///
-/// 端侧能精确估算是因为我们掌握 llama.cpp 的模板渲染规则；
-/// 云端不具备这个前提，故两端的度量单位由各自实现决定。
-class LlamaTemplateEstimator extends ContextEstimator {
-  /// 每条消息的 template 包装开销（角色标记等），逐条累加。
-  static const perMessageOverhead = 16;
-
-  @override
-  int estimateMessage(ChatMessage message) =>
-      LlamaService.estimateTokens(message.content) + perMessageOverhead;
-
-  @override
-  int estimateText(String text) => LlamaService.estimateTokens(text);
 }
 
 /// 装窗结果。

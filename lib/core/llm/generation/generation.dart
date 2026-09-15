@@ -1,4 +1,4 @@
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
 
 /// 交付段（基建）：**把装配好的输入上下文交给模型执行的那一步**。
 ///
@@ -10,7 +10,7 @@ import 'package:zhixing_ai/core/llm/context_assembly.dart';
 /// 具体后端差异只允许出现在本接口的实现里（新增第三个后端只改基建文件）。
 /// 交付实现**不持业务语义状态**：历史由服务每轮传入，人设由业务经
 /// `systemPrompt` 提供。
-abstract class ChatDelivery {
+abstract class ChatGeneration {
   /// 当前是否就绪（端侧=会话已创建；云端=恒 true）。
   bool get isReady;
 

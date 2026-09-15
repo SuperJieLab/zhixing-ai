@@ -3,20 +3,20 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/cloud_completion.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
+import 'package:zhixing_ai/core/llm/single_shot/cloud_request.dart';
+import 'package:zhixing_ai/core/context/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/model_gateway.dart';
 
 // 云端后端策略单元测试：与 lib 侧 cloud_context_policy.dart 镜像对应。覆盖三部分：
 //
 //   Ⅰ 度量与装配：验证「薄装配」——度量单位、预算、摘要器、溢出语义，以及
 //     复用共享层带来的过滤 / 装窗 / 压缩行为。不触网（摘要器注入 fake）。
-//   Ⅱ CloudCompletion（传输层直测）：起本地 dart:io HttpServer 当 OpenAI 兼容
+//   Ⅱ CloudCompletionRequest（传输层直测）：起本地 dart:io HttpServer 当 OpenAI 兼容
 //     端点，验证请求体（非流式 / model / max_tokens / Bearer）、响应解析
 //     （choices[0].message.content）与非 2xx / 畸形响应抛错。
 //     （摘要的 think 剥离已随通道收敛进服务 `_defaultCloudAsk`，不在本层。）
-//   Ⅲ SingleShotSummarizer：提示词与输出上限（fake 通道，不触网）。
+//   Ⅲ AskSummarizer（门面内聚的摘要适配）：提示词与输出上限（fake 通道，不触网）。
 //
 // Ⅱ 的 mock 端点与 cloud_chat_client_test 同一约定：服务端必须设
 // `bufferOutput = false`，否则小写入会攒到连接关闭才上线。
@@ -53,7 +53,7 @@ CloudContextPolicy _policy({
       summarizer: summarizer ?? _FakeSummarizer(),
     );
 
-// ───────────── Ⅱ CloudCompletion 传输层：mock 端点 ─────────────
+// ───────────── Ⅱ CloudCompletionRequest 传输层：mock 端点 ─────────────
 
 const _dummyKey = 'sk-test';
 const _dummyModel = 'test-model';
@@ -106,7 +106,7 @@ String _completion(String content) =>
       ],
     });
 
-CloudCompletion _client(_Mock m) => CloudCompletion(
+CloudCompletionRequest _client(_Mock m) => CloudCompletionRequest(
       baseUrl: m.baseUrl,
       apiKey: _dummyKey,
       modelName: _dummyModel,
@@ -192,7 +192,7 @@ void main() {
     expect(state.k, 0);
   });
 
-  // ═══════════ Ⅱ CloudCompletion（本地 mock 端点） ═══════════
+  // ═══════════ Ⅱ CloudCompletionRequest（本地 mock 端点） ═══════════
 
   // ── 请求体：非流式、model、max_tokens、Bearer ──
   test('请求体为非流式补全请求，带 model 与 Bearer', () async {
@@ -200,7 +200,7 @@ void main() {
     final result = await _client(m).complete(
           system: 'sys',
           user: 'usr',
-          maxTokens: SingleShotSummarizer.maxTokens,
+          maxTokens: AskSummarizer.maxTokens,
         );
     await m.close();
 
@@ -208,7 +208,7 @@ void main() {
     final body = m.body!;
     expect(body['model'], _dummyModel);
     expect(body['stream'], isFalse); // 非流式
-    expect(body['max_tokens'], SingleShotSummarizer.maxTokens);
+    expect(body['max_tokens'], AskSummarizer.maxTokens);
     expect(m.auth, 'Bearer $_dummyKey');
   });
 
@@ -267,13 +267,13 @@ void main() {
     expect(caught.toString(), contains('content'));
   });
 
-  // ═══════════ Ⅲ SingleShotSummarizer（fake 通道，不触网） ═══════════
+  // ═══════════ Ⅲ AskSummarizer（fake 通道，不触网） ═══════════
 
   // ── 提示词复用 buildSummaryPrompt，输出上限与触发语固定 ──
   test('summarize：system 为共享摘要提示词，user 与 maxTokens 固定', () async {
     final ask = _CapturingAsk();
     final result =
-        await SingleShotSummarizer(ask.call).summarize('', _evicted());
+        await AskSummarizer(ask.call).summarize('', _evicted());
 
     expect(result, '通道返回'); // 原样透传，不做二次加工
     expect(ask.system, contains('你是对话摘要器'));
@@ -281,13 +281,13 @@ void main() {
     expect(ask.system, contains('用户: 我想找 iOS 工作'));
     expect(ask.system, contains('助手: 目标已记录'));
     expect(ask.user, '请输出摘要。');
-    expect(ask.maxTokens, SingleShotSummarizer.maxTokens);
+    expect(ask.maxTokens, AskSummarizer.maxTokens);
   });
 
   // ── 递归压实：旧摘要并入提示词 ──
   test('previousSummary 非空时并入提示词（递归压实）', () async {
     final ask = _CapturingAsk();
-    await SingleShotSummarizer(ask.call).summarize('旧摘要内容', _evicted());
+    await AskSummarizer(ask.call).summarize('旧摘要内容', _evicted());
 
     expect(ask.system, contains('【此前摘要】'));
     expect(ask.system, contains('旧摘要内容'));
@@ -297,7 +297,7 @@ void main() {
   test('通道抛错 → 原样上抛', () async {
     final ask = _CapturingAsk()..reply = Exception('boom');
     await expectLater(
-      SingleShotSummarizer(ask.call).summarize('', _evicted()),
+      AskSummarizer(ask.call).summarize('', _evicted()),
       throwsA(isException),
     );
   });

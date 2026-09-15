@@ -5,7 +5,7 @@ import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 ///   - [isDuplicate]：相邻问题 LCS 去重（>0.8 判重），命中时**不**追加滚动窗口，
 ///     避免相邻同问反复触发改写。
 ///
-/// 摘要提示词（`buildSummaryPrompt`）已上移基建：`core/llm/summary_prompt.dart`
+/// 摘要提示词（`buildSummaryPrompt`）已上移基建：`core/context/summary_prompt.dart`
 /// （属模型能力差异，非业务差异）。
 class ConversationStrategy {
   final List<String> _recentQuestions = [];

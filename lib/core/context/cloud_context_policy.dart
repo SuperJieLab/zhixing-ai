@@ -1,7 +1,7 @@
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/context/context_budget.dart';
 
 /// 云端度量（策略位②）：字符数近似。
 ///

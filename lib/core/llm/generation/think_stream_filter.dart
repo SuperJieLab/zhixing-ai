@@ -1,8 +1,8 @@
-import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
+import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 
-/// 流式 think 剥离（[LocalDelivery] 专用，与非流式 [stripThinkTags] 同口径）。
+/// 流式 think 剥离（[LocalGeneration] 专用，与非流式 [stripThinkTags] 同口径）。
 ///
-/// 从 `LocalDelivery.deliver` 内联状态机抽出（2026-09-13）：三阶段
+/// 从 `LocalGeneration.deliver` 内联状态机抽出（2026-09-13）：三阶段
 /// ① think 未闭合 → 缓冲并探测闭合标签；② 闭合后吸收前导空白；
 /// ③ 正文原样透传（buffer 同步累积，供 [flush] 兜底）。
 class ThinkStreamFilter {

@@ -1,6 +1,6 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
-import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
+import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 
 /// 本地推理取回原语（基建共享层）：事件流收敛 + 单次补全样板。
 ///

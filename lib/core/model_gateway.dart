@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:zhixing_ai/core/context/cloud_context_policy.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/context/local_context_policy.dart';
+import 'package:zhixing_ai/core/context/summary_prompt.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/local_context_policy.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_template_estimator.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
-import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 /// 业务唯一门面（design D1–D6，大模型服务分层 v2）。
@@ -19,14 +20,50 @@ import 'package:zhixing_ai/core/logger.dart';
 /// - **补全面（无状态）**：`ask` / `askJson` / `stop` / `readiness` 一行
 ///   透传 `Llm`，输入预算守门由 llm 基建的补全唯一通道承担（透传自动获得）。
 ///
-/// 依赖形态（星形）：本类是唯一同时认识 `context`（策略/状态）与 `llm`
-/// （后端接缝）的组合点；`ChatMode` 仍只在 [Llm] 唯一解析，本类经注入的
+/// 依赖形态（星形）：本类是唯一同时认识 `context`（纯语义：策略/状态）与
+/// `llm`（后端接缝）的组合点，两域互相零依赖——端侧度量器与摘要传输在
+/// 此注入 context 域。`ChatMode` 仍只在 [Llm] 唯一解析，本类经注入的
 /// [modeSource] 消费现值，不自读设置。
 ///
-/// 业务禁止 import `Llm` / `LlmService` / 策略类型——公开类型经下方
-/// re-export 提供。
+/// 业务禁止 import `Llm` / `LlmService` / `core/context` 类型——公开类型
+/// 经下方 re-export 提供。
 export 'package:zhixing_ai/core/llm/llm.dart'
     show ChatMode, LlmPhase, LlmReadiness;
+
+/// 摘要传输实现（llm 侧 → context 域 `ConversationSummarizer` 的适配）：
+/// 提示词（`buildSummaryPrompt`，context 域）+ 传输（`Llm.ask`，按模式路由）。
+///
+/// 原 `SingleShotSummarizer` 独立文件（T7 内聚）：实现同时依赖两个域的
+/// 类型，只能住在唯一同时认识两域的网关里。
+class AskSummarizer implements ConversationSummarizer {
+  /// 摘要请求的输出上限：摘要目标 ≤200 字，512 足够且省钱。
+  static const int maxTokens = 512;
+
+  final Future<String> Function({
+    required String system,
+    required String user,
+    int? maxTokens,
+  }) _ask;
+
+  const AskSummarizer(this._ask);
+
+  @override
+  Future<String> summarize(
+      String previousSummary, List<ChatMessage> evicted) {
+    // think 剥离由通道实现负责（双端均已在 `ask` 的默认实现中处理），
+    // 本类不做二次加工。摘要失败异常原样上抛，由装配骨架兜底回落。
+    return _ask(
+      system: buildSummaryPrompt(
+        previousSummary: previousSummary,
+        dropped: evicted
+            .map((m) => (role: m.role.name, content: m.content))
+            .toList(),
+      ),
+      user: '请输出摘要。',
+      maxTokens: maxTokens,
+    );
+  }
+}
 
 /// 业务唯一门面：对话编排 + 单次补全透传。
 class ModelGateway {
@@ -40,7 +77,7 @@ class ModelGateway {
     required Llm llm,
     required ValueListenable<ChatMode> modeSource,
     ContextPolicy Function(ChatMode mode)? policyFactory,
-    FutureOr<ChatDelivery> Function()? deliveryFactory,
+    FutureOr<ChatGeneration> Function()? deliveryFactory,
   })        : _llm = llm, // ignore: prefer_initializing_formals
         _modeSource = modeSource, // ignore: prefer_initializing_formals
         _policyFactory = policyFactory, // ignore: prefer_initializing_formals
@@ -52,7 +89,7 @@ class ModelGateway {
   final Llm _llm;
   final ValueListenable<ChatMode> _modeSource;
   final ContextPolicy Function(ChatMode mode)? _policyFactory;
-  final FutureOr<ChatDelivery> Function()? _deliveryFactory;
+  final FutureOr<ChatGeneration> Function()? _deliveryFactory;
 
   /// 会话压缩状态（自业务收回；实例在此私有，类型在基建）。
   final ContextState _state = ContextState();
@@ -119,17 +156,18 @@ class ModelGateway {
     final factory = _policyFactory;
     if (factory != null) return factory(mode);
     return switch (mode) {
-      // 摘要统一走 llm.ask（D4）：传输后端由 Llm 按模式解析，策略不再持差异
+      // 度量器按端注入（llama 知识不进 context 域）；摘要统一走 llm.ask（D4）
       ChatMode.cloud => _cloudPolicy ??= CloudContextPolicy(
-          summarizer: SingleShotSummarizer(_llm.ask),
+          summarizer: AskSummarizer(_llm.ask),
         ),
       ChatMode.local => _localPolicy ??= LocalContextPolicy(
-          summarizer: SingleShotSummarizer(_llm.ask),
+          estimator: LlamaTemplateEstimator(),
+          summarizer: AskSummarizer(_llm.ask),
         ),
     };
   }
 
-  Future<ChatDelivery> _deliveryFor() {
+  Future<ChatGeneration> _deliveryFor() {
     final factory = _deliveryFactory;
     if (factory != null) return Future.sync(factory);
     // 生产缺省：交付解析委托 LlmService（池化 + BYOK 指纹重建在 llm 域）。

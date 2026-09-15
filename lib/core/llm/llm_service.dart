@@ -6,27 +6,26 @@ import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/active_model_manager.dart';
-import 'package:zhixing_ai/core/llm/cloud_completion.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
-import 'package:zhixing_ai/core/llm/delivery/local_delivery.dart';
-import 'package:zhixing_ai/core/llm/inference.dart';
-import 'package:zhixing_ai/core/llm/input_guard.dart';
-import 'package:zhixing_ai/core/llm/llama_service.dart';
+import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
+import 'package:zhixing_ai/core/llm/single_shot/cloud_request.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
+import 'package:zhixing_ai/core/llm/generation/cloud_generation.dart';
+import 'package:zhixing_ai/core/llm/generation/local_generation.dart';
+import 'package:zhixing_ai/core/llm/single_shot/local_inference.dart';
+import 'package:zhixing_ai/core/llm/single_shot/input_guard.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
-import 'package:zhixing_ai/core/llm/single_shot_summarizer.dart';
-import 'package:zhixing_ai/core/llm/think_tag_stripper.dart';
+import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 /// 后端接缝类型自 [single_shot_summarizer] 迁入处再导出（既有测试从本文件
 /// import 该 typedef，保持兼容）。
-export 'package:zhixing_ai/core/llm/single_shot_summarizer.dart'
+export 'package:zhixing_ai/core/llm/llm.dart'
     show SingleShotAsk;
 
 /// 本地交付构造接缝（**仅测试注入**）：生命周期测试用它替代真实引擎加载
 /// （`LlamaEngine` 是 final class，无法 fake；与 [SingleShotAsk] 同一思路）。
-typedef LocalDeliveryBuilder = FutureOr<ChatDelivery> Function();
+typedef LocalDeliveryBuilder = FutureOr<ChatGeneration> Function();
 
 /// [Llm] 的唯一实现（设计文档方案 B：无 static instance）。
 ///
@@ -42,24 +41,24 @@ typedef LocalDeliveryBuilder = FutureOr<ChatDelivery> Function();
 class LlmService implements Llm {
   final SettingsRepository _settings;
 
-  /// 后端接缝；null 时用生产默认（云端 [CloudCompletion] / 本地 llama.cpp）。
+  /// 后端接缝；null 时用生产默认（云端 [CloudCompletionRequest] / 本地 llama.cpp）。
   final SingleShotAsk? _cloudAsk;
   final SingleShotAsk? _localAsk;
 
   /// 交付工厂接缝（**仅测试注入**）：替代真实交付（惰性建一次并复用，
   /// 与生产「稳定实例」语义一致）。多轮编排的 policy 接缝已随 converse
   /// 上移门面（T5），此处只保留交付维度。
-  final ChatDelivery Function()? _deliveryFactory;
+  final ChatGeneration Function()? _deliveryFactory;
 
   /// 交付实现（服务资源态）。云端按 BYOK 指纹重建，本地复用同一会话。
   /// 本地引擎本体不在此缓存——`LlamaService` 池按 config 键控持有（幂等 +
   /// 并发去重），这里再存一份是双份记账，且 GPU 设置变更后会返回旧引擎。
-  ChatDelivery? _localDelivery;
-  CloudDelivery? _cloudDelivery;
+  ChatGeneration? _localDelivery;
+  CloudGeneration? _cloudDelivery;
   String? _cloudFingerprint;
 
   /// 本地交付的在途构建 Future（并发 ensure 去重 + 失败不缓存可重试）。
-  Future<ChatDelivery>? _localReady;
+  Future<ChatGeneration>? _localReady;
 
   /// 就绪态通知源（服务资源态）：冷启动预热 / [ensureReady] / 模式切换时更新。
   final ValueNotifier<LlmReadiness> _readiness =
@@ -77,7 +76,7 @@ class LlmService implements Llm {
   final Duration _delayedRelease;
 
   /// 测试接缝交付实例：惰性建一次并复用（与生产「稳定实例」语义一致）。
-  ChatDelivery? _overrideDelivery;
+  ChatGeneration? _overrideDelivery;
 
   /// 最近一次本地引擎加载时的模型路径。模型切换时据此识别「需要释放的是
   /// 哪个 config 的池条目」——切换后 `defaultModelPath` 已是新值，不记录
@@ -93,7 +92,7 @@ class LlmService implements Llm {
     SettingsRepository? settings,
     SingleShotAsk? cloudAsk,
     SingleShotAsk? localAsk,
-    ChatDelivery Function()? deliveryFactory,
+    ChatGeneration Function()? deliveryFactory,
     LocalDeliveryBuilder? localDeliveryBuilder,
     Duration delayedRelease = const Duration(seconds: 30),
     ChangeNotifier? modelChanges,
@@ -339,7 +338,7 @@ class LlmService implements Llm {
   ///
   /// 交付段：按模式给出交付实现（**公开**：作为 ModelGateway 的
   /// 生产交付工厂经 composition root 注入——池化与 BYOK 指纹重建留在 llm 域）。
-  Future<ChatDelivery> deliveryFor() async {
+  Future<ChatGeneration> deliveryFor() async {
     final override = _deliveryFactory;
     // 惰性建一次并复用：交付实现是「稳定实例」（端侧靠它复用同一会话）
     if (override != null) return _overrideDelivery ??= override();
@@ -348,7 +347,7 @@ class LlmService implements Llm {
       final fingerprint = _currentCloudFingerprint;
       if (_cloudDelivery == null || _cloudFingerprint != fingerprint) {
         _cloudDelivery?.dispose();
-        _cloudDelivery = CloudDelivery(
+        _cloudDelivery = CloudGeneration(
           baseUrl: _settings.cloudApiBaseUrl,
           apiKey: _settings.cloudApiKey,
           modelName: _settings.cloudModelName,
@@ -364,7 +363,7 @@ class LlmService implements Llm {
   String get _currentCloudFingerprint => '${_settings.cloudApiBaseUrl}\u0000'
       '${_settings.cloudApiKey}\u0000${_settings.cloudModelName}';
 
-  Future<ChatDelivery> _localDeliveryFor() async {
+  Future<ChatGeneration> _localDeliveryFor() async {
     final ready = _localReady;
     if (ready != null) return ready;
     final future = _buildLocalDelivery();
@@ -388,13 +387,13 @@ class LlmService implements Llm {
     }
   }
 
-  Future<ChatDelivery> _buildLocalDelivery() async {
+  Future<ChatGeneration> _buildLocalDelivery() async {
     final builder = _localDeliveryBuilder;
     // 记录本次交付所服务的模型路径（模型切换时据此拆除旧资源）。
     _loadedModelPath = AppConstants.defaultModelPath;
     if (builder != null) return builder();
     final engine = await _ensureLocalEngine();
-    final delivery = LocalDelivery(
+    final delivery = LocalGeneration(
       sessionFactory: () => engine.createChat().then(LlamaChatSession.new),
     );
     await delivery.ensureReady();
@@ -421,7 +420,7 @@ class LlmService implements Llm {
     required String user,
     int? maxTokens,
   }) {
-    final completion = CloudCompletion(
+    final completion = CloudCompletionRequest(
       baseUrl: _settings.cloudApiBaseUrl,
       apiKey: _settings.cloudApiKey,
       modelName: _settings.cloudModelName,

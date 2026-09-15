@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:zhixing_ai/app.dart';
 import 'package:zhixing_ai/core/data/repository/conversation_repository.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
-import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
 import 'package:zhixing_ai/core/llm/llm_service.dart';
 import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/platform/push_service.dart';

@@ -3,9 +3,9 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/delivery/sse_parser.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
+import 'package:zhixing_ai/core/llm/generation/sse_parser.dart';
 
 /// 云端交付实现：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
 ///
@@ -16,7 +16,7 @@ import 'package:zhixing_ai/core/llm/delivery/sse_parser.dart';
 ///   - 必须用 [utf8.decoder] 转换原始字节流，多字节 CJK 字符可能被 TCP 拆到两个 chunk；
 ///   - [stop] 要取消响应体订阅——仅取消 CancelToken 对已进入响应体的流无效。
 ///   - 云端**不剥 think**（与端侧不一致是既有的有意识选择；是否统一见设计 §10.1 #5）。
-class CloudDelivery implements ChatDelivery {
+class CloudGeneration implements ChatGeneration {
   late final Dio _dio;
 
   /// API Key（Bearer 认证），仅存本机、随请求头发送。
@@ -34,7 +34,7 @@ class CloudDelivery implements ChatDelivery {
 
   /// [baseUrl] 为 OpenAI 兼容端点根地址（容忍尾斜杠），客户端拼 `/chat/completions`。
   /// [dio] 仅测试注入。
-  CloudDelivery({
+  CloudGeneration({
     required String baseUrl,
     required String apiKey,
     required String modelName,

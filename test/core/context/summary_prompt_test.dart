@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:zhixing_ai/core/llm/summary_prompt.dart';
+import 'package:zhixing_ai/core/context/summary_prompt.dart';
 
 /// 摘要提示词（基本建默认，双端共用）单测。
 ///

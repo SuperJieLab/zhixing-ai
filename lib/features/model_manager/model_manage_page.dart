@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:zhixing_ai/core/llm/active_model_manager.dart';
+import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
 import 'package:zhixing_ai/core/data/models/available_model.dart';
 import 'package:zhixing_ai/core/ui/theme.dart';
 import 'package:zhixing_ai/features/model_manager/providers/model_download_provider.dart';

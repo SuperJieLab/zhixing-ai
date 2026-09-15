@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/context/context_budget.dart';
 
 /// 转换段共享层单测：过滤 / 装窗 / 装配骨架（fake 度量与摘要器）+ **状态外置**。
 ///

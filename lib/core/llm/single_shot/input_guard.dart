@@ -1,20 +1,21 @@
 /// 单次补全输入预算守门（design D5）。
 ///
-/// v1 的 `ask` / `askJson` 完全绕过 `ContextPolicy`：本地超 nCtx 无承接
-/// （裸异常或引擎静默截断），云端超长输入无信号（请求无感变大、输出质量
-/// 无声劣化）。守门在补全**唯一通道**入口 fail-fast：
+/// v1 的 `ask` / `askJson` 完全绕过上下文装配：本地超 nCtx 无承接（裸异常
+/// 或引擎静默截断），云端超长输入无信号（请求无感变大、输出质量无声劣化）。
+/// 守门在补全**唯一通道**入口 fail-fast：
 ///
 /// - **不截断**——截断 = 提取任务「成功但错误」，无信号比失败更糟；
 /// - **不自愈**——单次调用无可牺牲的历史（输入即全部），超限只能交业务
 ///   降级（如跳过本轮提取）。
 ///
-/// 度量口径与 `converse` 对齐：本地 `LlamaTemplateEstimator`（同 nCtx 推导
-/// 的 `localInputBudget`）、云端 `CharCountEstimator` 对 `cloudInputBudget`。
+/// 度量口径与对话装配对齐：本地 token（`LlamaService.estimateTokens` +
+/// 每条 +16 模板开销，同 `LlamaTemplateEstimator`）、云端字符数（同
+/// `CharCountEstimator`）。预算取 `AppConstants` 同源常量——本文件属 llm
+/// 域，**不 import context 域**（星形依赖红线），度量实现在此内联。
 library;
 
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/llm/cloud_context_policy.dart';
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_service.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
@@ -50,24 +51,20 @@ void ensureInputWithinBudget({
   required String system,
   required String user,
 }) {
-  final (estimator, budget, unit) = switch (mode) {
-    // 与 converse 同源：本地预算 = nCtx − 生成上限 − 余量（AppConstants 推导）
-    ChatMode.local => (
-        LlamaTemplateEstimator(),
-        AppConstants.localInputBudget,
-        'token',
-      ),
-    ChatMode.cloud => (
-        CharCountEstimator(),
-        AppConstants.cloudInputBudget,
-        '字符',
-      ),
+  final (budget, unit) = switch (mode) {
+    // 与对话装配同源：本地预算 = nCtx − 生成上限 − 余量（AppConstants 推导）
+    ChatMode.local => (AppConstants.localInputBudget, 'token'),
+    ChatMode.cloud => (AppConstants.cloudInputBudget, '字符'),
   };
   // 单发请求无消息列表，两条文本各计一次「每条消息」的模板/包装开销
-  // （与 converse 逐条累加口径对齐，宁保守勿漏放）。
-  final measured = estimator.estimateText(system) +
-      estimator.estimateText(user) +
-      2 * estimatorPerMessageOverhead(estimator);
+  // （与对话逐条累加口径对齐，宁保守勿漏放：本地 +16/条，云端 +16 字符/条）。
+  final measured = switch (mode) {
+    ChatMode.local =>
+      LlamaService.estimateTokens(system) +
+          LlamaService.estimateTokens(user) +
+          2 * 16,
+    ChatMode.cloud => system.length + user.length + 2 * 16,
+  };
   if (measured > budget) {
     AppLogger.warn('InputGuard', '单次补全输入超预算（${mode.name}）：'
         '$measured / $budget $unit');
@@ -77,15 +74,4 @@ void ensureInputWithinBudget({
       budget: budget,
     );
   }
-}
-
-/// 取实现类的每条消息开销常量（无反射的轻量分派）。
-int estimatorPerMessageOverhead(ContextEstimator estimator) {
-  if (estimator is LlamaTemplateEstimator) {
-    return LlamaTemplateEstimator.perMessageOverhead;
-  }
-  if (estimator is CharCountEstimator) {
-    return CharCountEstimator.perMessageOverhead;
-  }
-  return 0;
 }

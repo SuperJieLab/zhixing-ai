@@ -1,6 +1,7 @@
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart' show MessageRole;
-import 'package:zhixing_ai/core/llm/context_budget.dart';
+import 'package:zhixing_ai/core/context/context_budget.dart';
+import 'package:zhixing_ai/core/llm/engine/llama_template_estimator.dart';
 import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';

@@ -8,13 +8,13 @@ import 'package:dio/dio.dart';
 ///
 /// 异常语义：网络 / HTTP 错误抛带状态码的 [Exception]；响应缺
 /// `choices[0].message.content` 视为畸形响应并抛错（不静默产出空文本）。
-class CloudCompletion {
+class CloudCompletionRequest {
   final Dio _dio;
   final String _apiKey;
   final String _modelName;
 
   /// [dio] 仅测试注入；生产用 [baseUrl] 自建（容忍尾斜杠）。
-  CloudCompletion({
+  CloudCompletionRequest({
     required String baseUrl,
     required String apiKey,
     required String modelName,

@@ -1,16 +1,16 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/delivery/tail_dedup.dart';
-import 'package:zhixing_ai/core/llm/delivery/think_stream_filter.dart';
-import 'package:zhixing_ai/core/llm/inference.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
+import 'package:zhixing_ai/core/llm/generation/tail_dedup.dart';
+import 'package:zhixing_ai/core/llm/generation/think_stream_filter.dart';
+import 'package:zhixing_ai/core/llm/single_shot/local_inference.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 /// 端侧推理会话窄接口：一份多轮消息列表 + 每轮全量渲染生成。
 ///
-/// 它是 [LocalDelivery] 唯一的 SDK 依赖点，也是**测试接缝**——单测注入 fake
+/// 它是 [LocalGeneration] 唯一的 SDK 依赖点，也是**测试接缝**——单测注入 fake
 /// 即可覆盖重放、think 剥离等路径，无需加载真实模型。生产实现见
 /// [LlamaChatSession]（`EngineChat` 的薄适配）。
 ///
@@ -33,7 +33,7 @@ abstract class ChatSession {
 }
 
 /// [EngineChat] → [ChatSession] 适配器：事件流收敛为纯 token 文本流
-/// （收敛原语见 `core/llm/inference.dart` 的 `eventsToText`）。
+/// （收敛原语见 `core/llm/single_shot/local_inference.dart` 的 `eventsToText`）。
 class LlamaChatSession implements ChatSession {
   final EngineChat _inner;
 
@@ -80,7 +80,7 @@ typedef ChatSessionFactory = Future<ChatSession> Function();
 /// 对齐。重放后引擎不再持有权威副本——唯一真相源是业务的 `_messages`，
 /// 与云端（每轮现拼现发）同构。成本仅 N 次本地 `List.add`（零 RPC）。
 /// 设计见 `docs/plans/2026-09-11-local-stateless-replay-design.md`。
-class LocalDelivery implements ChatDelivery {
+class LocalGeneration implements ChatGeneration {
   final ChatSessionFactory _createSession;
 
   /// 尾部去重（交付内部状态）。
@@ -89,7 +89,7 @@ class LocalDelivery implements ChatDelivery {
   /// 当前推理会话。全生命周期只有**一个**（[ensureReady] 创建），此后只 clear + 重放。
   ChatSession? _session;
 
-  LocalDelivery({required ChatSessionFactory sessionFactory})
+  LocalGeneration({required ChatSessionFactory sessionFactory})
       : _createSession = sessionFactory;
 
   @override
@@ -109,7 +109,7 @@ class LocalDelivery implements ChatDelivery {
   }) async* {
     final session = _session;
     if (session == null) {
-      AppLogger.warn('LocalDelivery', '引擎未就绪');
+      AppLogger.warn('LocalGeneration', '引擎未就绪');
       yield kLlmNotReadyReply;
       return;
     }
@@ -130,10 +130,10 @@ class LocalDelivery implements ChatDelivery {
     } catch (e) {
       // context full = 真实上下文先于估算撑爆 → 交服务强制收缩自愈
       if (_isContextFullError(e)) {
-        AppLogger.warn('LocalDelivery', '上下文撑爆，交服务自愈: $e');
+        AppLogger.warn('LocalGeneration', '上下文撑爆，交服务自愈: $e');
         throw const LlmContextOverflowException();
       }
-      AppLogger.error('LocalDelivery', '生成回复失败', e);
+      AppLogger.error('LocalGeneration', '生成回复失败', e);
       yield kLlmFailureReply;
     }
   }

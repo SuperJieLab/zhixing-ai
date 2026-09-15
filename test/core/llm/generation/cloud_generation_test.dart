@@ -4,15 +4,15 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/cloud_delivery.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/cloud_generation.dart';
 
 // 云端交付（BYOK 直连）真实集成测试
 //
 // 用真实 dart:io HttpServer 起本地 mock OpenAI 兼容 SSE 服务端（127.0.0.1
-// 直连），验证 [CloudDelivery] 的关键行为：
+// 直连），验证 [CloudGeneration] 的关键行为：
 //   A. 正常 delta 流按序产出并正常结束；
-//   B. [CloudDelivery.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
+//   B. [CloudGeneration.stop] 提前终止消费，且服务端在帧未发完时感知到 socket
 //      断开（客户端取消 → 连接销毁 → 厂商侧中断）；
 //   C. 帧间空闲超时（[TimeoutException]，帧间空闲语义而非总时长）；
 //   D. 装配结果按序映射为 OpenAI messages（转换段的 round==0 过滤在此复现一次）；
@@ -125,8 +125,8 @@ Future<void> _writeFrame(
 String _openAiDelta(String content) =>
     '{"choices":[{"delta":{"content":${jsonEncode(content)}}}]}';
 
-CloudDelivery _delivery(String baseUrl, {Duration? frameTimeout}) =>
-    CloudDelivery(
+CloudGeneration _delivery(String baseUrl, {Duration? frameTimeout}) =>
+    CloudGeneration(
       baseUrl: baseUrl,
       apiKey: _dummyKey,
       modelName: _dummyModel,
@@ -134,7 +134,7 @@ CloudDelivery _delivery(String baseUrl, {Duration? frameTimeout}) =>
     );
 
 /// 收流为列表（交付层的取回段没有本地那层 think 处理，云端不剥 think）。
-Future<List<String>> _collect(CloudDelivery d, AssembledContext ctx) =>
+Future<List<String>> _collect(CloudGeneration d, AssembledContext ctx) =>
     d.deliver(ctx, systemPrompt: _systemPrompt).toList();
 
 void main() {

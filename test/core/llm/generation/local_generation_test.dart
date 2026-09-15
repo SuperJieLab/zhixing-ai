@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
-import 'package:zhixing_ai/core/llm/context_assembly.dart';
-import 'package:zhixing_ai/core/llm/delivery/chat_delivery.dart';
-import 'package:zhixing_ai/core/llm/delivery/local_delivery.dart';
+import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/llm/generation/generation.dart';
+import 'package:zhixing_ai/core/llm/generation/local_generation.dart';
 
 /// 端侧交付单元测试（fake [ChatSession] 注入，不触碰真实 llama）。
 ///
@@ -89,14 +89,14 @@ const _think = '<think>x</think>';
 
 void main() {
   late _ChatSessionFactory factory;
-  late LocalDelivery delivery;
+  late LocalGeneration delivery;
 
   setUp(() {
     factory = _ChatSessionFactory();
-    delivery = LocalDelivery(sessionFactory: factory.call);
+    delivery = LocalGeneration(sessionFactory: factory.call);
   });
 
-  group('LocalDelivery · 就绪态', () {
+  group('LocalGeneration · 就绪态', () {
     test('未就绪时 deliver 返回回退文案', () async {
       expect(delivery.isReady, isFalse);
 
@@ -151,7 +151,7 @@ void main() {
     });
   });
 
-  group('LocalDelivery · 无状态重放（不变量 ①②④）', () {
+  group('LocalGeneration · 无状态重放（不变量 ①②④）', () {
     test('每轮 clear 开头、逐字重放装配结果；历史全量重放而非补差', () async {
       await delivery.ensureReady();
       final session = factory.created.single;
@@ -260,7 +260,7 @@ void main() {
     });
   });
 
-  group('LocalDelivery · 尾部去重（交付内部状态）', () {
+  group('LocalGeneration · 尾部去重（交付内部状态）', () {
     test('仅尾部用户消息在重放时改写为换角度提示', () async {
       await delivery.ensureReady();
       final session = factory.created.single;
@@ -344,7 +344,7 @@ void main() {
     });
   });
 
-  group('LocalDelivery · 取回与 think 剥离', () {
+  group('LocalGeneration · 取回与 think 剥离', () {
     test('think 标签剥离：标签内不输出，标签后正常流式', () async {
       await delivery.ensureReady();
       final session = factory.created.single;
@@ -443,7 +443,7 @@ void main() {
     });
   });
 
-  group('LocalDelivery · context full 信号（自愈编排归服务）', () {
+  group('LocalGeneration · context full 信号（自愈编排归服务）', () {
     test('context full → 抛 LlmContextOverflowException，不自行收缩、不产出文案',
         () async {
       await delivery.ensureReady();
