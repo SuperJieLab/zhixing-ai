@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/features/chat/chat_page.dart';
+import 'package:zhixing_ai/features/strategy_brief/strategy_brief_page.dart';
 
 import '../../support/fake_llm.dart';
 
@@ -22,11 +23,15 @@ void main() {
     await SettingsRepository.instance.initialize();
   });
 
+  /// 测试树与生产一致：`MultiProvider` 包在 `MaterialApp` **外层**——
+  /// 这样 `Navigator.pushReplacement` 推出的新路由（如分析页）仍是它的
+  /// 后代，才能读到 ModelGateway。若把 Provider 放进 `home` 内部，新路由
+  /// 会变成它的兄弟，读取必然抛 ProviderNotFound（真实 bug 的测试镜像）。
   Widget buildTestWidget({String topic = '职业发展', FakeLlm? llm}) {
-    return MaterialApp(
-      home: Provider<ModelGateway>.value(
-        value: FakeGateway(llm: llm ?? FakeLlm()),
-        child: ChatPage(topic: topic),
+    return Provider<ModelGateway>.value(
+      value: FakeGateway(llm: llm ?? FakeLlm()),
+      child: MaterialApp(
+        home: ChatPage(topic: topic),
       ),
     );
   }
@@ -72,5 +77,29 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
+  });
+
+  // ============================================================
+  // 测试 4：结束对话 → 跳转分析页
+  //
+  // 回归用例：`_endConversation` 曾在 State.context 上
+  // `read<ChatProvider>()`——而该 Provider 由 ChatPage.build 创建、位于
+  // 本元素**后代**，查找必抛 ProviderNotFoundException（真机点击即崩）。
+  // ============================================================
+  testWidgets('点击「结束对话」跳转 StrategyBriefPage，不抛 Provider 异常',
+      (tester) async {
+    await tester.pumpWidget(buildTestWidget());
+    await tester.pumpAndSettle();
+    expect(find.text('结束对话'), findsOneWidget);
+
+    await tester.tap(find.text('结束对话'));
+    // 前两帧：处理点击（pushReplacement）+ 路由转场。不用 pumpAndSettle：
+    // 分析页会异步读 DB（测试环境 sqflite 不可用）并转入错误态，用固定
+    // 帧数推进即可，避免等待settle带来的不确定性。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(StrategyBriefPage), findsOneWidget);
   });
 }

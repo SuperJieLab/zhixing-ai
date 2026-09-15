@@ -65,8 +65,13 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  void _endConversation(BuildContext context) {
-    final chatProvider = context.read<ChatProvider>();
+  /// 结束对话 → 跳转分析页。
+  ///
+  /// [chatProvider] 由调用方（[build] 内已从 `Consumer` 取到）显式传入，
+  /// **不可在此 `context.read<ChatProvider>()`**：该 Provider 由本页
+  /// [build] 创建，是本元素的**后代**，而 State.context 位于其**祖先侧**，
+  /// 查找必然抛 `ProviderNotFoundException`。
+  void _endConversation(ChatProvider chatProvider) {
     final activeId = chatProvider.activeConversationId;
 
     if (!context.mounted) return;
@@ -222,7 +227,7 @@ class _ChatPageState extends State<ChatPage> {
               ),
               actions: [
                 TextButton.icon(
-                  onPressed: () => _endConversation(context),
+                  onPressed: () => _endConversation(chatProvider),
                   icon: const Icon(
                     Icons.stop_circle_outlined,
                     color: AppTheme.secondary,
