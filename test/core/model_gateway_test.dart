@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/llm/llm.dart';
@@ -281,6 +282,53 @@ void main() {
     test('askJson 委派 llm.askJson', () async {
       await gateway.askJson(system: 's', user: 'u');
       expect(llm.askCalls.single.user, 'u');
+    });
+  });
+
+  group('truncateForAsk（单次补全输入截断，偏差②收口）', () {
+    test('本地模式：预算内全量保留（overhead = system + prefix 计入占用）', () {
+      final messages = [user('a'), user('b'), user('c')];
+      final kept = gateway.truncateForAsk(
+        messages,
+        system: 'system 提示词',
+        prefix: '已有目标',
+      );
+      expect(kept.length, 3);
+      expect(kept.map((m) => m.content), ['a', 'b', 'c']);
+    });
+
+    test('本地模式：超预算时尾部优先装箱', () {
+      // 每条约 300 token（'m'×1200 ≈ 1200×0.25），10 条共 ~3000 + 160 > 预算
+      final messages =
+          List.generate(10, (i) => user('m' * 1200 + '-$i'));
+      final kept = gateway.truncateForAsk(messages, system: 's');
+      expect(kept.length, lessThan(messages.length));
+      expect(kept.length, greaterThan(0)); // 尾部装到放不下为止
+      // 尾部优先：最后一条必保留，第一条必被挤掉
+      expect(kept.last.content, endsWith('-9'));
+      expect(kept.first.content, isNot(endsWith('-0')));
+    });
+
+    test('minKeep: 0 时单条即超预算 → 保留 0 条（单次提取语义）', () {
+      // 'm'×10000 ≈ 2500 token，单条即超 localInputBudget
+      final kept = gateway.truncateForAsk(
+        [user('m' * 10000)],
+        system: 's',
+      );
+      expect(kept, isEmpty);
+    });
+
+    test('云端模式按字符度量（口径随模式）', () {
+      modeSource.value = ChatMode.cloud;
+      final messages = List.generate(20, (i) => user('m' * 200));
+      final kept = gateway.truncateForAsk(messages, system: 's');
+      // cloudInputBudget 60000 字符：20×216 ≈ 4320 → 全量保留
+      expect(kept.length, messages.length);
+
+      final big = List.generate(
+          AppConstants.cloudInputBudget ~/ 200 + 10, (i) => user('m' * 200));
+      final keptBig = gateway.truncateForAsk(big, system: 's');
+      expect(keptBig.length, lessThan(big.length));
     });
   });
 }

@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 
 import 'package:zhixing_ai/core/context/cloud_context_policy.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
+import 'package:zhixing_ai/core/context/context_budget.dart';
 import 'package:zhixing_ai/core/context/local_context_policy.dart';
 import 'package:zhixing_ai/core/context/summary_prompt.dart';
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/llm/engine/llama_template_estimator.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
@@ -185,6 +187,43 @@ class ModelGateway {
     int? maxTokens,
   }) =>
       _llm.ask(system: system, user: user, maxTokens: maxTokens);
+
+  /// 单次补全的输入截断（plan 偏差②的例外收口）。
+  ///
+  /// 单次调用的上下文管理是「简单态」：无摘要、无状态，只做预算内尾部
+  /// 装箱。此前 `StrategistExtractor` 直连装箱原语 + 度量器 + 预算常量
+  /// （业务触碰 context/llm 内件的唯一例外），现收口到门面——业务给
+  /// 完整消息列表 + 提示词，拿预算内结果，不感知度量口径与预算值。
+  ///
+  /// 预算扣除 [system] 与 [prefix]（调用方将拼在 user 里的附加文本，如
+  /// 已有目标清单）的占用；度量口径随当前模式（本地 token / 云端字符），
+  /// 与补全守门同源。[minKeep] 语义同 `packTailWithinBudget`（单次提取
+  /// 无「当前问题」须保底，缺省 0 = 最坏保留 0 条）。
+  List<ChatMessage> truncateForAsk(
+    List<ChatMessage> messages, {
+    required String system,
+    String? prefix,
+    int minKeep = 0,
+  }) {
+    final mode = _modeSource.value;
+    final (estimator, budget) = switch (mode) {
+      ChatMode.local => (LlamaTemplateEstimator(), AppConstants.localInputBudget),
+      ChatMode.cloud => (CharCountEstimator(), AppConstants.cloudInputBudget),
+    };
+    final overhead = estimator.estimateText(system) +
+        (prefix == null ? 0 : estimator.estimateText(prefix));
+    final pack = packTailWithinBudget(
+      messages,
+      budget: budget,
+      estimator: estimator,
+      baseCost: overhead,
+      minKeep: minKeep,
+    );
+    AppLogger.info('ModelGateway',
+        'truncateForAsk(${mode.name}): overhead=$overhead, budget=$budget, '
+        '保留 ${pack.kept.length}/${messages.length} 条');
+    return pack.kept;
+  }
 
   Future<Map<String, dynamic>?> askJson({
     required String system,

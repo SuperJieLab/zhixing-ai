@@ -107,6 +107,15 @@ class FakeGateway implements ModelGateway {
   Future<void> ensureReady() => llm.ensureReady();
 
   @override
+  List<ChatMessage> truncateForAsk(
+    List<ChatMessage> messages, {
+    required String system,
+    String? prefix,
+    int minKeep = 0,
+  }) =>
+      messages; // 业务测试不关心截断细节，原样透传
+
+  @override
   void stop() => llm.stop();
 
   @override
