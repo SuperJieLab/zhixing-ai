@@ -127,7 +127,7 @@
 **与计划的偏差（两处，均已核）**：
 
 - **红线口径修正**：原验证项「`lib/core/llm` 不 import `context`」**过严，不可达成**——generation 段消费 `AssembledContext` / `kLlmFailureReply` 等装配契约类型是本质依赖。以设计文档 D7 的原始表述为准：**禁 `context → llm`（已达成，grep 零命中）与业务直连两域**；`llm → context` 单向允许（契约类型），策略规则仍不进 llm。
-- **已知例外**：`strategist_extractor` 直连 `core/context/context_budget.dart`（装箱原语）与 `core/llm/engine/llama_template_estimator.dart`——其自有输入截断语义（minKeep:0 主动收缩）先于守门存在，T7 不扩 scope 改语义。**建议后续**：把该截断下沉门面（如 `ModelGateway.truncateForAsk`）或让守门提供收缩变体，届时业务 import 可归一。
+- **已知例外（已于 2026-09-15 收口，commit a8058bc）**：`strategist_extractor` 曾直连 `core/context/context_budget.dart`（装箱原语）与 `core/llm/engine/llama_template_estimator.dart`，现截断下沉门面 `ModelGateway.truncateForAsk(messages, {system, prefix, minKeep=0})`——度量/预算随模式（本地 token / 云端字符），预算扣除 system + prefix；业务不再直连装配原语，业务 import 归一至门面。
 
 **验证**
 - [x] 目录树与 design D7 终版逐项一致
