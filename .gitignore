@@ -52,3 +52,10 @@ app.*.map.json
 
 # Temporary native build artifacts
 /native/
+
+# 学习/工作日志与早期快照（本地保留，不随公开仓库分发）
+# 例外：docs/notes/2026-09-11/ 是端侧 KV 复用技术评估，被 PROJECT.md 与多份设计文档引用
+/docs/notes/*
+!/docs/notes/2026-09-11/
+/docs/archived/
+/docs/plans/archived/

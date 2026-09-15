@@ -25,10 +25,10 @@
 |------|------|
 | 🎯 助手对话 | AI 主动分析、拆解、建议，注入已有目标检测重叠，建议合并而非新增 |
 | ☁️ 云端对话（可选） | BYOK 自带模型 API（baseUrl/key/模型名），端侧直连任意 OpenAI 兼容端点，不经过本应用服务端 |
-| 📊 全局面板 | Dashboard 三区：目标与策略 / 执行路线 / 跨对话洞察 |
+| 📊 全局面板 | Dashboard 三区：目标与策略 / 执行路线 / 洞察 |
 | 🔍 自动提取 | 每次对话结束，LLM 提取目标/策略/洞察，用户确认后生效 |
 | 🔔 智能推送 | 服务端定时扫描 deadline，规则模式 + DeepSeek LLM 模式可选 |
-| 🔗 跨对话关联 | 同名目标自动合并，发现跨对话模式与矛盾 |
+| 🔗 跨对话关联 | 对话时注入已有目标供助手检测重叠并建议合并；提取回写按目标 id / 同名映射到已有目标，不产生重复项 |
 | 🧠 端侧推理 | llama.cpp + Qwen3.5-2B，全程离线 |
 
 ## 技术栈
@@ -46,8 +46,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/SuperJieLab/socratic-ai.git
-cd socratic-ai
+git clone https://github.com/SuperJieLab/zhixing-ai.git
+cd zhixing-ai
 
 # Flutter App
 flutter pub get
@@ -57,7 +57,7 @@ flutter run
 cd server && cp .env.example .env && npm install && npm start
 ```
 
-启动后在 App 设置页下载模型（Qwen3.5-2B Q4_K_M，约 1.27GB）即可开始使用。推送功能依赖服务端运行，未启动时 App 照常工作，只是没有推送提醒。
+启动后在首页右上角「模型管理」（内存图标）下载模型（Qwen3.5-2B Q4_K_M，约 1.27GB）即可开始使用。推送功能依赖服务端运行，未启动时 App 照常工作，只是没有推送提醒。
 
 ## 项目结构
 
@@ -79,7 +79,8 @@ lib/
 │   ├── history/            # 对话历史列表
 │   ├── settings/           # 偏好设置（云端 BYOK / GPU 加速）
 │   └── model_manager/      # 模型下载管理 UI
-└── main.dart
+├── app.dart                # MaterialApp 根（主题 / 路由观察 / 全局横幅）
+└── main.dart               # 组合根：依赖装配 + 启动
 
 server/                     # 服务端推送
 ├── src/
@@ -98,18 +99,23 @@ test/                       # 测试（目录结构与 lib/ 同构）
 ├── core/
 │   ├── model_gateway_test.dart  # 门面编排（装配 → 生成 → 溢出自愈）
 │   ├── context/            # 装配 / 双端策略 / 摘要提示词
-│   ├── llm/                # generation（端侧重放、云端 SSE）/ single_shot（输入守门）/ llm_service
+│   ├── llm/                # generation（端侧重放、云端 SSE）/ single_shot（输入守门、端侧单次推理）/ llm_service
 │   ├── data/repository/    # 设置仓库
 │   └── platform/           # PushSocketService
 ├── features/
 │   ├── chat/               # page / providers / widgets / utils / prompt
 │   ├── dashboard/          # Dashboard 渲染测试
 │   ├── history/            # History 页面测试
-│   ├── strategy_brief/     # 目标匹配测试
+│   ├── strategy_brief/     # 提取链路（provider）+ 目标匹配
 │   └── model_manager/      # 模型下载测试
 └── support/fake_llm.dart   # FakeGateway + FakeLlm（业务侧测试统一假件）
-tool/
-└── llama_integration_test.dart   # 端侧推理集成测试（dart run 独立运行）
+tool/                       # 独立脚本（dart run 运行）
+├── llama_integration_test.dart   # 端侧推理集成测试
+└── cloud_smoke.dart              # 云端 BYOK 连通性冒烟
+docs/                       # 设计文档
+├── PROJECT.md              # 架构主文档（分层 / 数据模型 / 决策 / 版本）
+├── plans/                  # 按日期归档的设计（*-design.md）与计划（*-plan.md）
+└── notes/2026-09-11/       # 端侧 KV 复用可行性评估（技术证据）
 ```
 
 > 完整架构、数据模型、设计决策见 [`docs/PROJECT.md`](docs/PROJECT.md)

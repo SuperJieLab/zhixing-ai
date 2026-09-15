@@ -466,7 +466,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 推理引擎 | llama.cpp (C++) | 端侧 LLM |
 | Dart 桥接 | llama_cpp_dart (Dart FFI) | Dart → C++ |
 | 模型 | Qwen3.5-2B Instruct (Q4_K_M) | 中文对话 + 目标提取 |
-| GPU 加速 | Metal（llama.cpp `n_gpu_layers`，设置页开关，**默认关 = 纯 CPU**） | 开启后全量卸载到 GPU；macOS M1 实测 46-71 tok/s（出处 `docs/notes/2026-07-03/SUMMARY.md`） |
+| GPU 加速 | Metal（llama.cpp `n_gpu_layers`，设置页开关，**默认关 = 纯 CPU**） | 开启后全量卸载到 GPU；macOS M1 实测 46–71 tok/s（端侧 Qwen3.5-2B Q4_K_M，原始实测记录未随仓库分发） |
 | 本地存储 | sqflite | 对话 + 目标/策略持久化 |
 | 模型下载 | dio (HTTP Range) | HuggingFace 断点续传 |
 | 模型托管 | HuggingFace | GGUF 分发 |
@@ -507,7 +507,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | Prompter 上下文 | 注入已有目标列表，助手可基于已有目标追问 |
 | 对话结束 | ChatPage → StrategyBriefPage（用户确认）→ Dashboard |
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
-| 目标去重 | 相同 title 自动合并 sourceConvIds；ConversationStrategy 检测重叠建议合并 |
+| 目标去重 | 对话时人设注入已有目标列表 → 助手检测重叠并**建议**合并（提示词行为，非代码自动合并）；提取回写阶段 `matchGoal` 按 goalId 优先、title 回退映射到已有目标（`strategy_brief_provider.dart`），不新建重复项；`sourceConvIds` 目前仅用于展示「来自 N 次对话」 |
 | 生成层 | `ChatGeneration` 接口双实现（`core/llm/generation/`）：`LocalGeneration`（无状态重放——每轮 `clear()` + 按装配结果全量重放；唯一 llama SDK 依赖点兼测试接缝 `ChatSession` 抽象）/ `CloudGeneration`（BYOK 直连 OpenAI 兼容端点 SSE；`prime` 空实现保契约对称）；**两者同构：都无会话状态**；生成只抛类型化信号（`LlmContextOverflowException`），自愈编排在门面 |
 | 上下文管理 | `ContextPolicy` 抽象（`core/context/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位，**实例由门面私有持有**；窗口 = `eligible.sublist(k)` 每轮现算）：`LocalContextPolicy`（token 度量 + 溢出硬收缩 4 条；estimator 由门面注入）/ `CloudContextPolicy`（字符数近似 + 无收缩）；摘要器统一为门面内公开的 `AskSummarizer`（提示词在 `core/context/summary_prompt.dart`，传输走 `Llm.ask`）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`） |
 | 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
@@ -540,7 +540,9 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | v2.4 | 2026-09-15 | 目录重组与命名收口：`core/context` 独立成域（零 llm 依赖）、`core/llm` 分 `generation`/`single_shot`/`engine` 三桶（delivery→generation、completion→single_shot、ChatDelivery→ChatGeneration）；单次补全截断收口门面 `truncateForAsk`，业务对两域内件零直连 |
 | v2.5 | 2026-09-15 | 全局状态与单例收口：`ActiveModelManager` 去单例（组合根构造 + Provider 树，暴露 `activeModelPath` 源）；删全局可变常量 `AppConstants.defaultModelPath`；`LlamaService.ensureReady/release` 的模型路径改必传；token 估算抽为纯函数 `engine/token_estimator.dart`；`SyncService` 去单例并删死代码 `static enabled`；`PushService` 统一为 `static final instance` 写法 |
 
-**旧 MVP 文档归档**：`docs/demo-plan-socratic-ai.md` 和 `docs/requirements-goals.md` 已移入 `docs/archived/`。
+**仓库内文档**：`docs/PROJECT.md`（本文件，活文档）+ `docs/plans/`（按日期归档的设计与计划）+ `docs/notes/2026-09-11/`（端侧 KV 复用技术评估）。
+
+**未分发内容**：早期 MVP 文档（`demo-plan-socratic-ai.md` / `requirements-goals.md`）、day1–day9 脚手架计划、7 月逐日学习/工作日志均已移出仓库（本地保留，见 `.gitignore`）。
 
 ---
 
