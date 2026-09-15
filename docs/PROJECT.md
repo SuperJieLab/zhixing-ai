@@ -199,12 +199,12 @@ Strategy:
 
 ```
 pages/widgets  → providers / models / core
-providers      → engine / repository / models / core/llm(仅 Llm 接口)
-engine         → models / core/llm(仅 Llm 接口)
+providers      → engine / repository / models / core(仅 ModelGateway)
+engine         → models / core(仅 ModelGateway)
 repository     → models / core
 ```
 
-**业务对 LLM 的依赖面 = `Llm` 接口**（`core/llm/llm.dart`）：业务只调 `converse / ask / askJson / ensureReady / stop` 并消费 `readiness` 就绪态，**不感知**当前后端是本地还是云端；后端（本地 llama.cpp / 云端 BYOK）差异**全部关进 `core/llm`**。大模型服务的完整生命周期（加载/释放/模式切换防抖）由 `LlmService` 管理，业务既不构造也不释放后端资源。
+**业务对 LLM 的依赖面 = `ModelGateway` 门面**（`core/model_gateway.dart`，v2，2026-09-14）：业务只见「塞上下文 → 调执行 → 拿输出」，**不感知**当前后端是本地还是云端。门面双面：**对话面**（有状态，私有持有 `ContextState`，编排装配 → 交付 → 溢出自愈，压缩策略业务零感知）+ **补全面**（`ask / askJson` 一行透传 `Llm`，入口有输入预算守门 fail-fast）。`Llm`（`core/llm/llm.dart`）降为**基建接缝接口，业务永久不 import**；模式经 `LlmService.mode` 注入门面（单一模式解析点不变）；后端（本地 llama.cpp / 云端 BYOK）差异全部关进 `core/llm`。生命周期（加载/释放/模式切换防抖）仍归 `LlmService`，业务既不构造也不释放后端资源。
 
 目录准入（按**文件性质**分桶，避免「能跑就行」式摆放）：
 
@@ -227,9 +227,11 @@ lib/
 ├── core/
 │   ├── constants.dart                  # 全局常量（端侧模型参数 local* / 服务端地址）
 │   ├── logger.dart                     # 统一日志
-│   ├── llm/                            # 大模型服务域（后端差异全关在这里）
-│   │   ├── llm.dart                    # 业务依赖面 Llm 接口 + LlmPhase/LlmReadiness 就绪态
-│   │   ├── llm_service.dart            # 唯一实现：单一模式来源 + 四段串联 + 生命周期（延迟释放防抖）
+│   ├── model_gateway.dart              # 业务唯一门面（对话面编排 + 补全面透传；re-export ChatMode/LlmPhase/LlmReadiness）
+│   ├── llm/                            # 大模型服务域（后端差异全关在这里；业务不 import）
+│   │   ├── llm.dart                    # 基建接缝接口（ask/askJson/readiness/stop）+ ChatMode/LlmPhase/LlmReadiness
+│   │   ├── llm_service.dart            # 唯一实现：单一模式来源 + mode 模式源 + 生命周期（延迟释放防抖）+ 交付工厂 deliveryFor
+│   │   ├── input_guard.dart            # ask 输入预算守门（fail-fast，补全唯一通道单点施加）
 │   │   ├── delivery/                   # 交付段（唯一形状差异所在）
 │   │   │   ├── chat_delivery.dart          # ChatDelivery 接口 + LlmContextOverflowException
 │   │   │   ├── local_delivery.dart         # 端侧交付（无状态重放，唯一 llama SDK 依赖点）
@@ -237,7 +239,7 @@ lib/
 │   │   │   ├── tail_dedup.dart             # 尾部 LCS 去重（有状态，仅端侧重放用）
 │   │   │   ├── think_stream_filter.dart    # 流式 think 剥离（三阶段状态机，端侧 deliver 用）
 │   │   │   └── sse_parser.dart             # SSE 半包/畸形 JSON 容错
-│   │   ├── context_assembly.dart       # 转换段共享骨架（无状态装配 + ContextState 外置状态）
+│   │   ├── context_assembly.dart       # 转换段共享骨架（无状态装配 + ContextState 外置状态；实例在门面）
 │   │   ├── context_budget.dart         # 预算常量（localInputBudget / cloudInputBudget）
 │   │   ├── local_context_policy.dart   # 端侧策略（token 度量）
 │   │   ├── cloud_context_policy.dart   # 云端策略（字符度量）
@@ -265,7 +267,7 @@ lib/
 │   ├── chat/
 │   │   ├── prompt/                       # 业务人设（基建不认识业务，人设留业务侧）
 │   │   │   └── conversation_strategy.dart  # 系统提示词(含goals) + LCS 去重
-│   │   ├── providers/chat_provider.dart  # 三件事：持消息列表 + 持 ContextState + 每轮传人设；无模式分支
+│   │   ├── providers/chat_provider.dart  # 两件事：持消息列表 + 每轮传人设；无模式分支、不持压缩状态（v2 收进门面）
 │   │   ├── widgets/chat_bubble.dart, chat_input.dart,
 │   │   │        markdown_message_view.dart    # 只放 Widget 组件
 │   │   ├── utils/                        # 非 Widget 的辅助件（准入：非引擎逻辑、非状态、非 Widget）
@@ -490,7 +492,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 上下文管理 | `ContextPolicy` 抽象（`core/llm/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位；窗口 = `eligible.sublist(k)` 每轮现算）：LocalContextPolicy（token 度量 + 溢出硬收缩 4 条）/ CloudContextPolicy（字符数近似 + 无收缩）；摘要器统一为 `SingleShotSummarizer`（`single_shot_summarizer.dart`，提示词在此、传输走服务注入的 `SingleShotAsk` 通道）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`） |
 | 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
 | 端侧消息列表真相源 | **已采纳：无状态重放**（2026-09-11 实施，2026-09-12 迁至交付层）。唯一真相源 = `ChatProvider._messages`；`ChatSession` 不再持有权威副本——每轮 `generate()` 恒为 `clear()` → `addSystem(人设)` → `[addSystem(摘要卡)]` → 按装配结果**全量重放** → `generate()`（`core/llm/delivery/local_delivery.dart` 的 `_syncSession`）。全生命周期只有 **1 个** `ChatSession` 实例。**不变量**：①引擎内消息列表 ≡ 人设 + 摘要卡 + 装配结果（逐字）；②assistant 条目均为 strip 后正文；③交付不持消息列表；④不得再引入依赖「引擎状态与我方索引对齐」的机制。行为变更：模型不再看到自身历史 think（与云端对齐）；token 预算估算变准 → `context full` 显著减少。依据见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10–§11 |
-| 大模型服务分层 | **已实施**（2026-09-12，Task 1–5 全部落地）。骨架 = **三层**（业务 / 基建 `core/llm` / 后端）· **四段**（入口 → 转换 → 交付 → 取回）· **三关节**（单一模式来源 / 统一入口 / 状态归属）。业务层只调 `Llm.converse/ask/askJson`（接口 `core/llm/llm.dart`），后端（本地/云端）差异**全部关进 `core/llm`**；状态**类型在基建、实例在业务**（业务持消息列表 + `ContextState` 实例）。服务**唯一实例 + 构造注入**（唯一性来自「`main()` 只构造一次」，业务依赖接口、不写 `.instance`）。**压缩无业务参数**：度量/预算/保底条数/溢出收缩/摘要模型全部按后端解析，摘要提示词上移 `core/llm/summary_prompt.dart`（模型能力差异，App 级覆盖点）。**生命周期归服务**（Task 4）：`SettingsRepository.backendListenable` 窄通知源 → 切本地主动加载 / 切云端本地引擎延迟释放 + 防抖（30s）；UI 只消费 `llm.readiness` 就绪态。**顺带修的真实缺陷**：目标提取原硬编码本地模式，现随 `Llm` 配置走。落地结果：`features/chat/engine/` **解体**（client→`core/llm/delivery/`、context→`core/llm/context_assembly.dart`、prompt→`features/chat/prompt/`）。机器可查证据：features 下 `LlamaEngine`/`ChatSession`/`ChatMode`/`ContextPolicy`/`LlmService`/`ChatClient` grep 均 0 命中。设计与计划见 `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md` |
+| 大模型服务分层 | **v2 已实施**（2026-09-14，T1–T5 落地；v1 见 `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`）。**业务唯一门面 = `ModelGateway`**（`core/model_gateway.dart`）：对话面有状态（私有持 `ContextState`，编排装配 → 交付 → 溢出自愈；摘要统一走 `llm.ask`；模式切换 `resetWindow` 保摘要清游标）+ 补全面一行透传（ask/askJson 入口有预算守门 fail-fast，超限抛 `GatewayInputOverflowException`，不截断不自愈）。`Llm` 降为基建接缝（业务禁止 import），`LlmService` 收敛为：单一模式解析点 + `mode` 模式源注入 + 生命周期（延迟释放防抖）+ 交付工厂 `deliveryFor`（池化与 BYOK 指纹重建）。守门落在补全唯一通道（`LlmService.ask`），askJson 经透传自动覆盖。设计见 `docs/plans/2026-09-14-model-gateway-facade-{design,plan}.md` |
 | 云端模型 | BYOK：用户在设置页自带 baseUrl/key/模型名，端侧直连，服务端不参与对话；三项未配齐则云端开关不可开（降级 Mock） |
 | 云端摘要 | 复用同一 BYOK 端点，非流式小请求（max_tokens 512）；预算极大（60k 字符）故实践中基本不触发，机制作超长对话兜底 |
 | 状态变更 | 仅用户操作触发，AI 不可自动修改已有目标/策略状态 |
@@ -513,6 +515,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | v2 (当前) | 2026-07-16 | 助手模式：Dashboard 主页 → 对话 → 目标提取 → 全局态势 |
 | v2.1 | 2026-07-20 | 服务端推送方案：推送与提醒闭环，端云协同推理 |
 | v2.2 | 2026-09-12 | 大模型服务分层：业务只调 `Llm` 接口，后端差异关进 `core/llm`（三层·四段·三关节）；`features/chat/engine/` 解体；生命周期收口（窄通知源 + 延迟释放防抖 + 就绪态上接口） |
+| v2.3 | 2026-09-14 | ModelGateway 门面重构：业务唯一门面改为 `ModelGateway`（对话面持状态编排 / 补全面透传 + 预算守门），`Llm` 降为基建接缝、`ContextState` 收进门面，ask 输入超预算 fail-fast |
 
 **旧 MVP 文档归档**：`docs/demo-plan-socratic-ai.md` 和 `docs/requirements-goals.md` 已移入 `docs/archived/`。
 

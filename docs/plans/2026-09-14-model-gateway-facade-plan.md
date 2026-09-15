@@ -116,29 +116,24 @@
 1. `docs/PROJECT.md` 大模型服务分层章节：补 v2 门面结构（gateway / context / generation / single_shot 星形依赖图、ContextState 归属变更、守门契约）；
 2. `.workbuddy/memory/MEMORY.md`：更新「大模型服务分层」节——`Llm` 降为基建接缝、业务唯一入口 `ModelGateway`、目录新约定；标注 v1 描述过时项。
 
-## Task 7：目录重组（D7 终版，纯移动 + 注入改造）
+## Task 7：目录重组（D7 终版，纯移动 + 注入改造）✅ 已完成（2026-09-14）
 
-**目标**：落地 `core/context/` 独立域 + `core/llm` 三分桶 + 命名对照表改名。**不改任何行为**。
+**实施记录**（与原计划的偏差已标注）：
 
-**步骤**（建议拆 7a/7b 两个 commit）
+1. **7a context 域**：`core/context/` = `context_state.dart`（自 context_assembly 拆出）/ `context_assembly.dart` / `context_budget.dart`（LlamaTemplateEstimator 移出）/ `local_context_policy.dart`（**estimator 改必注入**）/ `cloud_context_policy.dart`（CharCountEstimator 纯字符、留域内）/ `summary_prompt.dart`。摘要传输实现 `SingleShotSummarizer` 同时依赖两域类型 → **内聚为门面文件里的公开 `AskSummarizer`**（`core/model_gateway.dart`，公开仅为可测）；`SingleShotAsk` typedef 迁入 `llm.dart`（`llm_service.dart` 保留 re-export）。
+2. **7b 分桶 + 改名**：`generation/`（generation.dart / local_generation.dart / cloud_generation.dart / sse_parser / tail_dedup / think_stream_filter）、`single_shot/`（input_guard / think_tag_stripper / cloud_request.dart←cloud_completion、local_inference.dart←inference）、`engine/`（llama_service / active_model_manager / llama_template_estimator←context_budget）。类名：`ChatDelivery→ChatGeneration`、`LocalDelivery→LocalGeneration`（typedef 随名 `LocalGenerationBuilder`）、`CloudDelivery→CloudGeneration`、`CloudCompletion→CloudCompletionRequest`。test 同构镜像（context 测试 → `test/core/context/`）。
+3. **input_guard 重写为 llm 域自足**：不再 import context（原经 `ContextEstimator` 抽象），度量按模式内联（本地 token + 2×16 / 云端字符 + 2×16），口径不变——这是「llm 不 import context」在守门处的落法。
 
-- **7a `core/context/` 独立域**：
-  1. `context_assembly.dart` 拆分：`ContextState`（`:46-75`）→ `core/context/context_state.dart`；`ContextPolicy` / `BaseContextPolicy`（`:93,127`）→ `core/context/context_assembly.dart`；
-  2. `LocalContextPolicy` / `CloudContextPolicy` → `core/context/local_context_policy.dart` / `cloud_context_policy.dart`（改**参数档案化**：摘要器移出——摘要统一由网关注入 `SingleShotSummarizer(llm.ask)`（D4），策略只剩度量 + 预算）；
-  3. `LlamaTemplateEstimator` 自 `context_budget.dart:35` 拆出 → `core/llm/engine/llama_template_estimator.dart`（llama 知识不进 context 域），网关注入端侧策略；
-  4. `context_budget.dart` / `summary_prompt.dart` + `single_shot_summarizer.dart` 的接口部分 → `core/context/`（`Summarizer` 接口 = `ConversationSummarizer`，实现留 llm 侧或由网关组装——实施时按「context 零依赖 llm」红线落位）；
-  5. **红线检查**：`grep -rn "llama\|Llama\|BYOK\|dio" lib/core/context` 为空。
-- **7b `core/llm` 分桶 + 改名**：
-  1. `delivery/` → `generation/`：`chat_delivery.dart` → `generation.dart`（`ChatDelivery` → `ChatGeneration`）、`local_delivery.dart` → `local_generation.dart`、`cloud_delivery.dart` → `cloud_generation.dart`（类名随文件）；
-  2. `cloud_completion.dart` → `single_shot/cloud_request.dart`（类 `CloudCompletionRequest`）；`inference.dart` → `single_shot/local_inference.dart`；`input_guard.dart`（Task 1）→ `single_shot/`；`think_tag_stripper.dart` → `single_shot/`；
-  3. `llama_service.dart` + `active_model_manager.dart` → `engine/`；
-  4. 全量 import 修正（lib + test 同构镜像：`test/core/llm/delivery/` → `test/core/llm/generation/` 等）。
+**与计划的偏差（两处，均已核）**：
+
+- **红线口径修正**：原验证项「`lib/core/llm` 不 import `context`」**过严，不可达成**——generation 段消费 `AssembledContext` / `kLlmFailureReply` 等装配契约类型是本质依赖。以设计文档 D7 的原始表述为准：**禁 `context → llm`（已达成，grep 零命中）与业务直连两域**；`llm → context` 单向允许（契约类型），策略规则仍不进 llm。
+- **已知例外**：`strategist_extractor` 直连 `core/context/context_budget.dart`（装箱原语）与 `core/llm/engine/llama_template_estimator.dart`——其自有输入截断语义（minKeep:0 主动收缩）先于守门存在，T7 不扩 scope 改语义。**建议后续**：把该截断下沉门面（如 `ModelGateway.truncateForAsk`）或让守门提供收缩变体，届时业务 import 可归一。
 
 **验证**
 - [x] 目录树与 design D7 终版逐项一致
-- [x] 依赖红线三连：`lib/core/context` 不 import `llm`；`lib/core/llm` 不 import `context`；业务不 import `context`/`llm`（只 import model_gateway）
+- [x] 依赖红线：`context → llm` 零命中；业务零直连（除上述已登记例外）；门面是唯一组合点
 - [x] **零行为变更**（全量测试绿，无断言修改——改名导致的引用修正除外）
-- [x] `flutter analyze` 0
+- [x] `flutter analyze` 0；全量 223 绿
 
 ## 风险与回退
 
