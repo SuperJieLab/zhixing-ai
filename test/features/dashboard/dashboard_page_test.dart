@@ -7,14 +7,11 @@ import 'package:zhixing_ai/features/dashboard/dashboard_page.dart';
 /// DashboardPage 渲染测试
 ///
 /// DashboardPage 通过 DashboardProvider 管理状态（Provider → DashboardRepository → sqflite）。
-/// 在测试环境中 sqflite 不可用，load() 会抛异常，页面应展示错误视图而非崩溃。
-///
+/// 在测试环境中 sqflite 不可用，load() 会抛异常，页面应落到错误视图而非崩溃。
 /// 页面依赖的共享服务（SyncService）由 composition root 提供，测试补最小 Provider 树。
 ///
-/// v2 Dashboard 三区结构：
-/// - 目标与策略（GoalCard）
-/// - 执行路线（StrategyTimeline）
-/// - 洞察（CrossPatternCard）
+/// 只保留「失败路径不崩 + 落到错误视图」这一条：纯存在性断言（AppBar 标题、
+/// FAB 文案）对回归没有保护力，交给人工/集成验证。
 Widget _app() => Provider<SyncService>.value(
       value: SyncService(),
       child: const MaterialApp(home: DashboardPage()),
@@ -22,34 +19,14 @@ Widget _app() => Provider<SyncService>.value(
 
 void main() {
   group('DashboardPage', () {
-    testWidgets('在 DB 不可用时不崩溃并展示错误视图', (tester) async {
+    testWidgets('DB 不可用：不崩溃并落到错误视图', (tester) async {
       await tester.pumpWidget(_app());
 
       // 等待 load 完成（失败后会设置 error state）
       await tester.pumpAndSettle();
 
-      // 页面应该不崩溃
       expect(find.byType(DashboardPage), findsOneWidget);
-    });
-
-    testWidgets('AppBar 显示"首页"标题 + 模型管理/历史记录图标', (tester) async {
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
-
-      // AppBar 标题
-      expect(find.text('首页'), findsOneWidget);
-
-      // 设置和历史图标
-      expect(find.byIcon(Icons.settings), findsOneWidget);
-      expect(find.byIcon(Icons.history), findsOneWidget);
-    });
-
-    testWidgets('FAB "新对话" 按钮存在', (tester) async {
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
-
-      // FAB 的标签文本
-      expect(find.text('新对话'), findsOneWidget);
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
   });
 }

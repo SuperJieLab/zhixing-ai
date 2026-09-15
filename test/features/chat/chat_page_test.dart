@@ -37,22 +37,14 @@ void main() {
   }
 
   // ============================================================
-  // 测试 1：话题标题显示在 AppBar 中（所有状态都显示）
-  // ============================================================
-  testWidgets('ChatPage 在 AppBar 中显示话题标题', (tester) async {
-    await tester.pumpWidget(buildTestWidget());
-    await tester.pump(); // initState 兜底 ensureReady → ready
-    expect(find.text('职业发展'), findsWidgets);
-  });
-
-  // ============================================================
-  // 测试 2：就绪后展示正常对话视图（输入框 + 结束对话）
+  // 测试 1：就绪后展示正常对话视图（话题标题 + 输入框 + 结束对话）
   // ============================================================
   testWidgets('ChatPage 就绪后展示正常对话视图', (tester) async {
     await tester.pumpWidget(buildTestWidget());
     await tester.pumpAndSettle();
 
     expect(find.byType(ChatPage), findsOneWidget);
+    expect(find.text('职业发展'), findsWidgets); // AppBar 话题标题
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('结束对话'), findsOneWidget);
   });

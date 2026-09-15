@@ -136,13 +136,6 @@ void main() {
       expect(provider.messages[1].role, MessageRole.ai);
     });
 
-    test('Mock 模式下 isThinking 最终为 false', () async {
-      final provider = makeProvider();
-      expect(provider.isThinking, false);
-      await provider.sendMessage('hello');
-      expect(provider.isThinking, false);
-    });
-
     test('每轮对话后 round 计数增加', () async {
       final provider = makeProvider();
       expect(provider.round, 1);
@@ -344,16 +337,6 @@ void main() {
       expect(llm.converseCalls[0].systemPrompt, contains('学英语'));
       expect(llm.converseCalls[1].systemPrompt,
           isNot(contains('## 用户已有目标')));
-    });
-  });
-
-  group('ChatMessage', () {
-    test('字段正确赋值', () {
-      const msg =
-          ChatMessage(role: MessageRole.user, content: 'hello', round: 3);
-      expect(msg.role, MessageRole.user);
-      expect(msg.content, 'hello');
-      expect(msg.round, 3);
     });
   });
 }

@@ -54,8 +54,8 @@ class StrategyBriefState {
 class StrategyBriefProvider {
   final Conversation _conversation;
   final ModelGateway _gateway;
-  final DashboardRepository _dashboardRepo = DashboardRepository();
-  final ConversationService _convService = ConversationService();
+  final DashboardRepository _dashboardRepo;
+  final ConversationService _convService;
 
   StrategyBriefState _state = StrategyBriefState();
   StrategyBriefState get state => _state;
@@ -64,8 +64,18 @@ class StrategyBriefProvider {
 
   /// [gateway] 由页面经 Provider 树注入（composition root 构造的唯一实例）；
   /// 提取的后端模式跟随全局配置（云端 / 本地），本类不感知。
-  StrategyBriefProvider(this._conversation, {required ModelGateway gateway})
-      : _gateway = gateway; // ignore: prefer_initializing_formals
+  ///
+  /// [dashboardRepo] / [conversationService] 缺省用真实实现（sqflite）；测试
+  /// 注入 fake 子类即可覆盖「提取 → 落库 → 确认」全链路——此前二者硬编码，
+  /// 导致该链路在无 DB 的测试环境下完全不可验证。
+  StrategyBriefProvider(
+    this._conversation, {
+    required ModelGateway gateway,
+    DashboardRepository? dashboardRepo,
+    ConversationService? conversationService,
+  })  : _gateway = gateway, // ignore: prefer_initializing_formals
+        _dashboardRepo = dashboardRepo ?? DashboardRepository(),
+        _convService = conversationService ?? ConversationService();
 
   void addListener(void Function(StrategyBriefState) listener) {
     _listeners.add(listener);

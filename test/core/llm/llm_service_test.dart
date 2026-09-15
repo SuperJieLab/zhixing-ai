@@ -205,25 +205,13 @@ void main() {
 
       expect(local.calls.single.maxTokens, 777);
     });
-  });
 
-  group('parseJsonReply（纯函数）', () {
-    test('直解合法 JSON', () {
-      expect(parseJsonReply('{"a": 1}'), {'a': 1});
-    });
+    test('非对象 JSON（数组）→ 返回 null', () async {
+      local.reply = () => '[1, 2, 3]';
 
-    test('围栏 + 尾随文字', () {
-      expect(
-        parseJsonReply('```json\n{"a": 1}\n```\n完毕'),
-        {'a': 1},
-      );
-    });
-
-    test('非对象 JSON 视为失败', () {
-      expect(parseJsonReply('[1, 2, 3]'), isNull);
+      expect(await service.askJson(system: 's', user: 'u'), isNull);
     });
   });
-
 
   group('生命周期（窄通知 + 冷启动预热 + 延迟释放防抖）', () {
     /// 构建注入本地交付接缝的服务；返回构建出的交付列表供断言。

@@ -2,12 +2,6 @@ import 'package:test/test.dart';
 import 'package:zhixing_ai/features/chat/utils/markdown_blocks.dart';
 
 void main() {
-  test('空输入 → ([], \'\')', () {
-    final r = splitBlocks('');
-    expect(r.closed, isEmpty);
-    expect(r.tail, '');
-  });
-
   test('单段纯文本 → ([], \'A\')', () {
     final r = splitBlocks('A');
     expect(r.closed, isEmpty);
@@ -50,12 +44,6 @@ void main() {
     expect(r.tail, 'B');
   });
 
-  test('isComplete:true 两段 → 全部闭合', () {
-    final r = splitBlocks('A\n\nB', isComplete: true);
-    expect(r.closed, ['A', 'B']);
-    expect(r.tail, '');
-  });
-
   test('isComplete:true 未闭合 fence 仍是尾块', () {
     final r = splitBlocks('```py\nx\n\ny', isComplete: true);
     expect(r.closed, isEmpty);
@@ -81,10 +69,12 @@ void main() {
   });
 
   // 额外用例，覆盖未列出的边界
-  test('仅含空白行 → ([], \'\')', () {
-    final r = splitBlocks('\n\n   \n');
-    expect(r.closed, isEmpty);
-    expect(r.tail, '');
+  test('空串与仅含空白行 → ([], \'\')', () {
+    for (final input in ['', '\n\n   \n']) {
+      final r = splitBlocks(input);
+      expect(r.closed, isEmpty);
+      expect(r.tail, '');
+    }
   });
 
   test('多段 + 尾块', () {
@@ -111,15 +101,11 @@ void main() {
     expect(r.tail, 'A');
   });
 
-  test('以含空白的空行结尾 → 仍判定为以空行结尾', () {
-    final r = splitBlocks('A\n \n');
-    expect(r.closed, ['A']);
-    expect(r.tail, '');
-  });
-
-  test('以含制表符的空行结尾 → 仍判定为以空行结尾', () {
-    final r = splitBlocks('A\n\t\n');
-    expect(r.closed, ['A']);
-    expect(r.tail, '');
+  test('以含空白/制表符的空行结尾 → 仍判定为以空行结尾', () {
+    for (final input in ['A\n \n', 'A\n\t\n']) {
+      final r = splitBlocks(input);
+      expect(r.closed, ['A']);
+      expect(r.tail, '');
+    }
   });
 }

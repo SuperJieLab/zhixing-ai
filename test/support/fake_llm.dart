@@ -27,6 +27,13 @@ class FakeLlm implements Llm {
   final List<({List<ChatMessage> history, String systemPrompt})>
       converseCalls = [];
 
+  /// 脚本化「单次 JSON 补全」返回值（提取链路用）。缺省 null（= 无内容）。
+  Future<Map<String, dynamic>?> Function(String system, String user)?
+      onAskJson;
+
+  /// 每次 askJson 的入参快照。
+  final List<({String system, String user})> askJsonCalls = [];
+
   int ensureReadyCalls = 0;
   int stopCalls = 0;
 
@@ -64,8 +71,10 @@ class FakeLlm implements Llm {
     required String system,
     required String user,
     int? maxTokens,
-  }) async =>
-      null;
+  }) {
+    askJsonCalls.add((system: system, user: user));
+    return onAskJson?.call(system, user) ?? Future.value(null);
+  }
 
   @override
   void stop() => stopCalls++;

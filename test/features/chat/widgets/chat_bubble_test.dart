@@ -6,53 +6,42 @@ import 'package:zhixing_ai/features/chat/widgets/chat_bubble.dart';
 /// ChatBubble 组件的 Widget 测试
 ///
 /// ChatBubble 根据消息角色（AI 还是用户）调整对齐方向和颜色：
-/// - AI（左对齐、白色背景）：像对方在说话
-/// - 用户（右对齐、绿色背景）：像自己发出的消息
-///
-/// 这是微信/Telegram 等聊天应用的通用 UI 模式。
+/// - AI（左对齐、白色背景）：像对方在说话，内容经 MarkdownMessageView 渲染
+/// - 用户（右对齐、绿色背景）：像自己发出的消息，纯文本
 void main() {
-  // ============================================================
-  // 测试 1：AI 消息的气泡应显示内容
-  // ============================================================
-  testWidgets('AI 消息的气泡正确显示文字内容', (tester) async {
-    // 准备：一条 AI 发出的欢迎消息
-    const msg = ChatMessage(
-      role: MessageRole.ai,
-      content: '你好，你想聊什么？',
-      round: 1,
-    );
-
-    // 渲染
+  // 两种角色的内容渲染差异（AI 走 Markdown → 文字在 RichText 内，
+  // 须 findRichText: true；用户为纯文本）——合并为一个用例，避免重复的
+  // 「存在即通过」断言。
+  testWidgets('按角色渲染消息内容：AI 走 Markdown、用户为纯文本', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(body: ChatBubble(message: msg)),
+        home: Scaffold(
+          body: ChatBubble(
+            message: ChatMessage(
+              role: MessageRole.ai,
+              content: '你好，你想聊什么？',
+              round: 1,
+            ),
+          ),
+        ),
       ),
     );
-
-    // 断言：消息文字可见（AI 消息经 MarkdownMessageView 渲染，文字在
-    // Markdown 的 RichText 内，须 findRichText: true 才能匹配）
     expect(find.textContaining('你好，你想聊什么？', findRichText: true),
         findsOneWidget);
-  });
-
-  // ============================================================
-  // 测试 2：用户消息的气泡应显示内容
-  // ============================================================
-  testWidgets('用户消息的气泡正确显示文字内容', (tester) async {
-    // 准备：一条用户发出的消息
-    const msg = ChatMessage(
-      role: MessageRole.user,
-      content: '我想聊聊职业发展',
-      round: 1,
-    );
 
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(body: ChatBubble(message: msg)),
+        home: Scaffold(
+          body: ChatBubble(
+            message: ChatMessage(
+              role: MessageRole.user,
+              content: '我想聊聊职业发展',
+              round: 1,
+            ),
+          ),
+        ),
       ),
     );
-
-    // 断言：消息文字可见
     expect(find.text('我想聊聊职业发展'), findsOneWidget);
   });
 }

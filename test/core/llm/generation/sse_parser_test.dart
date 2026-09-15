@@ -56,13 +56,6 @@ void main() {
     expect(out, ['{"delta":"你"}']);
   });
 
-  test('8. 注释行被忽略', () {
-    final buf = SseBuffer();
-    final out = buf.feed(': keep-alive\n\ndata: {"delta":"你"}\n\n');
-    expect(out, ['{"delta":"你"}']);
-    expect(buf.done, isFalse);
-  });
-
   test('9. data: 后无空格 → 仍解析', () {
     final buf = SseBuffer();
     final out = buf.feed('data:{"delta":"你"}\n\n');
@@ -84,10 +77,12 @@ void main() {
     expect(out, ['A\nB']);
   });
 
-  test('12. CRLF 容忍：\\r\\n\\r\\n 分割', () {
-    final buf = SseBuffer();
-    final out = buf.feed('data: {"delta":"你"}\r\n\r\n');
-    expect(out, ['{"delta":"你"}']);
+  test('12. CRLF 容忍：纯 CRLF 与 CRLF/LF 混用', () {
+    final pure = SseBuffer();
+    expect(pure.feed('data: {"delta":"你"}\r\n\r\n'), ['{"delta":"你"}']);
+
+    final mixed = SseBuffer();
+    expect(mixed.feed('data: X\r\n\ndata: Y\n\n'), ['X', 'Y']);
   });
 
   test('13. 空载荷 data:（无内容）→ 跳过，不返回空串', () {
@@ -103,17 +98,17 @@ void main() {
     expect(buf.done, isFalse);
   });
 
-  test('15. 混合 CRLF 与 LF 容错', () {
-    final buf = SseBuffer();
-    final out = buf.feed('data: X\r\n\ndata: Y\n\n');
-    expect(out, ['X', 'Y']);
-  });
+  test('15. 注释与空白帧被忽略，不贡献载荷', () {
+    // 杂注行夹在真实帧之间：忽略它、后续帧照常解析
+    final keepAlive = SseBuffer();
+    expect(keepAlive.feed(': keep-alive\n\ndata: {"delta":"你"}\n\n'),
+        ['{"delta":"你"}']);
+    expect(keepAlive.done, isFalse);
 
-  test('16. 帧内仅注释/空白 → 不贡献载荷', () {
-    final buf = SseBuffer();
-    final out = buf.feed(': c1\n: c2\n\n');
-    expect(out, isEmpty);
-    expect(buf.done, isFalse);
+    // 整帧只有注释/空白：不产出载荷
+    final onlyComments = SseBuffer();
+    expect(onlyComments.feed(': c1\n: c2\n\n'), isEmpty);
+    expect(onlyComments.done, isFalse);
   });
 
   test('17. \\r 恰好落在 chunk 边界 → 不产生幻影帧', () {
