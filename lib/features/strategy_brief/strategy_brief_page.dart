@@ -436,57 +436,98 @@ class _StrategyBriefPageState extends State<StrategyBriefPage> {
                       Border.all(color: const Color(0xFFE6DDCE), width: 1),
                 ),
                 padding: const EdgeInsets.all(14),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppTheme.accent.withAlpha(30),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.lightbulb_rounded,
-                          size: 18, color: AppTheme.accent),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(pattern.label,
-                              style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          Text(pattern.description,
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.textSecondary)),
-                        ],
-                      ),
-                    ),
-                    if (state.deletedInsights.contains(entry.key))
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.textSecondary.withAlpha(15),
-                          borderRadius: BorderRadius.circular(4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppTheme.accent.withAlpha(30),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.lightbulb_rounded,
+                              size: 18, color: AppTheme.accent),
                         ),
-                        child: const Text('已删除',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: AppTheme.textSecondary)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(pattern.label,
+                                  style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text(pattern.description,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (state.confirmedInsights.contains(entry.key))
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withAlpha(15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('已添加',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.primary)),
+                          ),
+                        ],
+                      )
+                    else if (state.ignoredInsights.contains(entry.key))
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.textSecondary.withAlpha(15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('已忽略',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary)),
+                          ),
+                        ],
                       )
                     else
-                      IconButton(
-                        icon: const Icon(Icons.close,
-                            size: 18, color: AppTheme.textSecondary),
-                        onPressed: () =>
-                            _provider.deleteInsight(entry.key),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () =>
+                                _provider.ignoreInsight(entry.key),
+                            child: const Text('忽略',
+                                style: TextStyle(
+                                    color: AppTheme.textSecondary)),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () =>
+                                _provider.confirmInsight(entry.key),
+                            child: const Text('保留'),
+                          ),
+                        ],
                       ),
                   ],
                 ),

@@ -55,6 +55,18 @@ class ChatProvider extends ChangeNotifier {
   int? get activeConversationId => _activeConversationId;
   ConversationService get conversationService => _conversationService;
 
+  /// 会话身份令牌：新会话（无 conversation id）时用它区分「又一个新会话」。
+  final Object _sessionToken = Object();
+
+  /// 传给门面的会话标识——门面据此在换会话时重置压缩状态（摘要 + 游标）。
+  ///
+  /// 同一实例内稳定：恢复会话用会话 id；新会话在 [startConversation] 建库后
+  /// 取到 id 再求值，故首次求值即拿到真实 id（late 首次访问发生在
+  /// [sendMessage] 的 `converse` 调用点，晚于建库）。
+  late final String _sessionId = _activeConversationId != null
+      ? 'conv:$_activeConversationId'
+      : 'new:${identityHashCode(_sessionToken)}';
+
   Future<void> startConversation() async {
     _activeConversationId = await _conversationService.createConversation(_topic);
   }
@@ -140,6 +152,7 @@ class ChatProvider extends ChangeNotifier {
         _gateway.converse(
           history,
           systemPrompt: _strategy.buildSystemPrompt(existingGoals: _activeGoals),
+          sessionId: _sessionId,
         ),
         aiMessageIndex,
       );

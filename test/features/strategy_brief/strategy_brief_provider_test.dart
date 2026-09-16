@@ -30,6 +30,9 @@ class _FakeDashboardRepository extends DashboardRepository {
   /// 置为非 null 时 `getAllGoals` 抛错（模拟 DB 不可用）。
   Object? throwOnGetAllGoals;
 
+  /// 置为非 null 时 `getCrossPatternByLabel` 命中（模拟库中已有同名洞察）。
+  CrossPattern? existingPattern;
+
   final List<Goal> insertedGoals = [];
   final List<Strategy> insertedStrategies = [];
   final List<CrossPattern> insertedPatterns = [];
@@ -61,7 +64,8 @@ class _FakeDashboardRepository extends DashboardRepository {
   }
 
   @override
-  Future<CrossPattern?> getCrossPatternByLabel(String label) async => null;
+  Future<CrossPattern?> getCrossPatternByLabel(String label) async =>
+      existingPattern;
 
   @override
   Future<int> insertCrossPattern(CrossPattern pattern) async {
@@ -210,13 +214,12 @@ void main() {
       // 新目标标题回写话题
       expect(conv.topicUpdates, ['准备面试']);
 
-      // 洞察落库（本次无同名旧洞察 → 新建）
-      expect(repo.insertedPatterns.single.label, '临期冲刺');
-      expect(repo.updatedPatterns, isEmpty);
-
-      // 提取阶段不写目标/策略表（待用户确认）
+      // 提取阶段不写 Dashboard 任何表：目标/策略/洞察一律待用户确认
+      // （洞察曾例外——提取即入库，导致页面上的「删除」删不掉、首页照旧显示）
       expect(repo.insertedGoals, isEmpty);
       expect(repo.insertedStrategies, isEmpty);
+      expect(repo.insertedPatterns, isEmpty);
+      expect(repo.updatedPatterns, isEmpty);
     });
 
     test('用户消息不足 2 条：不调 LLM，但仍写 extracted:false 并收尾', () async {
@@ -359,6 +362,64 @@ void main() {
 
       final restored = jsonDecode(conv.extractionWrites.single) as Map;
       expect(restored['_c_ng'], [0]);
+    });
+
+    test('确认洞察：新建入库，来源会话计入 sourceConvIds（frequency 随之）',
+        () async {
+      final provider = await extracted();
+
+      provider.confirmInsight(0);
+      await pumpEventQueue();
+
+      final pattern = repo.insertedPatterns.single;
+      expect(pattern.label, '临期冲刺');
+      expect(pattern.sourceConvIds, [1]); // 本会话 id=1
+      expect(pattern.frequency, 1);
+      expect(provider.state.confirmedInsights, {0});
+    });
+
+    test('确认洞察（库中已有同名）：并入本次会话来源，不新建', () async {
+      final provider = await extracted();
+      repo.existingPattern = CrossPattern(
+        id: 9,
+        label: '临期冲刺',
+        description: '旧描述',
+        sourceConvIds: const [3],
+        frequency: 1,
+        detectedAt: DateTime(2026, 9, 1),
+      );
+
+      provider.confirmInsight(0);
+      await pumpEventQueue();
+
+      expect(repo.insertedPatterns, isEmpty);
+      final updated = repo.updatedPatterns.single;
+      expect(updated.sourceConvIds, [3, 1]);
+      expect(updated.frequency, 2); // = 来源会话数
+    });
+
+    test('忽略洞察：不落库，仅本地标记（首页不会出现）', () async {
+      final provider = await extracted();
+
+      provider.ignoreInsight(0);
+      await pumpEventQueue();
+
+      expect(repo.insertedPatterns, isEmpty);
+      expect(repo.updatedPatterns, isEmpty);
+      expect(provider.state.ignoredInsights, {0});
+    });
+
+    test('洞察确认状态回写 extraction_json（_c_ip / _i_ip），再次进入可恢复',
+        () async {
+      final provider = await extracted();
+      conv.extractionWrites.clear();
+
+      provider.confirmInsight(0);
+      await pumpEventQueue();
+
+      final restored = jsonDecode(conv.extractionWrites.single) as Map;
+      expect(restored['_c_ip'], [0]);
+      expect(restored['_i_ip'], isEmpty);
     });
   });
 }

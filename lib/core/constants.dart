@@ -14,6 +14,16 @@ class AppConstants {
   static const int localContextSize = 8192;
 
   /// 端侧单次生成 token 上限
+  ///
+  /// ⚠️ 该额度由「思考段」与「可见正文」**共用**——思考越长，正文越短，
+  /// 触顶即「写到一半停住」。成因是 llama.cpp 的 ChatML 渲染按
+  /// `<|start_header_id|>` / `<|im_start|>` 子串路由，**整段绕过 Qwen 的 Jinja
+  /// 模板**（见依赖 `llama_cpp_dart` 的 `known_templates.dart` 注释）：官方
+  /// `enable_thinking` 开关与非思考模式的空思考块都不会被注入，模型处于
+  /// 「无引导」状态、可能自发思考。
+  ///
+  /// **不要靠加大本值规避**：这只把触顶推后，不改变「思考侵占正文」的事实。
+  /// 占比由 `LocalGeneration` 的日志观测（思考字数 / 正文字数 / 首字延迟）。
   static const int localMaxTokens = 2048;
 
   /// 端侧输入安全余量：chat template 包装开销 + token 估算误差

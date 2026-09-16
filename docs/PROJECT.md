@@ -48,9 +48,9 @@
 │  StrategyBriefPage 三区：                                         │
 │    🎯 新目标        — [确认]/[忽略]，点击即生效无弹窗               │
 │    🔄 已有目标变更   — [确认]/[忽略]，点击→二级页查看策略            │
-│    💡 洞察          — [删除]                                      │
+│    💡 洞察          — [保留]/[忽略]，点击即生效无弹窗               │
 │                                                                  │
-│  未操作条目 → 保留 proposed，Dashboard 仍可见                       │
+│  未操作条目 → 不落库，Dashboard 不可见（三类一律确认后才写入）        │
 │  策略查看 → 点击目标行箭头跳二级页                                  │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
@@ -123,10 +123,10 @@ Dashboard 三区对应：
 |------|:--:|------|
 | Brief 页 新目标确认 | 点击即生效 | 对话刚结束，内容热乎，非意外操作 |
 | Brief 页 状态变更确认 | 点击即生效 | 同上 |
-| Brief 页 未操作条目 | 保留 proposed | 不丢弃用户数据 |
+| Brief 页 未操作条目 | 不落库 | 提取结果留档 extraction_json，再次进入可继续确认 |
 | Dashboard 目标状态切换 | 弹窗二次确认 | 单独操作，可能误触 |
 | Dashboard 策略勾选 | 弹窗二次确认 | 关键操作 |
-| 洞察删除 | 直接删除 | 非关键操作 |
+| 洞察忽略 / 保留 | 点击即生效 | 非关键操作 |
 
 ### 级联规则
 
@@ -408,16 +408,16 @@ StrategyBriefPage → StrategyBriefProvider（进入页面即触发）
   │           ├── new_goals: status=proposed（不直接 active）
   │           ├── goal_updates: 仅建议，不自动改 DB
   │           ├── strategies: 附属于目标
-  │           └── cross_patterns: 洞察（同 label 则 frequency+1）
+  │           └── cross_patterns: 洞察（确认后才入库；同 label 并入来源会话）
   │
   ├── 4) _saveExtractionAndComplete：
   │      写 extraction_json → ConversationService.finishConversation()
   │      （标记 status = 'completed'）
   │
   └── 5) 用户逐条确认/忽略（点击即生效，无弹窗）
-         ├── 确认 → proposed → active
-         ├── 忽略 → 丢弃
-         └── 未操作 → 保留 proposed
+         ├── 确认 → 写入 DB（新目标置 active / 洞察入库）
+         ├── 忽略 → 丢弃，不落库
+         └── 未操作 → 不落库（三类内容一律确认后才写 Dashboard）
 ```
 
 ### 全局面板加载
@@ -495,6 +495,23 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 - entitlement 对应：`files.absolute-path.read-only`（读项目外模型）/ `network.client`（出站）/ `network.server`（入站）。
 - 注意：`curl` 能通 ≠ App 内能通。
 
+**对话链路诊断日志**
+
+端侧推理链路每个阶段打一行 `AppLogger` 诊断（release 静默）。排查「不出字 / 出到一半停住 / 答非所问」时按顺序读这四行：
+
+| 行 | 位置 | 关键字段 |
+|---|---|---|
+| `装配[...]` | `ModelGateway.converse` | 窗口条数 · 用量/预算(%) · 摘要长度 · 游标 k · **本轮挤出**（>0 = 本轮刚触发压缩） |
+| `摘要完成` | `AskSummarizer` | 挤出条数 → 输出字数 · **耗时**（端侧摘要是一次完整推理，可占满数十秒，是「长时间无输出」的嫌疑之一） |
+| `本轮生成` | `LocalGeneration.deliver` | **首字延迟** · think 字数（**闭合 / 未闭合**）/ 正文字数 · 总耗时 |
+| `生成完成` / `流中断` | `CloudGeneration` | **首帧延迟** · 正文量 · 总耗时 |
+
+判读口径：
+
+- 首字延迟大 + think **未闭合** → 生成上限被思考吃满（成因见 `AppConstants.localMaxTokens` 注释）；该情形另有 `思考段未闭合即结束` warn。
+- 装配「用量/预算」接近 100% → 已抵压缩线，下一轮大概率挤出并触发摘要。
+- 云端 `帧间空闲超时` 挂在响应体字节流上，**请求发出到首帧之间的空等同样计入**，故长 prompt 首帧偏慢时会整体超时——看首帧实际耗时即可确认。
+
 ---
 
 ## 十、设计决策
@@ -509,10 +526,11 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | 目标生成 | AI 提议（proposed）→ 用户确认 → active；不可隐式生成 |
 | 目标去重 | 对话时人设注入已有目标列表 → 助手检测重叠并**建议**合并（提示词行为，非代码自动合并）；提取回写阶段 `matchGoal` 按 goalId 优先、title 回退映射到已有目标（`strategy_brief_provider.dart`），不新建重复项；`sourceConvIds` 目前仅用于展示「来自 N 次对话」 |
 | 生成层 | `ChatGeneration` 接口双实现（`core/llm/generation/`）：`LocalGeneration`（无状态重放——每轮 `clear()` + 按装配结果全量重放；唯一 llama SDK 依赖点兼测试接缝 `ChatSession` 抽象）/ `CloudGeneration`（BYOK 直连 OpenAI 兼容端点 SSE；`prime` 空实现保契约对称）；**两者同构：都无会话状态**；生成只抛类型化信号（`LlmContextOverflowException`），自愈编排在门面 |
-| 上下文管理 | `ContextPolicy` 抽象（`core/context/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位，**实例由门面私有持有**；窗口 = `eligible.sublist(k)` 每轮现算）：`LocalContextPolicy`（token 度量 + 溢出硬收缩 4 条；estimator 由门面注入）/ `CloudContextPolicy`（字符数近似 + 无收缩）；摘要器统一为门面内公开的 `AskSummarizer`（提示词在 `core/context/summary_prompt.dart`，传输走 `Llm.ask`）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`） |
+| 上下文管理 | `ContextPolicy` 抽象（`core/context/context_assembly.dart`，**无状态** + `ContextState` 外置状态：摘要/游标 k/防御位，**实例由门面私有持有**；窗口 = `eligible.sublist(k)` 每轮现算）：`LocalContextPolicy`（token 度量 + 溢出自愈按预算硬收缩：自 4 条起逐条递减，保底 1 条；estimator 由门面注入）/ `CloudContextPolicy`（字符数近似 + 无收缩）；摘要器统一为门面内公开的 `AskSummarizer`（提示词在 `core/context/summary_prompt.dart`，传输走 `Llm.ask`）；过滤/装窗/溢出契约为共享同一段代码（`BaseContextPolicy`）。状态作废两条路径：**模式切换** → `resetWindow`（保摘要，只清游标与记账）；**会话切换** → `reset`（摘要与游标一并作废，见 `converse` 的 `sessionId`） |
+| 端侧生成额度 | 2048 token 由**思考段与可见正文共用**（触顶即「写到一半停住」）。成因在引导层：llama.cpp 的 ChatML 渲染按 `<\|im_start\|>` 子串路由，整段绕过 Qwen 的 Jinja 模板——官方 `enable_thinking` 开关与非思考模式的空思考块都不会被注入，模型处于「无引导」状态、可能自发思考。**额度不用于规避该缺陷**（调大只把触顶推后），占用比由诊断日志观测 |
 | 端侧 KV 复用 | **暂不采纳**（登记为后续候选）：包便捷层 `EngineChat` 每轮 `session.clear()` + 全量 re-prefill，跨轮复用不存在；能力可由公开的 `EngineSession`/`LlamaSession` 自管获得，但受「前缀须逐 token 一致 / KV 缓存独占（seqId）/ 缓存持续累积」三条硬约束，且**压缩事件本身即缓存失效点**。结论、证据与 spike 方案见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` |
 | 端侧消息列表真相源 | **已采纳：无状态重放**（2026-09-11 实施，2026-09-12 迁至生成层）。唯一真相源 = `ChatProvider._messages`；`ChatSession` 不再持有权威副本——每轮 `generate()` 恒为 `clear()` → `addSystem(人设)` → `[addSystem(摘要卡)]` → 按装配结果**全量重放** → `generate()`（`core/llm/generation/local_generation.dart` 的 `_syncSession`）。全生命周期只有 **1 个** `ChatSession` 实例。**不变量**：①引擎内消息列表 ≡ 人设 + 摘要卡 + 装配结果（逐字）；②assistant 条目均为 strip 后正文；③生成层不持消息列表；④不得再引入依赖「引擎状态与我方索引对齐」的机制。行为变更：模型不再看到自身历史 think（与云端对齐）；token 预算估算变准 → `context full` 显著减少。依据见 `docs/notes/2026-09-11/local-kv-reuse-feasibility.md` §10–§11 |
-| 大模型服务分层 | **v2 已实施**（2026-09-14，T1–T7 全部落地：T6 文档同步、T7 目录重组与改名；偏差②已收口为 `truncateForAsk`，2026-09-15；v1 见 `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`）。**业务唯一门面 = `ModelGateway`**（`core/model_gateway.dart`）：对话面有状态（私有持 `ContextState`，编排装配 → 生成 → 溢出自愈；摘要统一走 `llm.ask`；模式切换 `resetWindow` 保摘要清游标）+ 补全面（`ask/askJson/stop/readiness` 一行透传，另有 `truncateForAsk` 做单次输入截断；预算守门 fail-fast，超限抛 `GatewayInputOverflowException`，不截断不自愈）。`Llm` 降为基建接缝（业务禁止 import），`LlmService` 收敛为：单一模式解析点 + `mode` 模式源注入 + `activeModelPath` 模型源注入（模型路径不再走全局常量）+ 生命周期（延迟释放防抖）+ 生成工厂 `deliveryFor`（池化与 BYOK 指纹重建）。守门落在补全唯一通道（`LlmService.ask`），askJson 经透传自动覆盖。设计见 `docs/plans/2026-09-14-model-gateway-facade-{design,plan}.md` |
+| 大模型服务分层 | **v2 已实施**（2026-09-14，T1–T7 全部落地：T6 文档同步、T7 目录重组与改名；偏差②已收口为 `truncateForAsk`，2026-09-15；v1 见 `docs/plans/2026-09-12-llm-service-layering-{design,plan}.md`）。**业务唯一门面 = `ModelGateway`**（`core/model_gateway.dart`）：对话面有状态（私有持 `ContextState`，编排 会话切换复位 → 装配 → 生成 → 溢出自愈；摘要统一走 `llm.ask`；模式切换 `resetWindow` 保摘要清游标、会话切换（`converse` 的 `sessionId` 变更）`reset` 连摘要一并作废）+ 补全面（`ask/askJson/stop/readiness` 一行透传，另有 `truncateForAsk` 做单次输入截断；预算守门 fail-fast，超限抛 `GatewayInputOverflowException`，不截断不自愈）。`Llm` 降为基建接缝（业务禁止 import），`LlmService` 收敛为：单一模式解析点 + `mode` 模式源注入 + `activeModelPath` 模型源注入（模型路径不再走全局常量）+ 生命周期（延迟释放防抖）+ 生成工厂 `deliveryFor`（池化与 BYOK 指纹重建）。守门落在补全唯一通道（`LlmService.ask`），askJson 经透传自动覆盖。设计见 `docs/plans/2026-09-14-model-gateway-facade-{design,plan}.md` |
 | 实例唯一性 | **组合根统一装配**（`main()`）：需要被替换 / 驱动 UI / 持有需释放资源的实例走 Provider 或构造注入（`ModelGateway` / `ActiveModelManager` / `SyncService`），进程级唯一且无释放需求的基础设施保留 `static final instance`（`SettingsRepository` / `PushService` / `PushSocketService` / `LlamaService`）。保留单例者也**不直连 `.instance`**——依赖走构造注入（如 `SyncService(pushService:, settings:)`、`LlmService(settings:, activeModelPath:)`），唯一性来自「组合根只造一次」而非 static 字段；`ActiveModelManager` 为非单例 `ChangeNotifier`，其 `activeModelPath`（`ValueListenable<String?>`）注入 `LlmService`，取代原全局可变常量 `AppConstants.defaultModelPath` |
 | 云端模型 | BYOK：用户在设置页自带 baseUrl/key/模型名，端侧直连，服务端不参与对话；三项未配齐则云端开关不可开（降级 Mock） |
 | 云端摘要 | 复用同一 BYOK 端点，非流式小请求（max_tokens 512）；预算极大（60k 字符）故实践中基本不触发，机制作超长对话兜底 |
@@ -539,6 +557,7 @@ DashboardProvider 数据变更时（目标新增/策略完成/状态变更）：
 | v2.3 | 2026-09-14 | ModelGateway 门面重构：业务唯一门面改为 `ModelGateway`（对话面持状态编排 / 补全面透传 + 预算守门），`Llm` 降为基建接缝、`ContextState` 收进门面，ask 输入超预算 fail-fast |
 | v2.4 | 2026-09-15 | 目录重组与命名收口：`core/context` 独立成域（零 llm 依赖）、`core/llm` 分 `generation`/`single_shot`/`engine` 三桶（delivery→generation、completion→single_shot、ChatDelivery→ChatGeneration）；单次补全截断收口门面 `truncateForAsk`，业务对两域内件零直连 |
 | v2.5 | 2026-09-15 | 全局状态与单例收口：`ActiveModelManager` 去单例（组合根构造 + Provider 树，暴露 `activeModelPath` 源）；删全局可变常量 `AppConstants.defaultModelPath`；`LlamaService.ensureReady/release` 的模型路径改必传；token 估算抽为纯函数 `engine/token_estimator.dart`；`SyncService` 去单例并删死代码 `static enabled`；`PushService` 统一为 `static final instance` 写法 |
+| v2.6 | 2026-09-16 | 洞察改「确认后入库」（与目标/策略同语义，修掉洞察提取即入库、页面删除删不掉 DB 的缺陷；标记 `_d_ip` → `_c_ip`/`_i_ip`，`frequency` 与 `sourceConvIds` 对齐为「来源会话数」，首页「跨 N 次对话发现」恢复显示）；`ModelGateway.converse` 增 `sessionId`，会话切换整体重置压缩状态（此前仅靠「历史变短/游标越界」兜底，换更长的会话会串摘要）；端侧链路诊断打点（装配 / 摘要 / 生成 / 云端各一诊断行） |
 
 **仓库内文档**：`docs/PROJECT.md`（本文件，活文档）+ `docs/plans/`（按日期归档的设计与计划）+ `docs/notes/2026-09-11/`（端侧 KV 复用技术评估）。
 

@@ -23,9 +23,13 @@ class FakeLlm implements Llm {
   /// 由 [FakeGateway.converse] 消费。
   Stream<String> Function(List<ChatMessage> history)? onConverse;
 
-  /// 每轮对话的入参快照（历史 / 人设）。由 [FakeGateway.converse] 写入。
-  final List<({List<ChatMessage> history, String systemPrompt})>
-      converseCalls = [];
+  /// 每轮对话的入参快照（历史 / 人设 / 会话标识）。由 [FakeGateway.converse] 写入。
+  final List<
+      ({
+        List<ChatMessage> history,
+        String systemPrompt,
+        String? sessionId,
+      })> converseCalls = [];
 
   /// 脚本化「单次 JSON 补全」返回值（提取链路用）。缺省 null（= 无内容）。
   Future<Map<String, dynamic>?> Function(String system, String user)?
@@ -91,8 +95,10 @@ class FakeGateway implements ModelGateway {
   Stream<String> converse(
     List<ChatMessage> history, {
     required String systemPrompt,
+    String? sessionId,
   }) {
-    llm.converseCalls.add((history: history, systemPrompt: systemPrompt));
+    llm.converseCalls.add(
+        (history: history, systemPrompt: systemPrompt, sessionId: sessionId));
     return llm.onConverse?.call(history) ?? const Stream.empty();
   }
 

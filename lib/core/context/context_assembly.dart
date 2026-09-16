@@ -34,14 +34,33 @@ class AssembledContext {
   /// system 消息注入）；null 表示本会话尚无摘要。
   final String? summaryCard;
 
+  /// 本次装配的总估算代价（人设 + 摘要卡 + 窗口消息），单位随策略度量。
+  ///
+  /// **诊断量**（不参与交付逻辑）：与 [budget] 一起构成「离爆窗多远」的
+  /// 唯一指标——只知道窗口条数无法判断余量，排查上下文类问题必须先有这个数。
+  final int estimatedCost;
+
+  /// 本次装配使用的输入预算（与 [estimatedCost] 同度量单位）。
+  final int budget;
+
+  /// 本轮被挤出窗口的消息条数（>0 即本轮触发了压缩）。
+  ///
+  /// 与 `state.k`（累计挤出）不同，它是**本轮增量**：压缩是突发行为，
+  /// 只看累计游标看不出「这一轮为什么卡」。
+  final int evictedCount;
+
   const AssembledContext({
     required this.messages,
     this.summaryCard,
+    this.estimatedCost = 0,
+    this.budget = 0,
+    this.evictedCount = 0,
   });
 
   @override
   String toString() => 'AssembledContext(messages: ${messages.length}, '
-      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'})';
+      'summaryCard: ${summaryCard == null ? 'none' : '${summaryCard!.length}字'}, '
+      'cost: $estimatedCost/$budget, evicted: $evictedCount)';
 }
 
 /// 上下文策略：对话历史 → 实际发送的消息。
@@ -258,6 +277,9 @@ abstract class BaseContextPolicy implements ContextPolicy {
     return AssembledContext(
       messages: List.unmodifiable(pack.kept),
       summaryCard: _card(state.summary),
+      estimatedCost: pack.used,
+      budget: budget,
+      evictedCount: pack.evicted.length,
     );
   }
 

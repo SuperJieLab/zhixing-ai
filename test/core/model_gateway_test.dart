@@ -244,6 +244,39 @@ void main() {
       expect(policy.lastState!.summary, '旧摘要正文'); // 摘要跨模式保留
     });
 
+    test('会话切换：压缩状态整体作废（摘要与游标都只属于上一个会话）', () async {
+      var assembleCalls = 0;
+      policy.onAssemble = (state) {
+        // 只在首轮模拟真实策略的挤出 + 摘要写入，后续轮不动状态——
+        // 这样「换会话后状态归零」才是网关 reset 的功劳，而非装配重设。
+        if (assembleCalls++ > 0) return;
+        state.k = 3;
+        state.lastEligibleLength = 5;
+        state.summary = '上个会话的摘要';
+      };
+
+      await gateway
+          .converse([user('a')], systemPrompt: 's', sessionId: 'conv:1')
+          .toList();
+      expect(policy.lastState!.k, 3);
+
+      // 同一会话的下一轮：状态原样保留
+      await gateway
+          .converse([user('b')], systemPrompt: 's', sessionId: 'conv:1')
+          .toList();
+      expect(policy.lastState!.k, 3);
+      expect(policy.lastState!.summary, '上个会话的摘要');
+
+      // 换会话 → 游标与摘要一并清零（旧摘要注入新会话 = 上下文张冠李戴）
+      await gateway
+          .converse([user('c')], systemPrompt: 's', sessionId: 'conv:2')
+          .toList();
+      expect(policy.lastState!.k, 0);
+      expect(policy.lastState!.lastEligibleLength, 0);
+      expect(policy.lastState!.pendingForceKeep, isNull);
+      expect(policy.lastState!.summary, isEmpty);
+    });
+
     test('策略按模式现选：工厂收到当前模式值', () async {
       final seenModes = <ChatMode>[];
       final gateway2 = ModelGateway(
@@ -311,11 +344,9 @@ void main() {
     });
 
     test('minKeep: 0 时单条即超预算 → 保留 0 条（单次提取语义）', () {
-      // 'm'×30000 ≈ 7500 token，单条即超 localInputBudget（5760）
-      final kept = gateway.truncateForAsk(
-        [user('m' * 30000)],
-        system: 's',
-      );
+      // 字符数按预算 4 倍取（'m' 计 0.25 token/字符）→ 单条即超 localInputBudget
+      final oversize = 'm' * (AppConstants.localInputBudget * 4 + 100);
+      final kept = gateway.truncateForAsk([user(oversize)], system: 's');
       expect(kept, isEmpty);
     });
 

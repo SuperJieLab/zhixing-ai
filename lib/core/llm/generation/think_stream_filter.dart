@@ -10,6 +10,22 @@ class ThinkStreamFilter {
   bool _passedThink = false;
   bool _suppressWhitespace = false;
 
+  /// 被吞掉的思考段字符数（**仅观测用**）。
+  ///
+  /// 端侧额度被思考侵占时的唯一可见指标：llama.cpp 的 ChatML 渲染绕过了
+  /// Qwen 模板的 `enable_thinking` 开关（见 `AppConstants.localMaxTokens`），
+  /// 模型可能自发思考，思考越长正文越短——日志里比对两者即可判断。
+  int _thinkChars = 0;
+
+  int get thinkChars => _thinkChars;
+
+  /// think 段是否已闭合（**观测用**）。
+  ///
+  /// 与 [thinkChars] 合看即可区分三种收尾：无思考（0 字 + 未闭合）、
+  /// 思考正常结束（N 字 + 闭合）、思考**被生成上限截断**（N 字 + 未闭合，
+  /// 此时 [flush] 会把思考残段当正文兜底发出——「答非所问」的来源）。
+  bool get passedThink => _passedThink;
+
   /// 喂入一个 token，返回需要对外发出的文本（无需发出时为 null）。
   String? push(String token) {
     // ③ 正文透传：token 必须同步写 buffer，flush 兜底依赖其完整性。
@@ -31,6 +47,7 @@ class ThinkStreamFilter {
 
     // ① think 未闭合：缓冲并探测闭合标签
     _buffer.write(token);
+    _thinkChars += token.length;
     final text = _buffer.toString();
     final closeIdx = _indexOfThinkClose(text);
     if (closeIdx < 0) return null;

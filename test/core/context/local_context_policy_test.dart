@@ -159,4 +159,66 @@ void main() {
       expect(ctx.messages.single.content, '正常长度的问题');
     });
   });
+
+  // 诊断量是排查「离爆窗多远 / 本轮是否压缩」的唯一依据，漏填不会影响
+  // 对话行为，只让日志变成哑的——故必须锁住契约。
+  group('AssembledContext 诊断量', () {
+    test('预算内装配：用量 = 人设 + 窗口消息估算，无挤出', () async {
+      final estimator = LlamaTemplateEstimator();
+      final policy = LocalContextPolicy(estimator: estimator, budget: 5000);
+      final messages = [_user('问题一'), _user('问题二')];
+
+      final ctx = await policy.assemble(messages,
+          state: ContextState(), systemPrompt: '人设');
+
+      expect(ctx.budget, 5000);
+      expect(
+        ctx.estimatedCost,
+        estimator.estimateText('人设') + estimator.estimateMessages(messages),
+      );
+      expect(ctx.evictedCount, 0);
+    });
+
+    test('触发压缩：挤出量报本轮增量，与游标累计值区分', () async {
+      // 统一长度（15 字 ≈ 38 token/条）：预算 100 恰好装 2 条、装不下 3 条
+      String msg(int i) => '这是一条比较长的用户消息内容$i';
+      final policy = LocalContextPolicy(
+        estimator: LlamaTemplateEstimator(),
+        budget: 100,
+        summarizer: _EchoSummarizer(),
+      );
+      final state = ContextState();
+      final history = [msg(1), msg(2), msg(3), msg(4)].map(_user).toList();
+
+      final ctx = await policy.assemble(history, state: state);
+
+      expect(ctx.evictedCount, 2); // 本轮挤出 2 条
+      expect(state.k, 2); // 累计游标同步前移
+      expect(ctx.summaryCard, isNotNull);
+
+      // 再走一轮：evictedCount 只报本轮，游标是累计
+      final next =
+          await policy.assemble([...history, _user(msg(5))], state: state);
+      expect(state.k, 2 + next.evictedCount);
+    });
+
+    test('溢出自愈路径：挤出量记录硬收缩条数', () async {
+      final policy =
+          LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 5000);
+      final state = ContextState()..pendingForceKeep = 4;
+
+      final ctx = await policy.assemble([
+        _user('短问题一'),
+        _user('短问题二'),
+        _user('短问题三'),
+        _user('短问题四'),
+        _user('短问题五'),
+        _user('短问题六'),
+      ], state: state);
+
+      expect(ctx.messages.length, 4); // 硬留最后 4 条
+      expect(ctx.evictedCount, 2);
+      expect(state.k, 2);
+    });
+  });
 }

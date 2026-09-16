@@ -13,7 +13,10 @@ import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart
 /// 管理 StrategyBriefPage 的完整流程：
 ///   1. [extract] → 加载缓存 或 调 LLM 提取目标/策略/洞察
 ///   2. 提取结果自动保存到 conversation.extractionJson（防重复提取）
-///   3. 用户确认/忽略 → 写入 DB（goal/strategy）或缓存状态（_c_ng 等标记）
+///   3. 用户确认/忽略 → 写入 DB（goal/strategy/cross_pattern）或缓存状态
+///      （`_c_ng` / `_c_ip` 等标记）；**三类内容一律确认才落库**，提取阶段
+///      不写 Dashboard 任何表（洞察曾例外——提取即入库，导致页面「删除」
+///      删不掉，首页照旧显示）
 ///   4. 确认状态持久化到 extraction_json，再次进入时自动恢复
 ///
 /// 数据流：Extractor → extraction_json 缓存 → 用户确认 → Dashboard DB
@@ -36,7 +39,8 @@ class StrategyBriefState {
   final Set<int> ignoredNewGoals;
   final Set<int> confirmedGoalUpdates;
   final Set<int> ignoredGoalUpdates;
-  final Set<int> deletedInsights;
+  final Set<int> confirmedInsights;
+  final Set<int> ignoredInsights;
 
   StrategyBriefState({
     this.status = BriefStatus.loading,
@@ -47,7 +51,8 @@ class StrategyBriefState {
     this.ignoredNewGoals = const {},
     this.confirmedGoalUpdates = const {},
     this.ignoredGoalUpdates = const {},
-    this.deletedInsights = const {},
+    this.confirmedInsights = const {},
+    this.ignoredInsights = const {},
   });
 
   StrategyBriefState copyWith({
@@ -59,7 +64,8 @@ class StrategyBriefState {
     Set<int>? ignoredNewGoals,
     Set<int>? confirmedGoalUpdates,
     Set<int>? ignoredGoalUpdates,
-    Set<int>? deletedInsights,
+    Set<int>? confirmedInsights,
+    Set<int>? ignoredInsights,
   }) {
     return StrategyBriefState(
       status: status ?? this.status,
@@ -70,7 +76,8 @@ class StrategyBriefState {
       ignoredNewGoals: ignoredNewGoals ?? this.ignoredNewGoals,
       confirmedGoalUpdates: confirmedGoalUpdates ?? this.confirmedGoalUpdates,
       ignoredGoalUpdates: ignoredGoalUpdates ?? this.ignoredGoalUpdates,
-      deletedInsights: deletedInsights ?? this.deletedInsights,
+      confirmedInsights: confirmedInsights ?? this.confirmedInsights,
+      ignoredInsights: ignoredInsights ?? this.ignoredInsights,
     );
   }
 }
@@ -138,7 +145,8 @@ class StrategyBriefProvider {
         final ignoredNew = _restoreIndexSet(json, '_i_ng');
         final confirmedUp = _restoreIndexSet(json, '_c_gu');
         final ignoredUp = _restoreIndexSet(json, '_i_gu');
-        final deletedIns = _restoreIndexSet(json, '_d_ip');
+        final confirmedIns = _restoreIndexSet(json, '_c_ip');
+        final ignoredIns = _restoreIndexSet(json, '_i_ip');
 
         if (result.hasContent) {
           _state = StrategyBriefState(
@@ -149,7 +157,8 @@ class StrategyBriefProvider {
             ignoredNewGoals: ignoredNew,
             confirmedGoalUpdates: confirmedUp,
             ignoredGoalUpdates: ignoredUp,
-            deletedInsights: deletedIns,
+            confirmedInsights: confirmedIns,
+            ignoredInsights: ignoredIns,
           );
         } else {
           _state = StrategyBriefState(
@@ -200,8 +209,6 @@ class StrategyBriefProvider {
           _conversation.topic = title;
           await _convService.updateTopic(_conversation.id!, title);
         }
-
-        await _persistCrossPatterns(result);
       }
 
       await _saveExtractionAndComplete(result);
@@ -215,17 +222,32 @@ class StrategyBriefProvider {
     _notify();
   }
 
-  Future<void> _persistCrossPatterns(ExtractionResult result) async {
-    for (final pattern in result.crossPatterns) {
+  /// 洞察入库（确认动作才调用）。
+  ///
+  /// 同名洞察已存在 → 并入本次会话来源、刷新检测时间；否则新建。
+  /// [CrossPattern.frequency] 与 [CrossPattern.sourceConvIds] 同义（= 发现它的
+  /// 会话数），故二者恒等——`CrossPatternCard` 的「跨 N 次对话发现」据此显示。
+  Future<void> _upsertCrossPattern(CrossPattern pattern) async {
+    try {
+      final convId = _conversation.id;
       final existing =
           await _dashboardRepo.getCrossPatternByLabel(pattern.label);
       if (existing != null) {
-        existing.frequency += 1;
+        if (convId != null && !existing.sourceConvIds.contains(convId)) {
+          existing.sourceConvIds = [...existing.sourceConvIds, convId];
+        }
+        existing.frequency =
+            existing.sourceConvIds.isEmpty ? existing.frequency + 1 : existing.sourceConvIds.length;
         existing.detectedAt = DateTime.now();
         await _dashboardRepo.updateCrossPattern(existing);
+        pattern.frequency = existing.frequency;
       } else {
+        pattern.sourceConvIds = convId == null ? const [] : [convId];
+        pattern.frequency = pattern.sourceConvIds.length;
         await _dashboardRepo.insertCrossPattern(pattern);
       }
+    } catch (e) {
+      AppLogger.error('StrategyBriefProvider', '洞察入库失败', e);
     }
   }
 
@@ -252,7 +274,8 @@ class StrategyBriefProvider {
       json['_i_ng'] = _state.ignoredNewGoals.toList();
       json['_c_gu'] = _state.confirmedGoalUpdates.toList();
       json['_i_gu'] = _state.ignoredGoalUpdates.toList();
-      json['_d_ip'] = _state.deletedInsights.toList();
+      json['_c_ip'] = _state.confirmedInsights.toList();
+      json['_i_ip'] = _state.ignoredInsights.toList();
 
       final updated = jsonEncode(json);
       _conversation.extractionJson = updated;
@@ -325,19 +348,28 @@ class StrategyBriefProvider {
     _mark(ignoredGoalUpdate: index);
   }
 
-  void deleteInsight(int index) {
-    _mark(deletedInsight: index);
+  /// 确认洞察 → 入库（**提阶段只展示，用户确认才写**，与目标/策略同语义）。
+  void confirmInsight(int index) {
+    final pattern = _state.extraction?.crossPatterns[index];
+    if (pattern == null) return;
+    _upsertCrossPattern(pattern);
+    _mark(confirmedInsight: index);
+  }
+
+  void ignoreInsight(int index) {
+    _mark(ignoredInsight: index);
   }
 
   /// 标记位并入（显式字段名，无字符串键分发）：改完即通知 + 落缓存。
   ///
-  /// 五类标记互斥使用——每次只传一个 index，其余为 null 表示「该集合不动」。
+  /// 六类标记互斥使用——每次只传一个 index，其余为 null 表示「该集合不动」。
   void _mark({
     int? confirmedNewGoal,
     int? ignoredNewGoal,
     int? confirmedGoalUpdate,
     int? ignoredGoalUpdate,
-    int? deletedInsight,
+    int? confirmedInsight,
+    int? ignoredInsight,
   }) {
     Set<int> merge(Set<int> current, int? index) => {...current, ?index};
 
@@ -347,7 +379,8 @@ class StrategyBriefProvider {
       confirmedGoalUpdates:
           merge(_state.confirmedGoalUpdates, confirmedGoalUpdate),
       ignoredGoalUpdates: merge(_state.ignoredGoalUpdates, ignoredGoalUpdate),
-      deletedInsights: merge(_state.deletedInsights, deletedInsight),
+      confirmedInsights: merge(_state.confirmedInsights, confirmedInsight),
+      ignoredInsights: merge(_state.ignoredInsights, ignoredInsight),
     );
     _notify();
     _saveStateToCache();

@@ -6,6 +6,7 @@ import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
 import 'package:zhixing_ai/core/llm/generation/sse_parser.dart';
+import 'package:zhixing_ai/core/logger.dart';
 
 /// 云端交付实现：BYOK 直连用户配置的 OpenAI 兼容端点（不经过本应用服务端）。
 ///
@@ -117,6 +118,13 @@ class CloudGeneration implements ChatGeneration {
     required String systemPrompt,
     required String? summaryCard,
   }) async {
+    // 首帧延迟与正文量是云端排查的关键：`_frameTimeout` 是**帧间**空闲超时，
+    // 但挂在响应体字节流上，请求发出到首个字节之间的空等**同样计入**——
+    // 长 prompt 首字超过该阈值即整轮超时，故必须能看到首帧实际耗时。
+    final clock = Stopwatch()..start();
+    int? firstFrameMs;
+    var totalChars = 0;
+
     final body = {
       'model': _modelName,
       'messages': [
@@ -141,6 +149,9 @@ class CloudGeneration implements ChatGeneration {
     } on DioException catch (e) {
       // 非 2xx 也走 DioException：带上 status 便于用户定位（401/429/欠费等）。
       final status = e.response?.statusCode;
+      AppLogger.warn('CloudGeneration',
+          '请求失败: HTTP ${status ?? '-'} / ${e.type.name}，'
+          '耗时 ${_sec(clock.elapsedMilliseconds)}');
       _failActive(
         controller,
         Exception('云端 API 请求失败${status != null ? '（HTTP $status）' : ''}'
@@ -170,6 +181,8 @@ class CloudGeneration implements ChatGeneration {
             final json = jsonDecode(data) as Map<String, dynamic>;
             final delta = _extractDelta(json);
             if (delta != null && delta.isNotEmpty) {
+              firstFrameMs ??= clock.elapsedMilliseconds;
+              totalChars += delta.length;
               controller.add(delta);
             }
           }
@@ -180,9 +193,14 @@ class CloudGeneration implements ChatGeneration {
       onError: (Object e) {
         // 超时 / 网络错误：timeout 不取消源订阅，必须显式 cancel 断开连接，
         // 否则 HTTP 连接悬挂到服务端断开为止。
+        AppLogger.warn('CloudGeneration', '流中断${_frameTrace(firstFrameMs, clock)}'
+            '，已收 $totalChars 字 — $e');
         _failActive(controller, e, sub);
       },
       onDone: () {
+        AppLogger.info('CloudGeneration',
+            '生成完成${_frameTrace(firstFrameMs, clock)} · 正文 $totalChars 字'
+            '（帧间空闲超时 ${_frameTimeout.inSeconds}s）');
         controller.close();
         _clearActive();
       },
@@ -202,6 +220,13 @@ class CloudGeneration implements ChatGeneration {
     if (!controller.isClosed) controller.close();
     if (identical(_activeController, controller)) _activeController = null;
   }
+
+  /// 首帧 / 总耗时片段（诊断行共用）。
+  static String _frameTrace(int? firstFrameMs, Stopwatch clock) =>
+      ' · 首帧 ${firstFrameMs == null ? '未收到' : _sec(firstFrameMs)}'
+      ' · 共 ${_sec(clock.elapsedMilliseconds)}';
+
+  static String _sec(int ms) => '${(ms / 1000).toStringAsFixed(1)}s';
 
   /// 取 OpenAI 流式增量：`choices[0].delta.content`。
   /// 缺 choices / delta 只有 role / finish_reason 帧等一律返回 null（跳过）。

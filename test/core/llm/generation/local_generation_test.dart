@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
+import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/data/models/chat_models.dart';
 import 'package:zhixing_ai/core/context/context_assembly.dart';
 import 'package:zhixing_ai/core/llm/generation/generation.dart';
@@ -39,7 +40,7 @@ class _FakeChatSession implements ChatSession {
   void addAssistant(String content) => ops.add('assistant:$content');
 
   @override
-  Stream<String> generate({int maxTokens = 2048}) async* {
+  Stream<String> generate({int maxTokens = AppConstants.localMaxTokens}) async* {
     ops.add('generate:$maxTokens');
     if (throwOnGenerate != null) throw throwOnGenerate!;
     for (final t in tokens) {
@@ -118,7 +119,7 @@ void main() {
           .join();
 
       expect(out, '回复A');
-      expect(session.ops, ['clear', 'system:$_system', 'user:问题1', 'generate:2048']);
+      expect(session.ops, ['clear', 'system:$_system', 'user:问题1', 'generate:${AppConstants.localMaxTokens}']);
     });
 
     test('ensureReady 幂等：全生命周期仅创建一个会话', () async {
@@ -161,7 +162,7 @@ void main() {
       await delivery
           .deliver(_ctx([_user('q1', 1)]), systemPrompt: _system)
           .join();
-      expect(session.ops, ['clear', 'system:$_system', 'user:q1', 'generate:2048']);
+      expect(session.ops, ['clear', 'system:$_system', 'user:q1', 'generate:${AppConstants.localMaxTokens}']);
 
       // 二次调用：历史全量重放（不是只补 diff）
       session.ops.clear();
@@ -177,7 +178,7 @@ void main() {
         'user:q1',
         'assistant:A',
         'user:q2',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
 
       expect(factory.created.length, 1);
@@ -203,7 +204,7 @@ void main() {
         'clear',
         'system:$_system',
         'user:新话',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
 
@@ -223,7 +224,7 @@ void main() {
         'system:$_system',
         'system:$kSummaryCardPrefix\n摘要内容',
         'user:q',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
 
@@ -236,7 +237,7 @@ void main() {
           .deliver(_ctx([_user('', 1), _user('q', 1)]), systemPrompt: _system)
           .join();
 
-      expect(session.ops, ['clear', 'system:$_system', 'user:q', 'generate:2048']);
+      expect(session.ops, ['clear', 'system:$_system', 'user:q', 'generate:${AppConstants.localMaxTokens}']);
     });
 
     test('交付层不做过滤：round==0 也原样重放（过滤归转换段）', () async {
@@ -255,7 +256,7 @@ void main() {
         'system:$_system',
         'assistant:欢迎语',
         'user:q',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
   });
@@ -285,7 +286,7 @@ void main() {
         'user:目标A', // 非尾部 → 不改写
         'assistant:回复A',
         'user:目标A（请从不同的角度回答，不要重复之前的观点）',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
 
@@ -339,7 +340,7 @@ void main() {
         'clear',
         'system:$_system',
         'user:目标A', // 未改写：跨会话窗口已重置
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
   });
@@ -426,7 +427,7 @@ void main() {
         'user:问题1',
         'assistant:部分',
         'user:问题2',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
 
@@ -460,7 +461,7 @@ void main() {
         'user:问题1',
         'assistant:$kLlmFailureReply',
         'user:问题2',
-        'generate:2048',
+        'generate:${AppConstants.localMaxTokens}',
       ]);
     });
   });

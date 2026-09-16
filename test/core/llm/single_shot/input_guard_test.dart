@@ -7,6 +7,11 @@ import 'package:zhixing_ai/core/llm/llm_service.dart';
 import 'package:zhixing_ai/core/data/repository/settings_repository.dart';
 import 'package:zhixing_ai/core/constants.dart';
 
+/// 本地模式的「必然超预算」输入：`m` 按 0.25 token/字符 度量（`token_estimator`
+/// 纯函数口径），字符数取预算 4 倍——不硬编码预算数值，预算随 `AppConstants`
+/// 调整时无需改用例。
+String _oversizeLocal() => 'm' * (AppConstants.localInputBudget * 4 + 100);
+
 void main() {
   setUpAll(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -23,8 +28,7 @@ void main() {
     });
 
     test('本地模式：超 localInputBudget（token 口径）抛类型化异常', () {
-      // 端侧预算 1668 token；构造远超的输入（数万字符必然超）。
-      final huge = '长' * 5000;
+      final huge = _oversizeLocal();
       try {
         ensureInputWithinBudget(
             mode: ChatMode.local, system: 's', user: huge);
@@ -77,7 +81,7 @@ void main() {
       final service = LlmService(
           settings: settings, activeModelPath: modelPath, localAsk: backend.ask);
       await expectLater(
-        service.ask(system: 's', user: '长' * 5000),
+        service.ask(system: 's', user: _oversizeLocal()),
         throwsA(isA<GatewayInputOverflowException>()),
       );
       expect(backend.calls, isEmpty); // fail-fast：不发生引擎动作
@@ -87,7 +91,7 @@ void main() {
       final service = LlmService(
           settings: settings, activeModelPath: modelPath, localAsk: backend.ask);
       await expectLater(
-        service.askJson(system: 's', user: '长' * 5000),
+        service.askJson(system: 's', user: _oversizeLocal()),
         throwsA(isA<GatewayInputOverflowException>()),
       );
       expect(backend.calls, isEmpty);

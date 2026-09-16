@@ -51,20 +51,39 @@ class AskSummarizer implements ConversationSummarizer {
 
   @override
   Future<String> summarize(
-      String previousSummary, List<ChatMessage> evicted) {
+      String previousSummary, List<ChatMessage> evicted) async {
     // think 剥离由通道实现负责（双端均已在 `ask` 的默认实现中处理），
     // 本类不做二次加工。摘要失败异常原样上抛，由装配骨架兜底回落。
-    return _ask(
-      system: buildSummaryPrompt(
-        previousSummary: previousSummary,
-        dropped: evicted
-            .map((m) => (role: m.role.name, content: m.content))
-            .toList(),
-      ),
-      user: '请输出摘要。',
-      maxTokens: maxTokens,
-    );
+    //
+    // 诊断：端侧摘要是一次**完整推理**（纯 CPU 下可达数十秒），且发生在
+    // 用户发出消息之后、首个 token 之前——「首轮长时间无输出」若源于此，
+    // 只有这条日志能坐实，故必须记耗时。
+    final sw = Stopwatch()..start();
+    try {
+      final out = await _ask(
+        system: buildSummaryPrompt(
+          previousSummary: previousSummary,
+          dropped: evicted
+              .map((m) => (role: m.role.name, content: m.content))
+              .toList(),
+        ),
+        user: '请输出摘要。',
+        maxTokens: maxTokens,
+      );
+      AppLogger.info('AskSummarizer',
+          '摘要完成: 挤出 ${evicted.length} 条 → 输出 ${out.length} 字，'
+          '耗时 ${_seconds(sw)}');
+      return out;
+    } catch (e) {
+      AppLogger.warn('AskSummarizer',
+          '摘要失败（回落旧摘要，移出内容丢弃）: 挤出 ${evicted.length} 条，'
+          '耗时 ${_seconds(sw)} — $e');
+      rethrow;
+    }
   }
+
+  static String _seconds(Stopwatch sw) =>
+      '${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)}s';
 }
 
 /// 业务唯一门面：对话编排 + 单次补全透传。
@@ -96,6 +115,9 @@ class ModelGateway {
   /// 会话压缩状态（自业务收回；实例在此私有，类型在基建）。
   final ContextState _state = ContextState();
 
+  /// [_state] 当前所属的会话标识（见 [converse] 的 `sessionId`）。
+  String? _sessionId;
+
   /// 无状态策略实例（惰性各建一次；双端差异只剩度量 + 预算，D4）。
   ContextPolicy? _localPolicy;
   ContextPolicy? _cloudPolicy;
@@ -118,20 +140,39 @@ class ModelGateway {
 
   /// 一轮对话：给**完整历史**（尾部为本轮新用户消息），回文本流。
   ///
-  /// 编排：装配（含压缩，就地更新私有 [_state]）→ 交付（流式）→ 溢出自愈。
-  /// 端侧溢出（context full）在此承接：强制收缩 → 重新装配 → 预置会话
-  /// （下一轮直接可用），本轮以兜底文案收尾。
+  /// 编排：会话切换复位 → 装配（含压缩，就地更新私有 [_state]）→ 交付
+  /// （流式）→ 溢出自愈。端侧溢出（context full）在此承接：强制收缩 →
+  /// 重新装配 → 预置会话（下一轮直接可用），本轮以兜底文案收尾。
+  ///
+  /// [sessionId] 为**会话身份**（业务给，同一会话内稳定、跨会话必不同）：
+  /// 与上次不同即整体作废压缩状态（摘要卡 + 游标都只属于上一个会话）。
+  /// 此前只靠装配期的「历史变短 / 游标越界」兜底——**新会话比上次更长时
+  /// 两条都不成立**，上个会话的摘要卡会被当作本会话的「此前对话摘要」注入，
+  /// 游标错位，首轮还可能因此多跑一次摘要推理（端侧表现为长时间无输出）。
+  /// 会话边界只有业务知道，故由调用方显式声明；缺省（null）视作同一会话。
   ///
   /// **必须用 `await for` 而非 `yield*`**：`yield*` 委托时内层流的错误直接
   /// 转投输出流、绕过本 try（v1 曾因此让端侧溢出自愈静默失效，单测抓住）。
   Stream<String> converse(
     List<ChatMessage> history, {
     required String systemPrompt,
+    String? sessionId,
   }) async* {
+    if (sessionId != _sessionId) {
+      final hadState = _state.k != 0 || _state.summary.isNotEmpty;
+      _state.reset();
+      _sessionId = sessionId;
+      if (hadState) {
+        AppLogger.info('ModelGateway',
+            '会话切换（${sessionId ?? '未命名'}），摘要与窗口游标已重置');
+      }
+    }
+
     final policy = _policyFor(_modeSource.value);
     final delivery = await _deliveryFor();
     final assembled =
         await policy.assemble(history, state: _state, systemPrompt: systemPrompt);
+    AppLogger.info('ModelGateway', _assembleTrace(assembled));
 
     try {
       await for (final token
@@ -151,6 +192,21 @@ class ModelGateway {
       }
       yield kLlmFailureReply;
     }
+  }
+
+  /// 装配诊断行（排查上下文类问题的第一现场）。
+  ///
+  /// 四个维度缺一不可：**条数**看窗口大小、**用量/预算**看余量（只报条数
+  /// 无法判断离爆窗多远）、**本轮挤出**看压缩是否刚发生（突发行为，累计
+  /// 游标看不出）、**摘要长度**看压缩产物是否在膨胀。
+  String _assembleTrace(AssembledContext a) {
+    final pct = a.budget == 0 ? 0 : (a.estimatedCost * 100 / a.budget).round();
+    final card = a.summaryCard;
+    return '装配[${_modeSource.value.name}]: 窗口 ${a.messages.length} 条'
+        ' · 用量 ${a.estimatedCost}/${a.budget} ($pct%)'
+        ' · 摘要 ${card == null ? '无' : '${card.length}字'}'
+        ' · 游标 k=${_state.k}'
+        '${a.evictedCount > 0 ? ' · 本轮挤出 ${a.evictedCount} 条' : ''}';
   }
 
   /// 按模式现选策略（D2：每轮现取模式源现值，切换下一轮自然生效）。

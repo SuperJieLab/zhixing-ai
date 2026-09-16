@@ -119,20 +119,37 @@ class LocalGeneration implements ChatGeneration {
 
     // think 剥离流式输出（状态机在 [ThinkStreamFilter]，本方法只做编排）
     final filter = ThinkStreamFilter();
+    final clock = Stopwatch()..start();
+    int? firstVisibleMs;
     var yieldedAnything = false;
+    var visibleChars = 0;
     try {
       await for (final token
           in session.generate(maxTokens: AppConstants.localMaxTokens)) {
         final out = filter.push(token);
         if (out != null) {
+          // 首字延迟 = prefill + 思考段耗时之和，是「半天不出字」的直接指标
+          firstVisibleMs ??= clock.elapsedMilliseconds;
           yieldedAnything = true;
+          visibleChars += out.length;
           yield out;
         }
       }
       final tail = filter.flush();
       if (tail != null) {
+        firstVisibleMs ??= clock.elapsedMilliseconds;
         yieldedAnything = true;
+        visibleChars += tail.length;
         yield tail;
+      }
+      AppLogger.info('LocalGeneration',
+          _generationTrace(filter, visibleChars, firstVisibleMs, clock));
+      // 思考未闭合却有思考内容 → 整轮都被生成上限截断在思考段里，兜底路径
+      // 会把思考残段当正文发出（用户侧表现为「答非所问」）。
+      if (filter.thinkChars > 0 && !filter.passedThink) {
+        AppLogger.warn('LocalGeneration',
+            '思考段未闭合即结束（${filter.thinkChars} 字被当正文兜底），'
+            '疑似生成上限被思考吃满');
       }
       // 空输出收口：生成「正常结束」但整轮无任何可见正文（典型：生成上限
       // 全部耗在未闭合的思考段里）。静默空气泡无日志无提示，必须兜底。
@@ -173,6 +190,29 @@ class LocalGeneration implements ChatGeneration {
     _session?.dispose();
     _session = null;
   }
+
+  /// 生成诊断行：四个指标合看即可定位「出字慢 / 被截断」的归属。
+  ///
+  /// - **首字延迟**：prefill 与思考段耗时之和，是「等半天没反应」的直接指标；
+  /// - **think 字数 + 是否闭合**：额度被思考侵占的程度，未闭合 = 已被截断；
+  /// - **正文字数**：用户实际得到的量；
+  /// - **总耗时**。
+  static String _generationTrace(
+    ThinkStreamFilter filter,
+    int visibleChars,
+    int? firstVisibleMs,
+    Stopwatch clock,
+  ) {
+    final first =
+        firstVisibleMs == null ? '未出字' : _sec(firstVisibleMs.toDouble());
+    return '本轮生成: 首字 $first'
+        ' · think ${filter.thinkChars} 字(${filter.passedThink ? '闭合' : '未闭合'})'
+        ' / 正文 $visibleChars 字'
+        ' · 共 ${_sec(clock.elapsedMilliseconds.toDouble())}'
+        '（上限 ${AppConstants.localMaxTokens} token）';
+  }
+
+  static String _sec(double ms) => '${(ms / 1000).toStringAsFixed(1)}s';
 
   /// 无状态重放：清空消息列表，再按「人设 → 摘要卡 → 装配结果」全量重建，
   /// 使引擎内列表恒等于本轮装配结果。本类与 SDK 之间唯一的会话同步点。
