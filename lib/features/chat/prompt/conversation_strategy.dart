@@ -1,52 +1,12 @@
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
 
 /// 对话策略（本地/云端共享，无引擎/IO 依赖）：
-///   - [buildSystemPrompt]：本地/云端共享的唯一人设出处（**留业务**——人设不出 feature）；
-///   - [isDuplicate]：相邻问题 LCS 去重（>0.8 判重），命中时**不**追加滚动窗口，
-///     避免相邻同问反复触发改写。
+///   - [buildSystemPrompt]：本地/云端共享的唯一人设出处（**留业务**——人设不出 feature）。
 ///
-/// 摘要提示词（`buildSummaryPrompt`）已上移基建：`core/context/summary_prompt.dart`
-/// （属模型能力差异，非业务差异）。
+/// 尾部问题去重（相邻问题 LCS 判重）已下沉基建：`core/llm/generation/tail_dedup.dart`
+/// ——它是「无状态重放」的装配期约束，不是业务语义。
+/// 摘要提示词（`buildSummaryPrompt`）同理上移 `core/context/summary_prompt.dart`。
 class ConversationStrategy {
-  final List<String> _recentQuestions = [];
-
-  /// 与上一问完全相同或 LCS 相似度 > 0.8 → 重复；
-  /// 否则记入窗口（容量 5，FIFO）并返回 false。
-  bool isDuplicate(String input) {
-    final trimmed = input.trim();
-    if (_recentQuestions.isEmpty) {
-      _recentQuestions.add(trimmed);
-      return false;
-    }
-
-    if (_recentQuestions.last == trimmed) return true;
-
-    final lcs = _lcsSimilarity(_recentQuestions.last, trimmed);
-    if (lcs > 0.8) return true;
-
-    _recentQuestions.add(trimmed);
-    if (_recentQuestions.length > 5) _recentQuestions.removeAt(0);
-    return false;
-  }
-
-  double _lcsSimilarity(String a, String b) {
-    final m = a.length;
-    final n = b.length;
-    final dp = List.generate(m + 1, (_) => List.filled(n + 1, 0));
-    for (var i = 1; i <= m; i++) {
-      for (var j = 1; j <= n; j++) {
-        if (a[i - 1] == b[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] =
-              dp[i - 1][j] > dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
-        }
-      }
-    }
-    final lcsLen = dp[m][n];
-    return lcsLen / (m > n ? m : n);
-  }
-
   /// [existingGoals] 非空时追加「用户已有目标」段，引导相似目标建议合并而非新建。
   String buildSystemPrompt({List<Goal> existingGoals = const []}) {
     final goalContext = existingGoals.isEmpty

@@ -5,7 +5,7 @@ import 'chat_models.dart';
 /// 一次对话会话的持久化模型
 ///
 /// 对应 sqflite 中的 conversations 表。
-/// 是所有目标/策略/洞察的基本数据源。
+/// 是所有目标/策略的基本数据源。
 /// status / messages / extractionJson 可在运行时就地更新。
 class Conversation {
   final int? id;
@@ -34,7 +34,7 @@ class Conversation {
   }
 
   // ================================================================
-  // 序列化
+  // 反序列化
   // ================================================================
 
   factory Conversation.fromMap(Map<String, dynamic> map) {
@@ -48,19 +48,6 @@ class Conversation {
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      if (id != null) 'id': id,
-      'topic': topic,
-      'status': status,
-      'is_favorite': isFavorite ? 1 : 0,
-      'messages_json': _messagesToJson(messages),
-      'extraction_json': extractionJson,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
-    };
   }
 
   Conversation copyWith({
@@ -101,17 +88,5 @@ class Conversation {
               round: e['round'] as int,
             ))
         .toList();
-  }
-
-  static String _messagesToJson(List<ChatMessage> messages) {
-    return jsonEncode(
-      messages
-          .map((m) => {
-                'role': m.role.name,
-                'content': m.content,
-                'round': m.round,
-              })
-          .toList(),
-    );
   }
 }

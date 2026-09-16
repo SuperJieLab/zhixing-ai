@@ -42,8 +42,6 @@ class LlmReadiness {
   /// 失败原因（仅 [LlmPhase.failed] 时有意义；展示用 `toString()`）。
   final Object? error;
 
-  const LlmReadiness(this.phase, {this.error});
-
   const LlmReadiness.idle() : phase = LlmPhase.idle, error = null;
   const LlmReadiness.loading() : phase = LlmPhase.loading, error = null;
   const LlmReadiness.ready() : phase = LlmPhase.ready, error = null;

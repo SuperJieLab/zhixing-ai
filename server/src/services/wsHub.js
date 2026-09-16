@@ -29,4 +29,4 @@ function pushToToken(token, payload) {
   return n;
 }
 
-module.exports = { register, unregister, pushToToken, clients };
+module.exports = { register, unregister, pushToToken };

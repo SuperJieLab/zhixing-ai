@@ -47,7 +47,7 @@ class ChatProvider extends ChangeNotifier {
   void clearError() {
     if (_error == null) return;
     _error = null;
-    notifyListeners();
+    _notify();
   }
 
   int? _activeConversationId;
@@ -77,12 +77,6 @@ class ChatProvider extends ChangeNotifier {
             : 1,
         _activeConversationId = conversation?.id,
         _conversationService = conversationService ?? ConversationService();
-
-  @override
-  void dispose() {
-    // 后端资源（引擎 / 交付实现）归服务所有、寿命与 App 相同，此处不释放。
-    super.dispose();
-  }
 
   static List<ChatMessage> _buildWelcome(String topic) {
     final opening = topic.isNotEmpty
@@ -116,7 +110,7 @@ class ChatProvider extends ChangeNotifier {
     ));
 
     _isThinking = true;
-    notifyListeners();
+    _notify();
 
     final aiMessageIndex = _messages.length;
     _messages.add(ChatMessage(
@@ -178,7 +172,7 @@ class ChatProvider extends ChangeNotifier {
     } finally {
       _round++;
       _isThinking = false;
-      notifyListeners();
+      _notify();
       _saveMessages();
     }
   }
@@ -198,7 +192,7 @@ class ChatProvider extends ChangeNotifier {
           content: buffer.toString(),
           round: _round,
         );
-        notifyListeners();
+        _notify();
       },
       onError: (Object e) {
         if (!completer.isCompleted) completer.completeError(e);
@@ -219,6 +213,9 @@ class ChatProvider extends ChangeNotifier {
   Completer<void>? _generationCompleter;
   StreamSubscription<String>? _activeSubscription;
 
+  /// 本实例是否已销毁（离开对话页 → Provider dispose）。
+  bool _disposed = false;
+
   /// 停止按钮：[_gateway.stop]（云端中断 socket，本地 no-op）+ 取消订阅，
   /// 已生成文本保留。完成器标记为「正常完成」→ 走 sendMessage 的 finally
   /// 正常推进轮次并保存半截内容，不进 catch 降级分支。
@@ -234,6 +231,26 @@ class ChatProvider extends ChangeNotifier {
       _generationCompleter!.complete();
     }
     _generationCompleter = null;
+  }
+
+  /// 通知守卫：已销毁则不再通知。
+  ///
+  /// 离开对话页时在途生成未必已停（[StreamSubscription.cancel] 是异步的，
+  /// `sendMessage` 的 `finally` 也还会走一趟），裸调 [notifyListeners] 会打在
+  /// 已销毁的 [ChangeNotifier] 上抛「used after being disposed」。
+  void _notify() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    // 先置位再停生成：stopGeneration 会让挂起的 sendMessage 继续走完 finally。
+    _disposed = true;
+    // 停掉在途生成（取消订阅 + 门面 stop）。已生成的半截内容仍由 finally
+    // 正常落库，用户回到历史能看到。
+    stopGeneration();
+    super.dispose();
   }
 
   void _saveMessages() {

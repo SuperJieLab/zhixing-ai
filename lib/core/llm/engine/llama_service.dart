@@ -6,6 +6,9 @@ import 'package:zhixing_ai/core/constants.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
 /// 模型加载配置（值对象，决定缓存命中）
+///
+/// 四个字段全部必填：默认值曾与 [AppConstants] 漂移（`contextSize = 4096`
+/// 落后于实际窗口），任何一处省略都会静默按旧窗口加载、绕开预算公式。
 class LlamaConfig {
   final String modelPath;
   final int contextSize;
@@ -14,9 +17,9 @@ class LlamaConfig {
 
   const LlamaConfig({
     required this.modelPath,
-    this.contextSize = 4096,
-    this.gpuLayers = -1,
-    this.threads = 4,
+    required this.contextSize,
+    required this.gpuLayers,
+    required this.threads,
   });
 
   @override
@@ -52,7 +55,7 @@ class LlamaService {
   final Map<LlamaConfig, Future<LlamaEngine>> _pool = {};
 
   // ================================================================
-  // 三层 API
+  // 公开 API
   // ================================================================
 
   /// 按模型路径加载引擎（其余配置取 [AppConstants] 默认值）
@@ -66,7 +69,7 @@ class LlamaService {
     required String modelPath,
     int? gpuLayers,
   }) {
-    return ensureReadyWithConfig(LlamaConfig(
+    return _ensureReadyWithConfig(LlamaConfig(
       modelPath: modelPath,
       contextSize: AppConstants.localContextSize,
       gpuLayers: gpuLayers ?? AppConstants.localGpuLayers,
@@ -74,11 +77,9 @@ class LlamaService {
     ));
   }
 
-  /// 完全自定义配置
-  ///
-  /// 不同 [LlamaConfig] 生成不同缓存条目。
-  /// [config] 的四个字段全参与等值比较决定缓存命中。
-  Future<LlamaEngine> ensureReadyWithConfig(LlamaConfig config) async {
+  /// 按完整配置取引擎（[ensureReady] / [release] 的共用实现）：
+  /// 不同 [LlamaConfig] 生成不同缓存条目，四个字段全参与等值比较决定命中。
+  Future<LlamaEngine> _ensureReadyWithConfig(LlamaConfig config) async {
     // 命中缓存
     if (_pool.containsKey(config)) {
       return _pool[config]!;
@@ -124,16 +125,6 @@ class LlamaService {
     } catch (_) {
       // 加载本身就失败过的条目无可释放
     }
-  }
-
-  /// 释放所有缓存的引擎
-  void dispose() {
-    AppLogger.info('LlamaService', '正在释放 ${_pool.length} 个引擎...');
-    for (final entry in _pool.entries) {
-      entry.value.then((engine) => engine.dispose()).catchError((_) {});
-    }
-    _pool.clear();
-    AppLogger.info('LlamaService', '引擎已释放');
   }
 
   /// 是否有已加载（或加载中）的引擎——供 [LlmService.isReady] 表达端侧就绪态。

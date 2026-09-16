@@ -13,8 +13,9 @@ class InAppBanner {
   static final List<_BannerRequest> _queue = [];
   static bool _showing = false;
 
+  /// [body] 空串即无正文行（[PushMessage.body] 已在解析层兜空）。
   static void show(OverlayState overlay,
-      {required String title, String? body}) {
+      {required String title, String body = ''}) {
     _queue.add(_BannerRequest(overlay, title, body));
     if (!_showing) _showNext();
   }
@@ -44,17 +45,17 @@ class InAppBanner {
 class _BannerRequest {
   final OverlayState overlay;
   final String title;
-  final String? body;
+  final String body;
   _BannerRequest(this.overlay, this.title, this.body);
 }
 
 class _TopBanner extends StatefulWidget {
   final String title;
-  final String? body;
+  final String body;
   final VoidCallback onDismiss;
   const _TopBanner({
     required this.title,
-    this.body,
+    required this.body,
     required this.onDismiss,
   });
 
@@ -160,11 +161,11 @@ class _TopBannerState extends State<_TopBanner>
                             decoration: TextDecoration.none,
                           ),
                         ),
-                        if (widget.body != null && widget.body!.isNotEmpty)
+                        if (widget.body.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 2),
                             child: Text(
-                              widget.body!,
+                              widget.body,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

@@ -6,7 +6,7 @@ import 'package:zhixing_ai/core/llm/engine/active_model_manager.dart';
 import 'package:zhixing_ai/core/data/models/available_model.dart';
 import 'package:zhixing_ai/features/model_manager/engine/model_download_service.dart';
 
-enum DownloadStatus { idle, downloading, completed, failed, cancelled }
+enum DownloadStatus { idle, downloading, completed, failed }
 
 /// 单个模型的下载状态快照
 class ModelDownloadState {
@@ -81,7 +81,7 @@ class ModelDownloadProvider extends ChangeNotifier {
     _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateSpeed(model.id));
 
     try {
-      final success = await _downloadWithFallback(model, savePath);
+      final success = await _download(model, savePath);
 
       _speedTimer?.cancel();
 
@@ -94,9 +94,9 @@ class ModelDownloadProvider extends ChangeNotifier {
         );
         // 通知 core 层：模型就绪
         _manager.setModelReady(model.id, savePath);
-      } else {
-        _states[model.id] = const ModelDownloadState(status: DownloadStatus.cancelled);
       }
+      // 失败（含用户取消）不置终态：取消路径已由 [cancelDownload] 清掉条目，
+      // 回到 idle 即「可重新下载」，比留一个 UI 不渲染的 cancelled 更直白。
       notifyListeners();
     } catch (e) {
       _speedTimer?.cancel();
@@ -110,7 +110,7 @@ class ModelDownloadProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> _downloadWithFallback(AvailableModel model, String savePath) async {
+  Future<bool> _download(AvailableModel model, String savePath) async {
     return _service.download(
       url: model.mirrorUrl,
       savePath: savePath,

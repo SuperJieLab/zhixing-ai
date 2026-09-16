@@ -52,7 +52,6 @@ async function runRulesMode(deviceStore) {
       await sendPush(token, {
         title: decision.title,
         body: decision.body,
-        data: decision.data || {},
       });
       pushed++;
     }
@@ -72,7 +71,6 @@ async function runLLMMode(deviceStore) {
       await sendPush(token, {
         title: decision.title || '知行AI 提醒',
         body: decision.body,
-        data: { type: 'llm_reminder' },
       });
       pushed++;
     }

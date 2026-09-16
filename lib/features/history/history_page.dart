@@ -57,9 +57,8 @@ class _HistoryPageState extends State<HistoryPage> {
       return _buildEmptyState();
     }
 
-    return ListView.separated(
+    return ListView.builder(
       itemCount: provider.conversations.length,
-      separatorBuilder: (_, _) => const SizedBox.shrink(),
       itemBuilder: (_, index) {
         final conv = provider.conversations[index];
         return ConversationCard(

@@ -254,6 +254,32 @@ void main() {
       gate.complete(); // 清理挂起的生成器
     });
 
+    test('dispose 后在途生成的流回调不再打到已销毁的 notifier', () async {
+      final llm = FakeLlm();
+      final provider = makeProvider(
+        llm: llm,
+        dashboardRepo: _OkDashboardRepo(),
+      );
+      llm.ready = true;
+      final controller = StreamController<String>();
+
+      llm.onConverse = (_) => controller.stream;
+      final sendFuture = provider.sendMessage('长问题');
+      await Future<void>.delayed(Duration.zero);
+      controller.add('前半');
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.messages.last.content, '前半');
+
+      // 页面销毁（ChangeNotifierProvider 的 dispose）→ 在途生成仍在流上
+      provider.dispose();
+      controller.add('迟到的后半');
+      await Future<void>.delayed(Duration.zero);
+      await controller.close();
+      await sendFuture; // 不应抛「used after being disposed」
+
+      expect(llm.stopCalls, 1); // dispose 一并停掉在途生成
+    });
+
     test('TimeoutException → 固定超时文案', () async {
       final llm = FakeLlm();
       final provider = makeProvider(

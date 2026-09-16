@@ -49,6 +49,30 @@ class StrategyBriefState {
     this.ignoredGoalUpdates = const {},
     this.deletedInsights = const {},
   });
+
+  StrategyBriefState copyWith({
+    BriefStatus? status,
+    ExtractionResult? extraction,
+    List<Goal>? existingGoals,
+    String? errorMessage,
+    Set<int>? confirmedNewGoals,
+    Set<int>? ignoredNewGoals,
+    Set<int>? confirmedGoalUpdates,
+    Set<int>? ignoredGoalUpdates,
+    Set<int>? deletedInsights,
+  }) {
+    return StrategyBriefState(
+      status: status ?? this.status,
+      extraction: extraction ?? this.extraction,
+      existingGoals: existingGoals ?? this.existingGoals,
+      errorMessage: errorMessage ?? this.errorMessage,
+      confirmedNewGoals: confirmedNewGoals ?? this.confirmedNewGoals,
+      ignoredNewGoals: ignoredNewGoals ?? this.ignoredNewGoals,
+      confirmedGoalUpdates: confirmedGoalUpdates ?? this.confirmedGoalUpdates,
+      ignoredGoalUpdates: ignoredGoalUpdates ?? this.ignoredGoalUpdates,
+      deletedInsights: deletedInsights ?? this.deletedInsights,
+    );
+  }
 }
 
 class StrategyBriefProvider {
@@ -260,7 +284,7 @@ class StrategyBriefProvider {
       _insertStrategiesForGoal(goal.title, goalId);
     });
 
-    _updateSet('confirmedNewGoals', index);
+    _mark(confirmedNewGoal: index);
   }
 
   Future<void> _insertStrategiesForGoal(
@@ -276,7 +300,7 @@ class StrategyBriefProvider {
   }
 
   void ignoreNewGoal(int index) {
-    _updateSet('ignoredNewGoals', index);
+    _mark(ignoredNewGoal: index);
   }
 
   void confirmGoalUpdate(int index) {
@@ -294,51 +318,39 @@ class StrategyBriefProvider {
       }
     }
 
-    _updateSet('confirmedGoalUpdates', index);
+    _mark(confirmedGoalUpdate: index);
   }
 
   void ignoreGoalUpdate(int index) {
-    _updateSet('ignoredGoalUpdates', index);
+    _mark(ignoredGoalUpdate: index);
   }
 
   void deleteInsight(int index) {
-    _updateSet('deletedInsights', index);
+    _mark(deletedInsight: index);
   }
 
-  void _updateSet(String field, int index) {
-    final current = _getSet(field);
-    final updated = {...current, index};
+  /// 标记位并入（显式字段名，无字符串键分发）：改完即通知 + 落缓存。
+  ///
+  /// 五类标记互斥使用——每次只传一个 index，其余为 null 表示「该集合不动」。
+  void _mark({
+    int? confirmedNewGoal,
+    int? ignoredNewGoal,
+    int? confirmedGoalUpdate,
+    int? ignoredGoalUpdate,
+    int? deletedInsight,
+  }) {
+    Set<int> merge(Set<int> current, int? index) => {...current, ?index};
 
-    _state = StrategyBriefState(
-      status: _state.status,
-      extraction: _state.extraction,
-      existingGoals: _state.existingGoals,
-      errorMessage: _state.errorMessage,
-      confirmedNewGoals: field == 'confirmedNewGoals' ? updated : _state.confirmedNewGoals,
-      ignoredNewGoals: field == 'ignoredNewGoals' ? updated : _state.ignoredNewGoals,
-      confirmedGoalUpdates: field == 'confirmedGoalUpdates' ? updated : _state.confirmedGoalUpdates,
-      ignoredGoalUpdates: field == 'ignoredGoalUpdates' ? updated : _state.ignoredGoalUpdates,
-      deletedInsights: field == 'deletedInsights' ? updated : _state.deletedInsights,
+    _state = _state.copyWith(
+      confirmedNewGoals: merge(_state.confirmedNewGoals, confirmedNewGoal),
+      ignoredNewGoals: merge(_state.ignoredNewGoals, ignoredNewGoal),
+      confirmedGoalUpdates:
+          merge(_state.confirmedGoalUpdates, confirmedGoalUpdate),
+      ignoredGoalUpdates: merge(_state.ignoredGoalUpdates, ignoredGoalUpdate),
+      deletedInsights: merge(_state.deletedInsights, deletedInsight),
     );
     _notify();
     _saveStateToCache();
-  }
-
-  Set<int> _getSet(String field) {
-    switch (field) {
-      case 'confirmedNewGoals':
-        return _state.confirmedNewGoals;
-      case 'ignoredNewGoals':
-        return _state.ignoredNewGoals;
-      case 'confirmedGoalUpdates':
-        return _state.confirmedGoalUpdates;
-      case 'ignoredGoalUpdates':
-        return _state.ignoredGoalUpdates;
-      case 'deletedInsights':
-        return _state.deletedInsights;
-      default:
-        return {};
-    }
   }
 }
 

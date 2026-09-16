@@ -8,7 +8,7 @@ import 'package:zhixing_ai/core/data/models/conversation.dart';
 /// 会话持久化仓库（sqflite 单例）
 ///
 /// 负责 conversations 表的所有 CRUD 操作。
-/// 消息和洞察以 JSON 列存储。
+/// 消息与提取结果以 JSON 列存储。
 class ConversationRepository {
   static Database? _db;
 
@@ -42,7 +42,6 @@ class ConversationRepository {
         type TEXT NOT NULL DEFAULT 'selfAction',
         next_step TEXT,
         completed INTEGER NOT NULL DEFAULT 0,
-        next_reminder TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY (goal_id) REFERENCES goals(id)
       )
@@ -73,8 +72,6 @@ class ConversationRepository {
             status TEXT DEFAULT 'active',
             is_favorite INTEGER DEFAULT 0,
             messages_json TEXT,
-            insight_json TEXT,
-            graph_json TEXT,
             extraction_json TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -87,11 +84,6 @@ class ConversationRepository {
         if (oldVersion < 4) {
           await db.execute(
               'ALTER TABLE conversations ADD COLUMN extraction_json TEXT');
-        }
-        if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE conversations ADD COLUMN graph_json TEXT',
-          );
         }
         if (oldVersion < 3) {
           await _createSupportingTables(db);

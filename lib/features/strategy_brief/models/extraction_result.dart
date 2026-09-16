@@ -23,14 +23,12 @@ class GoalUpdate {
   /// 关联的已有目标 id（提取契约 v2：LLM 从已有目标列表回传；旧缓存/未回传为 null）。
   final int? goalId;
   final GoalStatus? newStatus;
-  final String? newNotes;
   final String reason;
 
   GoalUpdate({
     required this.goalTitle,
     this.goalId,
     this.newStatus,
-    this.newNotes,
     this.reason = '',
   });
 
@@ -46,7 +44,6 @@ class GoalUpdate {
               orElse: () => GoalStatus.active,
             )
           : null,
-      newNotes: json['new_notes'] as String?,
       reason: json['reason'] as String? ?? '',
     );
   }

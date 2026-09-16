@@ -1,10 +1,10 @@
 import 'package:zhixing_ai/core/constants.dart';
-import 'package:zhixing_ai/core/data/models/chat_models.dart' show MessageRole;
+import 'package:zhixing_ai/core/data/models/chat_models.dart'
+    show ChatMessage, MessageRole;
 import 'package:zhixing_ai/core/model_gateway.dart';
 import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/data/models/conversation.dart';
 import 'package:zhixing_ai/core/data/models/dashboard_models.dart';
-import 'package:zhixing_ai/features/strategy_brief/engine/chat_utils.dart';
 import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart';
 
 /// 对话提取引擎
@@ -18,7 +18,7 @@ import 'package:zhixing_ai/features/strategy_brief/models/extraction_result.dart
 /// 上下文保护：输入截断统一走门面 `truncateForAsk`（预算内尾部装箱，
 /// 度量/预算随模式，业务不感知原语），保证预算内输入 + 一整轮生成仍在窗口内。
 /// 输出保护：maxTokens=[AppConstants.localMaxTokens]，足够丰富的 JSON 提取结果。
-/// 依赖：ModelGateway（单次补全走统一门面，模式跟随全局配置）+ chat_utils
+/// 依赖：ModelGateway（单次补全走统一门面，模式跟随全局配置）
 /// 消费方：StrategyBriefProvider（唯一）
 
 class StrategistExtractor {
@@ -91,8 +91,7 @@ cross_patterns 格式：
     );
     AppLogger.info('StrategistExtractor',
         '提取上下文: 使用 ${messages.length}/${conversation.messages.length} 条消息');
-    final conversationText =
-        buildConversationText(conversation.topic, messages);
+    final conversationText = _buildConversationText(conversation.topic, messages);
 
     try {
       // 结构化输出契约统一走 askJson：JSON-only 约束 + 剥 think/围栏 +
@@ -122,4 +121,15 @@ cross_patterns 格式：
       return null;
     }
   }
+}
+
+/// 对话历史 → 纯文本（提取 prompt 的正文段）。
+String _buildConversationText(String topic, List<ChatMessage> conversation) {
+  final buffer = StringBuffer();
+  buffer.writeln('话题：$topic\n');
+  for (final msg in conversation) {
+    final role = msg.role == MessageRole.ai ? 'AI' : '用户';
+    buffer.writeln('$role：${msg.content}');
+  }
+  return buffer.toString();
 }

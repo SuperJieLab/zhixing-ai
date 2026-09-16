@@ -41,7 +41,6 @@ function shouldPush(goals, strategies) {
         shouldPush: true,
         title: '目标即将到期',
         body: `「${goal.title}」还有 ${daysLeft} 天到期，当前有 ${pendingStrategies.length} 条策略待完成`,
-        data: { type: 'goal_reminder', goal_title: goal.title },
       };
     }
   }
@@ -58,7 +57,6 @@ function shouldPush(goals, strategies) {
       shouldPush: true,
       title: '今日待办',
       body: `你有 ${pendingStrategies.length} 条策略待完成，打开 App 看看进展吧`,
-      data: { type: 'daily_reminder' },
     };
   }
 

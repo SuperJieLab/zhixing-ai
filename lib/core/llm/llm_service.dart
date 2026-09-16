@@ -16,11 +16,6 @@ import 'package:zhixing_ai/core/llm/llm.dart';
 import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 import 'package:zhixing_ai/core/logger.dart';
 
-/// 后端接缝类型自 [single_shot_summarizer] 迁入处再导出（既有测试从本文件
-/// import 该 typedef，保持兼容）。
-export 'package:zhixing_ai/core/llm/llm.dart'
-    show SingleShotAsk;
-
 /// 本地交付构造接缝（**仅测试注入**）：生命周期测试用它替代真实引擎加载
 /// （`LlamaEngine` 是 final class，无法 fake；与 [SingleShotAsk] 同一思路）。
 typedef LocalDeliveryBuilder = FutureOr<ChatGeneration> Function();
@@ -203,7 +198,7 @@ class LlmService implements Llm {
     AppLogger.info('LlmService', '云端模式下本地引擎已延迟释放');
   }
 
-  /// 本地资源统一拆除（延迟释放 / 模型切换 / 服务 dispose 共用）。
+  /// 本地资源统一拆除（延迟释放 / 模型切换共用）。
   ///
   /// 引擎释放**必须走 [LlamaService.release] 的池失效**——直接
   /// `engine.dispose()` 会留下「池缓存已释放引擎」的脏条目，切回本地时
@@ -223,7 +218,8 @@ class LlmService implements Llm {
         .catchError((_) {}));
   }
 
-  /// 释放服务资源与订阅（App 生命周期内通常不调用；测试清理用）。
+  /// 释放服务资源与订阅（App 生命周期内不调用；测试 teardown 用它取消
+  /// 延迟释放定时器，避免计时器跨用例触发）。
   void dispose() {
     _settings.backendListenable.removeListener(_onBackendSettingChanged);
     _activeModelPath.removeListener(_onActiveModelChanged);
@@ -236,9 +232,8 @@ class LlmService implements Llm {
     _readiness.dispose();
   }
 
-  void _setReadiness(LlmReadiness value) {
-    if (_readiness.value != value) _readiness.value = value;
-  }
+  /// [ValueNotifier] 同值不通知（[LlmReadiness] 有值语义 `==`），无需另设守卫。
+  void _setReadiness(LlmReadiness value) => _readiness.value = value;
 
   // ─── 对话（多轮）───
   // 多轮编排已上移 `core/model_gateway.dart`（design T5 收口）：本类不再

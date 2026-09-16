@@ -107,8 +107,10 @@ class Strategy {
   StrategyType type;
   String? nextStep;
   bool completed;
-  DateTime? nextReminder;
   DateTime createdAt;
+
+  /// 提取期携带的目标标题（`strategies` 表不落此列）：提取结果里目标尚无
+  /// 自增 id，`_insertStrategiesForGoal` 靠它把策略归属到刚确认的目标。
   String? goalTitle;
 
   Strategy({
@@ -118,7 +120,6 @@ class Strategy {
     this.type = StrategyType.selfAction,
     this.nextStep,
     this.completed = false,
-    this.nextReminder,
     required this.createdAt,
     this.goalTitle,
   });
@@ -134,9 +135,6 @@ class Strategy {
       ),
       nextStep: map['next_step'] as String?,
       completed: (map['completed'] as int?) == 1,
-      nextReminder: map['next_reminder'] != null
-          ? DateTime.parse(map['next_reminder'] as String)
-          : null,
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }
@@ -149,7 +147,6 @@ class Strategy {
       'type': type.name,
       'next_step': nextStep,
       'completed': completed ? 1 : 0,
-      'next_reminder': nextReminder?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
     };
   }
