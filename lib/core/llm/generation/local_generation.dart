@@ -119,14 +119,27 @@ class LocalGeneration implements ChatGeneration {
 
     // think 剥离流式输出（状态机在 [ThinkStreamFilter]，本方法只做编排）
     final filter = ThinkStreamFilter();
+    var yieldedAnything = false;
     try {
       await for (final token
           in session.generate(maxTokens: AppConstants.localMaxTokens)) {
         final out = filter.push(token);
-        if (out != null) yield out;
+        if (out != null) {
+          yieldedAnything = true;
+          yield out;
+        }
       }
       final tail = filter.flush();
-      if (tail != null) yield tail;
+      if (tail != null) {
+        yieldedAnything = true;
+        yield tail;
+      }
+      // 空输出收口：生成「正常结束」但整轮无任何可见正文（典型：生成上限
+      // 全部耗在未闭合的思考段里）。静默空气泡无日志无提示，必须兜底。
+      if (!yieldedAnything) {
+        AppLogger.warn('LocalGeneration', '本轮生成结束但无可见正文，输出空回复兜底');
+        yield kLlmEmptyReply;
+      }
     } catch (e) {
       // context full = 真实上下文先于估算撑爆 → 交服务强制收缩自愈
       if (_isContextFullError(e)) {

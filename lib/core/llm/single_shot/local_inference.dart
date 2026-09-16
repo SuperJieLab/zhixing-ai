@@ -1,5 +1,6 @@
 import 'package:llama_cpp_dart/llama_cpp_dart.dart' hide ChatMessage;
 
+import 'package:zhixing_ai/core/logger.dart';
 import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 
 /// 本地推理取回原语（基建共享层）：事件流收敛 + 单次补全样板。
@@ -13,12 +14,22 @@ import 'package:zhixing_ai/core/llm/single_shot/think_tag_stripper.dart';
 /// 抽为顶层纯函数才能单测：`EngineChat` 是 `final class`，无法 mock。
 /// [TokenEvent] 取 `text`；[DoneEvent] 的 `trailingText` 也必须 yield——引擎会
 /// 把它写进回复并登记，丢弃即与引擎内容分叉；其余事件忽略。
+///
+/// `StopMaxTokens` 结束原因打 warn 日志：正常回答走 EOS 不会触顶，触顶即
+/// 说明模型跑飞（如思考段收不住）或上限偏小，截断频率是调参的观测指标。
 Stream<String> eventsToText(Stream<GenerationEvent> events) async* {
   await for (final event in events) {
     if (event is TokenEvent) {
       yield event.text;
-    } else if (event is DoneEvent && event.trailingText.isNotEmpty) {
-      yield event.trailingText;
+    } else if (event is DoneEvent) {
+      if (event.reason is StopMaxTokens) {
+        AppLogger.warn('LocalInference',
+            '生成触及 maxTokens 上限被截断（${event.generatedCount} token，'
+            '正常回答应走 EOS 结束）');
+      }
+      if (event.trailingText.isNotEmpty) {
+        yield event.trailingText;
+      }
     }
   }
 }

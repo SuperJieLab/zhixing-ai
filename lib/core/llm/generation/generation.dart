@@ -55,3 +55,10 @@ const String kLlmFailureReply = '\n\n[助手暂时无法回应，请稍后再试
 
 /// 引擎尚未就绪时的回退文案（原 `LocalChatClient` 行为）。
 const String kLlmNotReadyReply = '助手尚在准备中，请稍后再来。';
+
+/// 本轮生成正常结束但无任何可见正文时的兜底文案。
+///
+/// 典型成因：模型把生成上限全部消耗在思考段里且未输出闭合标签
+/// （`<think>` 开头、无 `</think>`）——过滤层整轮静默、`flush` 也无正文。
+/// 静默空气泡比报错更伤体验，故交付实现必须在此收口。
+const String kLlmEmptyReply = '（本轮思考未能收敛为正文，请重试或换个问法）';

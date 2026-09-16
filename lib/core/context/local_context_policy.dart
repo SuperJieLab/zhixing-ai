@@ -8,7 +8,8 @@ import 'package:zhixing_ai/core/context/context_assembly.dart';
 /// - 度量：**由注入的 [estimator] 决定**（生产为 token 度量
 ///   `LlamaTemplateEstimator`，归 `core/llm/engine/`——llama 知识不进本域）；
 /// - 预算 = `nCtx − 生成上限 − 余量`（端侧物理硬上限）；
-/// - 溢出（context full）自愈：硬留最后 4 条，保证保留内容真的减少。
+/// - 溢出（context full）自愈：从硬留最后 4 条起按预算继续收缩（保底 1 条），
+///   保证保留内容真的减到引擎能吃下。
 class LocalContextPolicy extends BaseContextPolicy {
   LocalContextPolicy({
     required super.estimator,

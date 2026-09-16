@@ -100,5 +100,63 @@ void main() {
       expect(ctx.messages.length, 2); // 窗口已收缩（保底 2 条）
       expect(ctx.summaryCard, isNull);
     });
+
+    test('溢出自愈：硬留 4 条仍超预算 → 继续收缩到预算内，保底 1 条', () async {
+      final estimator = LlamaTemplateEstimator();
+      final policy = LocalContextPolicy(estimator: estimator, budget: 30);
+
+      // 四条长消息，任意两条都超预算 → 从 4 条收缩到只剩 1 条
+      final window = [
+        _user('这是一条非常长的用户消息内容' * 5),
+        _user('这是另一条同样很长的用户消息' * 5),
+        _user('第三条长消息也不甘示弱的长度' * 5),
+        _user('第四条长消息继续堆叠上下文长度' * 5),
+      ];
+      final state = ContextState()..pendingForceKeep = 4;
+
+      final ctx = await policy.assemble(window, state: state);
+
+      expect(ctx.messages.length, 1); // 保底 1 条
+      // 挤出记账：游标前移 3 条，下轮不再触发收缩
+      expect(state.k, 3);
+      expect(state.pendingForceKeep, isNull);
+    });
+
+    test('溢出自愈：4 条本就在预算内 → 原样保留，不多收', () async {
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 5000);
+      final window = [
+        _user('短问题一'),
+        _user('短问题二'),
+        _user('短问题三'),
+        _user('短问题四'),
+      ];
+      final state = ContextState()..pendingForceKeep = 4;
+
+      final ctx = await policy.assemble(window, state: state);
+
+      expect(ctx.messages.length, 4);
+    });
+
+    test('入口截断：单条用户消息自身超预算 → 保尾部截断 + 显式标记', () async {
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 200);
+
+      // 单条远超 200 token 的消息（中文按 1.5 token/字估算，约 800+ token）
+      final longText = '这是一段非常长的用户粘贴内容，' * 50 + '结尾才是真正的关键诉求';
+      final ctx = await policy.assemble([_user(longText)], state: ContextState());
+
+      expect(ctx.messages.length, 1); // 当前问题不能丢
+      final content = ctx.messages.single.content;
+      expect(content, startsWith(kInputTruncatedPrefix)); // 显式标记
+      expect(content, endsWith('结尾才是真正的关键诉求')); // 保尾部
+      expect(content.length, lessThan(longText.length)); // 确实截短了
+    });
+
+    test('入口截断：预算内消息原样保留，不加标记', () async {
+      final policy = LocalContextPolicy(estimator: LlamaTemplateEstimator(), budget: 500);
+
+      final ctx = await policy.assemble([_user('正常长度的问题')], state: ContextState());
+
+      expect(ctx.messages.single.content, '正常长度的问题');
+    });
   });
 }

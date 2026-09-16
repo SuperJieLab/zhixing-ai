@@ -368,6 +368,28 @@ void main() {
       expect(collected, ['没有标签的正文']);
     });
 
+    test('未闭合 think：整轮被过滤且 flush 无正文 → 空输出兜底文案，不再静默',
+        () async {
+      await delivery.ensureReady();
+      // 模拟生成上限全部耗在思考段里：`<think>` 开头、直到流结束无闭合标签
+      factory.created.single.tokens = ['<think>', '思考', '还在继续', '…'];
+
+      final collected =
+          await delivery.deliver(_ctx([_user('q', 1)]), systemPrompt: _system).toList();
+
+      expect(collected, [kLlmEmptyReply]);
+    });
+
+    test('生成正常结束但零 token → 空输出兜底文案', () async {
+      await delivery.ensureReady();
+      factory.created.single.tokens = [];
+
+      final collected =
+          await delivery.deliver(_ctx([_user('q', 1)]), systemPrompt: _system).toList();
+
+      expect(collected, [kLlmEmptyReply]);
+    });
+
     test('取消：不登记半截回复；下一轮按业务列表重放该条 AI', () async {
       await delivery.ensureReady();
       final session = factory.created.single;

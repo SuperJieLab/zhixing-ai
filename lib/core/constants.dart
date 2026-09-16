@@ -7,7 +7,11 @@ class AppConstants {
   // 不要跨端共享——两端约束来源不同（nCtx 窗口 vs API 配额）。
 
   /// 端侧上下文窗口（token）
-  static const int localContextSize = 4096;
+  ///
+  /// KV cache 在创建 context 时按此值一次性分配（静态预付，与实际用量无关）；
+  /// 2B Q4 权重 ~2GB，8192 的 KV 仅几十 MB 量级，预付代价可忽略——
+  /// 实际占用仍由软件压缩线（[localInputBudget]）控制，配大只是抬高天花板。
+  static const int localContextSize = 8192;
 
   /// 端侧单次生成 token 上限
   static const int localMaxTokens = 2048;

@@ -17,6 +17,11 @@ export 'package:zhixing_ai/core/context/context_state.dart';
 /// 摘要卡的标记前缀（双端一致；交付实现以一条 system 消息注入到人设之后）。
 const String kSummaryCardPrefix = '【此前对话摘要】';
 
+/// 入口截断标记前缀（业界通行做法，如 Claude Code 的 `[... truncated]`）：
+/// 当前问题本身超预算被截断时，加在保留内容头部，显式告知模型「看到的不是全部」，
+/// 防止把残缺内容当完整事实作答。
+const String kInputTruncatedPrefix = '……[前文过长已截断]\n';
+
 /// 装配结果：本次请求要发送的历史 + 可选的摘要卡。
 ///
 /// 交付实现恒以「清空 + 按 [messages] 全量重放」消费（端侧）或现拼请求体
@@ -74,6 +79,75 @@ abstract class ConversationSummarizer {
 /// （此前云端过滤、本地隐式全量，是同一逻辑的两处实现）。
 List<ChatMessage> filterEligible(List<ChatMessage> history) =>
     history.where((m) => m.round != 0).toList();
+
+/// 入口截断：当前问题（尾部用户消息）自身就超预算时的唯一出路。
+///
+/// 历史超预算可以挤旧消息，但**当前问题不能丢**（丢了模型无从回答），
+/// 溢出自愈的收缩粒度是「条」、对它也无能为力——不截断就会陷入
+/// 「每轮爆窗 → 自愈无效 → 永远兜底文案」的死循环。业界通行做法是
+/// 摄入时截断 + 显式标记（Claude Code / Cline 均如此）：保留尾部
+/// （用户最新意图在末尾，背景由摘要卡承载），头部加 [kInputTruncatedPrefix]。
+extension _PackEntryTruncation on PackResult {
+  PackResult truncateOversizeTail({
+    required int budget,
+    required ContextEstimator estimator,
+    required int baseCost,
+  }) {
+    if (kept.isEmpty) return this;
+    final tail = kept.last;
+    if (tail.role != MessageRole.user) return this;
+
+    final tailCost = estimator.estimateMessage(tail);
+    final othersCost = estimator.estimateMessages(kept) - tailCost;
+    final allowed = budget - baseCost - othersCost;
+    if (tailCost <= allowed) return this;
+
+    final contentBudget =
+        allowed - (tailCost - estimator.estimateText(tail.content));
+    final tailText = _tailWithinCost(
+      tail.content,
+      maxCost: contentBudget > 0 ? contentBudget : 0,
+      estimator: estimator,
+    );
+    final replaced = ChatMessage(
+      role: tail.role,
+      content: '$kInputTruncatedPrefix$tailText',
+      round: tail.round,
+    );
+    return PackResult(
+      kept: [...kept.sublist(0, kept.length - 1), replaced],
+      evicted: evicted,
+      used: baseCost + othersCost + estimator.estimateMessage(replaced),
+    );
+  }
+
+  /// 取文本的尾部片段，使估算代价 ≤ [maxCost]（二分起点 + 前向校准兜底
+  /// 估算的类间非线性）。[maxCost] ≤ 0 返回空串（至少不塞爆窗口）。
+  static String _tailWithinCost(
+    String content, {
+    required int maxCost,
+    required ContextEstimator estimator,
+  }) {
+    if (maxCost <= 0) return '';
+    if (estimator.estimateText(content) <= maxCost) return content;
+    var lo = 0;
+    var hi = content.length;
+    while (lo < hi) {
+      final mid = (lo + hi) ~/ 2;
+      if (estimator.estimateText(content.substring(mid)) > maxCost) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    while (lo > 0 &&
+        lo < content.length &&
+        estimator.estimateText(content.substring(lo)) > maxCost) {
+      lo++;
+    }
+    return content.substring(lo);
+  }
+}
 
 /// 共享装配骨架（无状态）：过滤 → 装窗 → 必要时压缩成摘要卡。
 ///
@@ -147,16 +221,22 @@ abstract class BaseContextPolicy implements ContextPolicy {
     state.pendingForceKeep = null;
     final forced = forceKeep != null;
 
-    final pack = forced
-        ? packKeepLast(window,
-            keep: forceKeep, estimator: _estimator, baseCost: baseCost)
-        : packTailWithinBudget(
-            window,
-            budget: budget,
-            estimator: _estimator,
-            baseCost: baseCost,
-            minKeep: minKeep,
-          );
+    final pack = (forced
+            ? _packOverflowHeal(window,
+                keep: forceKeep,
+                budget: budget,
+                estimator: _estimator,
+                baseCost: baseCost)
+            : packTailWithinBudget(
+                window,
+                budget: budget,
+                estimator: _estimator,
+                baseCost: baseCost,
+                minKeep: minKeep,
+              ))
+        // 入口截断：两条路径共用（正常装窗 + 自愈收缩），单条超预算在这里收口
+        .truncateOversizeTail(
+            budget: budget, estimator: _estimator, baseCost: baseCost);
 
     if (pack.evicted.isNotEmpty) {
       // 挤出后窗口回到预算内：游标前移，后续若干轮不再触发压缩
@@ -179,6 +259,28 @@ abstract class BaseContextPolicy implements ContextPolicy {
       messages: List.unmodifiable(pack.kept),
       summaryCard: _card(state.summary),
     );
+  }
+
+  /// 溢出自愈装箱：从 [keep] 条起硬收缩，**仍超预算则继续减条，保底 1 条**。
+  ///
+  /// 真实上下文已撑爆时估算不可信，收缩本身就是对估算的纠偏——但一条长
+  /// 回复即可超过整个输入预算（如一条 2048 token 的回复 vs 1664 token 的
+  /// 输入预算），固定条数会陷入「收缩后下轮再爆」的循环；预算内再收一层，
+  /// 才能保证保留内容真的减到引擎能吃下。
+  static PackResult _packOverflowHeal(
+    List<ChatMessage> window, {
+    required int keep,
+    required int budget,
+    required ContextEstimator estimator,
+    required int baseCost,
+  }) {
+    var effective = window.length < keep ? window.length : keep;
+    while (effective > 1) {
+      final kept = window.sublist(window.length - effective);
+      if (baseCost + estimator.estimateMessages(kept) <= budget) break;
+      effective--;
+    }
+    return packKeepLast(window, keep: effective, estimator: estimator);
   }
 
   static String? _card(String summary) =>

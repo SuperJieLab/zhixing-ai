@@ -298,9 +298,10 @@ void main() {
     });
 
     test('本地模式：超预算时尾部优先装箱', () {
-      // 每条约 300 token（'m'×1200 ≈ 1200×0.25），10 条共 ~3000 + 160 > 预算
+      // 每条约 1500 token（'m'×6000 ≈ 6000×0.25），10 条共 ~15000 + 开销 > 预算
+      // （localInputBudget = 8192 − 2048 − 384 = 5760）
       final messages =
-          List.generate(10, (i) => user('m' * 1200 + '-$i'));
+          List.generate(10, (i) => user('m' * 6000 + '-$i'));
       final kept = gateway.truncateForAsk(messages, system: 's');
       expect(kept.length, lessThan(messages.length));
       expect(kept.length, greaterThan(0)); // 尾部装到放不下为止
@@ -310,9 +311,9 @@ void main() {
     });
 
     test('minKeep: 0 时单条即超预算 → 保留 0 条（单次提取语义）', () {
-      // 'm'×10000 ≈ 2500 token，单条即超 localInputBudget
+      // 'm'×30000 ≈ 7500 token，单条即超 localInputBudget（5760）
       final kept = gateway.truncateForAsk(
-        [user('m' * 10000)],
+        [user('m' * 30000)],
         system: 's',
       );
       expect(kept, isEmpty);
